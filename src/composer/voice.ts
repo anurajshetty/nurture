@@ -311,17 +311,24 @@ export async function startDictation(
 
   subs.push(
     mod.addListener('result', (event) => {
-      if (state === 'done' || state === 'user-stopping' || state === 'capping') return;
+      if (state === 'done' || state === 'capping') return;
       const text = event.results?.[0]?.transcript?.trim() ?? '';
       if (!text) return;
       hadResultsThisSession = true;
       if (event.isFinal) {
-        // A finalized chunk (web emits these per utterance in continuous
-        // mode; iOS on stop). Commit it and keep listening.
+        // A finalized chunk: web emits these per utterance in continuous
+        // mode; both web and iOS emit one in response to stop(). Always
+        // commit it — during user-stopping this final carries the
+        // transcript (e.g. stop tapped before any interim arrived), and
+        // dropping it loses her words. Fold the tail first so nothing
+        // spoken is lost even if the final doesn't repeat it.
+        foldTail();
         committed = stitchTranscript(committed, text);
         interimTail = '';
         cb.onInterim(committed);
-      } else {
+      } else if (state !== 'user-stopping') {
+        // Interim results while stopping are stale (the final supersedes
+        // them); the last tail is folded at end/grace regardless.
         interimTail = text;
         cb.onInterim(display());
       }
