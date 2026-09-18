@@ -60,7 +60,12 @@ interface Toast {
 
 const TOAST_MS = 8000;
 const MOOD_POPOVER_MS = 12000;
-const DICTATION_MAX_MS = 60000;
+
+function formatElapsed(totalSecs: number): string {
+  const m = Math.floor(totalSecs / 60);
+  const s = totalSecs % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
 
 function attachmentPayload(a: PendingAttachment): EventAttachment {
   return {
@@ -78,6 +83,7 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [listening, setListening] = useState(false);
+  const [dictationSecs, setDictationSecs] = useState(0);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [pillVisible, setPillVisible] = useState(() => shouldShowMoodPill());
   const [moodOpen, setMoodOpen] = useState(false);
@@ -86,10 +92,16 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
   const [toast, setToast] = useState<Toast | null>(null);
 
   const sessionRef = useRef<{ stop: () => void; abort: () => void } | null>(null);
+  // Monotonic id: callbacks from a superseded session (she started a new
+  // one before the old one's final arrived) are ignored. User stop does
+  // NOT bump this — the in-flight final of the session she just stopped
+  // must still be applied.
+  const sessionSeq = useRef(0);
+  const listeningRef = useRef(false);
+  const elapsedTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastNoteRef = useRef('');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const moodTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dictationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasText = text.trim().length > 0;
   const hasAttachments = attachments.length > 0;
@@ -108,59 +120,85 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
     toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
   }, []);
 
+  const stopElapsed = () => {
+    if (elapsedTimer.current) {
+      clearInterval(elapsedTimer.current);
+      elapsedTimer.current = null;
+    }
+  };
+
   // Revoke web blob URLs for chips she removes or abandons — never the
   // URIs already saved into an event (the card renders them).
   useEffect(() => {
     return () => {
       clearToastTimer();
       if (moodTimer.current) clearTimeout(moodTimer.current);
-      if (dictationTimer.current) clearTimeout(dictationTimer.current);
+      stopElapsed();
       sessionRef.current?.abort();
       revokeAttachmentUris(attachments);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A dictation session finished on its own terms (final/error). Stale
+  // sessions — superseded by a newer one — must not touch the field.
+  const finishVoice = useCallback((id: number, finalText?: string) => {
+    if (id !== sessionSeq.current) return;
+    sessionRef.current = null;
+    stopElapsed();
+    listeningRef.current = false;
+    setListening(false);
+    if (finalText !== undefined) setText(finalText);
+  }, []);
+
   const stopListening = useCallback(() => {
-    if (dictationTimer.current) {
-      clearTimeout(dictationTimer.current);
-      dictationTimer.current = null;
-    }
+    // User tapped stop: ask the OS for its final result, then let the
+    // session's onFinal land it via finishVoice. The session id stays
+    // valid so that in-flight final isn't treated as stale.
     sessionRef.current?.stop();
     sessionRef.current = null;
+    stopElapsed();
+    listeningRef.current = false;
     setListening(false);
   }, []);
 
   const startVoice = useCallback(async () => {
-    if (listening) return;
+    if (listeningRef.current) return;
+    const id = sessionSeq.current + 1;
+    sessionSeq.current = id;
+    listeningRef.current = true;
     setListening(true);
-    dictationTimer.current = setTimeout(stopListening, DICTATION_MAX_MS);
+    setDictationSecs(0);
+    stopElapsed();
+    elapsedTimer.current = setInterval(() => {
+      setDictationSecs((s) => s + 1);
+    }, 1000);
     const session = await startDictation({
-      onInterim: (t) => setText(t),
-      onFinal: (t) => {
-        setText(t);
-        stopListening();
+      onInterim: (t) => {
+        if (id === sessionSeq.current) setText(t);
       },
-      onStopped: () => {
-        // Auto-stopped (silence): keep whatever interim text landed.
-        stopListening();
-      },
+      onFinal: (t) => finishVoice(id, t),
       onError: (message) => {
-        stopListening();
-        showToast(message, null);
+        const fresh = id === sessionSeq.current;
+        finishVoice(id);
+        if (fresh) showToast(message, null);
       },
+      onLimitReached: (message) => showToast(message, null),
     });
     if (!session) {
       // Permission denied or unavailable — error toast already shown.
-      setListening(false);
-      if (dictationTimer.current) {
-        clearTimeout(dictationTimer.current);
-        dictationTimer.current = null;
-      }
-    } else {
-      sessionRef.current = session;
+      finishVoice(id);
+      return;
     }
-  }, [listening, showToast, stopListening]);
+    if (!listeningRef.current || id !== sessionSeq.current) {
+      // She tapped stop (or the screen unmounted) while the permission
+      // dialog was up, or a newer session already started — tear this
+      // one down silently instead of leaving a ghost listener.
+      session.abort();
+      return;
+    }
+    sessionRef.current = session;
+  }, [finishVoice, showToast]);
 
   const afterSave = useCallback(
     (event: LocalEvent, message: string) => {
@@ -386,7 +424,7 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
           style={styles.field}
           value={text}
           onChangeText={setText}
-          placeholder={listening ? 'Listening… tap ■ to stop' : 'Save a moment…'}
+          placeholder={listening ? `Listening… ${formatElapsed(dictationSecs)} — tap ■ to stop` : 'Save a moment…'}
           placeholderTextColor={colors.muted}
           multiline
           maxLength={2000}
