@@ -8,6 +8,7 @@ import { SyncProvider } from '../src/sync/SyncContext';
 import { useOnboarding } from '../src/onboarding/useOnboarding';
 import { registerDefaultArchiveWriter, useMagicLinkHandler } from '../src/bootstrap';
 import { ensureDbReady } from '../src/lib/db';
+import { refreshEndOfDayNudge } from '../src/notifications/endOfDay';
 import { colors } from '../src/theme/tokens';
 
 /**
@@ -79,6 +80,10 @@ export default function RootLayout() {
       .finally(() => {
         if (!cancelled) {
           registerDefaultArchiveWriter();
+          // Re-evaluate the end-of-day nudge at every boot: entry logged
+          // today → no nudge; nothing logged → 8:30 PM trigger armed.
+          // No-op on web.
+          void refreshEndOfDayNudge();
           setDbReady(true);
         }
       });
