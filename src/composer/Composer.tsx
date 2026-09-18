@@ -427,7 +427,9 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
           placeholder={listening ? `Listening… ${formatElapsed(dictationSecs)} — tap ■ to stop` : 'Save a moment…'}
           placeholderTextColor={colors.muted}
           multiline
-          maxLength={2000}
+          // 10-minute dictation ≈ 1,500 words ≈ 9,000 chars — the old
+          // 2,000 cap would have silently truncated long entries.
+          maxLength={12000}
           accessibilityLabel="Save a moment"
         />
         <Pressable
