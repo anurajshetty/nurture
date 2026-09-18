@@ -33,7 +33,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "export:web": "expo export --platform web && cp node_modules/sql.js/dist/sql-wasm.wasm dist/sql-wasm.wasm && echo 'web export ready in dist/ (sql-wasm.wasm copied)'"
+    "export:web": "expo export --platform web && cp node_modules/sql.js/dist/sql-wasm-browser.wasm dist/sql-wasm-browser.wasm && echo 'web export ready in dist/ (sql-wasm-browser.wasm copied)'"
   },
   "private": true
 }

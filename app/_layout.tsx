@@ -33,17 +33,17 @@ function RootNavigator() {
         contentStyle: { backgroundColor: colors.bg },
       }}
     >
-      {completed ? (
-        <>
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="auth" />
-          <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
-        </>
-      ) : (
-        <>
-          <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
-          <Stack.Screen name="auth" />
-        </>
+      {/* NOTE: keep <Stack.Screen> elements as direct children — never wrap
+          them in a Fragment. expo-router's web Stack maps over children and
+          warns on anything that isn't a Stack.Screen; interpolating a
+          Fragment's Symbol type into that warning throws and blanks the app. */}
+      {completed && <Stack.Screen name="(tabs)" />}
+      {!completed && (
+        <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
+      )}
+      <Stack.Screen name="auth" />
+      {completed && (
+        <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
       )}
     </Stack>
   );
