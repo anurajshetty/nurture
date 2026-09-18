@@ -15,6 +15,7 @@ import {
   type SyncResult,
 } from './engine';
 import { getPendingCount } from './store';
+import { drainMediaOutbox } from './media';
 import type { SyncConflict } from '../lib/types';
 
 export type { SyncResult };
@@ -64,6 +65,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       refresh,
       syncNow: async () => {
         const result = await engineSyncNow();
+        // Media backup drains on its own queue after text sync — text never
+        // waits for media. Fire-and-forget; per-item failures retry later.
+        void drainMediaOutbox().catch(() => {});
         refresh();
         return result;
       },

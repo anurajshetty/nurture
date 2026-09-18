@@ -26,7 +26,12 @@ import { Feather } from '@expo/vector-icons';
 import BottomSheet from '../components/BottomSheet';
 import { colors, radii, shadow, spacing, type as typeScale } from '../theme/tokens';
 import { deleteEvent, saveEvent } from '../sync/store';
-import type { EventInput, LocalEvent } from '../lib/types';
+import {
+  drainMediaOutbox,
+  enqueueMediaUploads,
+  purgeEventMedia,
+} from '../sync/media';
+import type { EventAttachment, EventInput, LocalEvent } from '../lib/types';
 import { useSync } from '../sync/SyncContext';
 import { refreshEndOfDayNudge } from '../notifications/endOfDay';
 import { detectIntents, type IntentProposal } from './intent';
@@ -57,8 +62,15 @@ const TOAST_MS = 8000;
 const MOOD_POPOVER_MS = 12000;
 const DICTATION_MAX_MS = 60000;
 
-function attachmentPayload(a: PendingAttachment) {
-  return { kind: a.kind, uri: a.uri, name: a.name, mimeType: a.mimeType };
+function attachmentPayload(a: PendingAttachment): EventAttachment {
+  return {
+    id: a.id,
+    kind: a.kind === 'video' ? 'file' : a.kind,
+    name: a.name,
+    mimeType: a.mimeType,
+    local_uri: a.uri,
+    upload: 'pending',
+  };
 }
 
 export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
@@ -156,6 +168,9 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
       showToast(message, event.id);
       void refreshEndOfDayNudge();
       void syncNow().catch(() => {});
+      // Media backup runs on its own queue — text never waits for it.
+      // On web this is the eager upload (blob: URIs die with the tab).
+      void drainMediaOutbox().catch(() => {});
     },
     [onSaved, showToast, syncNow],
   );
@@ -177,6 +192,12 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
     lastNoteRef.current = noteText;
     setText('');
     setAttachments([]);
+
+    // Queue photo/file bytes for cloud backup (Epic 2.3). Fire-and-forget:
+    // the save above already returned and the toast is on its way.
+    if (atts.length > 0) {
+      void enqueueMediaUploads(event.id).catch(() => {});
+    }
 
     // Intent detection runs on the text AFTER the plain save — the
     // proposal is a second, explicit, one-tap action.
@@ -203,6 +224,8 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
     if (!toast?.undoId) return;
     const id = toast.undoId;
     deleteEvent(id);
+    // Cancel any queued media backup and remove already-uploaded bytes.
+    void purgeEventMedia(id).catch(() => {});
     onUnsaved(id);
     clearToastTimer();
     setToast({ message: 'Removed', undoId: null, key: Date.now() });
@@ -441,12 +464,6 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
           title="Photo library"
           subtitle="Ultrasound pics, bump photos, memories"
           onPress={() => void addAttachments(() => pickFromLibrary())}
-        />
-        <AttachOption
-          icon="film"
-          title="Add videos"
-          subtitle="Ultrasound clips, memories"
-          onPress={() => void addAttachments(() => pickFromLibrary({ videosOnly: true }))}
         />
         <AttachOption
           icon="file-text"

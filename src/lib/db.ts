@@ -52,14 +52,14 @@ export function kvDelete(key: string): void {
 
 /**
  * Irreversibly wipes every local table (events, outbox, pregnancy_outbox,
- * conflicts, pregnancies, kv). Used by account deletion; sign-out must NOT
- * call this.
+ * media_outbox, conflicts, pregnancies, kv). Used by account deletion;
+ * sign-out must NOT call this.
  */
 export function clearAllLocalData(): void {
   const handle = getDb();
   handle.withTransactionSync(() => {
     handle.execSync(
-      'DELETE FROM conflicts; DELETE FROM outbox; DELETE FROM pregnancy_outbox; DELETE FROM events; DELETE FROM pregnancies; DELETE FROM kv;',
+      'DELETE FROM conflicts; DELETE FROM outbox; DELETE FROM pregnancy_outbox; DELETE FROM media_outbox; DELETE FROM events; DELETE FROM pregnancies; DELETE FROM kv;',
     );
   });
 }

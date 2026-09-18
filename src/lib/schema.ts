@@ -16,7 +16,7 @@ export interface SyncDbHandle {
 }
 
 export const DB_NAME = 'nurture.db';
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -72,6 +72,18 @@ CREATE TABLE IF NOT EXISTS kv (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS media_outbox (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL,
+  attachment_id TEXT NOT NULL,
+  bucket TEXT NOT NULL,              -- 'photos' | 'files'
+  local_uri TEXT NOT NULL,
+  storage_path TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'done' | 'failed'
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  UNIQUE(event_id, attachment_id)
+);
 `;
 
 /** Reads the stored schema version straight from the handle. */
@@ -101,6 +113,12 @@ function runMigrations(handle: SyncDbHandle): void {
       handle.execSync("ALTER TABLE conflicts ADD COLUMN kind TEXT NOT NULL DEFAULT 'event'");
     }
     handle.runSync("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')");
+  }
+  if (current < 3) {
+    // v3 (Epic 2.3): media_outbox queues photo/file bytes for cloud backup.
+    // The CREATE TABLE IF NOT EXISTS in SCHEMA_SQL already ran above, so
+    // this only bumps the version marker for pre-2.3 databases.
+    handle.runSync("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '3')");
   }
 }
 

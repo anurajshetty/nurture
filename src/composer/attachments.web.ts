@@ -63,8 +63,8 @@ export async function pickFromCamera(): Promise<PendingAttachment[]> {
   return files.map(toAttachment);
 }
 
-export async function pickFromLibrary(opts?: { videosOnly?: boolean }): Promise<PendingAttachment[]> {
-  const files = await pickViaInput(opts?.videosOnly ? 'video/*' : 'image/*,video/*', true);
+export async function pickFromLibrary(): Promise<PendingAttachment[]> {
+  const files = await pickViaInput('image/*', true);
   return files.map(toAttachment);
 }
 

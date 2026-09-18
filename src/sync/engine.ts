@@ -17,6 +17,7 @@
 import * as Crypto from 'expo-crypto';
 import { supabase, isConfigured } from '../lib/supabase';
 import { getDb, kvGet, kvSet } from '../lib/db';
+import { purgeEventMediaByPrefix } from './media';
 import type { LocalEvent, Pregnancy, SyncConflict, Visibility } from '../lib/types';
 
 const LAST_SYNCED_KEY = 'sync.last_synced_at';
@@ -167,6 +168,20 @@ async function pushOutbox(result: SyncResult): Promise<void> {
           .eq('idempotency_key', row.idempotency_key);
         if (error) throw new Error(error.message);
         db.runSync('DELETE FROM outbox WHERE id = ?', op.id);
+        // Epic 2.3: the tombstone is acknowledged — remove any cloud-backed
+        // media for this event so orphaned bytes can never linger.
+        // Best-effort; never fails the sync pass.
+        try {
+          const {
+            data: { user },
+          } = await client.auth.getUser();
+          const ownerId = user?.id ?? row.user_id;
+          if (ownerId) {
+            void purgeEventMediaByPrefix(ownerId, op.event_id).catch(() => {});
+          }
+        } catch {
+          // Media cleanup is best-effort; the tombstone already synced.
+        }
         result.pushed += 1;
       }
     } catch (e) {

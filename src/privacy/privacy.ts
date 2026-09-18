@@ -13,9 +13,11 @@
  *
  * v1 ships with NO analytics SDK — no third-party tracking is added here.
  *
- * Media seam (later epic): `data` on photo/file events may reference storage
- * paths or local URIs, but `mediaIncluded` is false — v1 archives do NOT
- * contain photo/file bytes. A future epic zips bytes alongside this JSON.
+ * Media (Epic 2.3): photo/file bytes live in her private storage buckets.
+ * The export manifest lists every cloud-backed attachment with a
+ * short-lived signed download URL; attachments still device-only are
+ * listed with a null URL. A future pass may zip bytes directly into the
+ * archive.
  */
 
 import { Platform } from 'react-native';
@@ -24,8 +26,10 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { supabase, isConfigured } from '../lib/supabase';
 import { clearAllLocalData } from '../lib/db';
 import { listAllEventsIncludingDeleted, listPregnancies } from '../sync/store';
+import { clearLocalMediaCache, getSignedMediaUrl, purgeAllUserMedia } from '../sync/media';
+import { bucketForKind } from '../lib/types';
 import { getPrefs } from '../notifications/prefs';
-import type { LocalEvent, Prefs, Pregnancy } from '../lib/types';
+import type { EventAttachment, LocalEvent, Prefs, Pregnancy } from '../lib/types';
 
 const BIOMETRIC_LOCK_KEY = 'nurture.biometric_lock';
 const APP_VERSION = '1.0.0';
@@ -69,8 +73,24 @@ export interface ArchivePayload {
   events: LocalEvent[];
   pregnancies: Pregnancy[];
   prefs: Prefs;
-  /** v1: photo/file bytes are NOT included — see the media seam note above. */
-  mediaIncluded: false;
+  /**
+   * Epic 2.3: every cloud-backed attachment, with a short-lived signed
+   * download URL minted at export time so she can fetch her originals.
+   * Attachments still on this device only (upload 'pending'/'failed') are
+   * listed with downloadUrl null — their bytes live in the app sandbox,
+   * not in the archive.
+   */
+  media: Array<{
+    eventId: string;
+    attachmentId: string;
+    name: string;
+    mimeType?: string;
+    bucket: 'photos' | 'files';
+    storagePath: string | null;
+    downloadUrl: string | null;
+  }>;
+  /** True when at least one attachment has cloud bytes in the manifest. */
+  mediaIncluded: boolean;
 }
 
 /** Writes an archive file and returns its URI. Provided by the app layer. */
@@ -87,13 +107,38 @@ export function setArchiveWriter(writer: ArchiveFileWriter | null): void {
 
 /** Assembles the full export payload from local storage. No file is written. */
 export async function buildArchivePayload(): Promise<ArchivePayload> {
+  const events = listAllEventsIncludingDeleted();
+  const media: ArchivePayload['media'] = [];
+  for (const event of events) {
+    const raw = (event.data as Record<string, unknown>).attachments;
+    if (!Array.isArray(raw)) continue;
+    for (const r of raw) {
+      if (typeof r !== 'object' || r === null) continue;
+      const a = r as Partial<EventAttachment>;
+      const bucket = bucketForKind(a.kind === 'photo' ? 'photo' : 'file');
+      const storagePath = typeof a.storage_path === 'string' ? a.storage_path : null;
+      media.push({
+        eventId: event.id,
+        attachmentId: typeof a.id === 'string' ? a.id : '',
+        name: typeof a.name === 'string' ? a.name : 'attachment',
+        mimeType: typeof a.mimeType === 'string' ? a.mimeType : undefined,
+        bucket,
+        storagePath,
+        downloadUrl:
+          a.upload === 'done' && storagePath
+            ? await getSignedMediaUrl(bucket, storagePath)
+            : null,
+      });
+    }
+  }
   return {
     exportedAt: new Date().toISOString(),
     app: `nurture/${APP_VERSION}`,
-    events: listAllEventsIncludingDeleted(),
+    events,
     pregnancies: listPregnancies(),
     prefs: await getPrefs(),
-    mediaIncluded: false,
+    media,
+    mediaIncluded: media.some((m) => m.downloadUrl != null),
   };
 }
 
@@ -116,10 +161,11 @@ export async function exportArchive(): Promise<string> {
 
 /**
  * Deletes the user's account data. When configured and signed in, removes all
- * server rows (events, pregnancies, notification prefs, profile) and signs
- * out; then always wipes the local database and biometric flag. When
- * unconfigured, clears local data only. Caller must confirm with the user
- * before invoking — this function does not ask.
+ * server rows (events, pregnancies, notification prefs, profile), all
+ * cloud-backed media in both storage buckets, and signs out; then always
+ * wipes the local database and biometric flag. When unconfigured, clears
+ * local data only. Caller must confirm with the user before invoking — this
+ * function does not ask.
  */
 export async function requestAccountDeletion(): Promise<void> {
   if (isConfigured && supabase) {
@@ -127,6 +173,9 @@ export async function requestAccountDeletion(): Promise<void> {
       data: { user },
     } = await supabase.auth.getUser();
     if (user) {
+      // Epic 2.3: remove cloud-backed photo/file bytes first, so a later
+      // row-deletion failure can't leave orphaned media behind.
+      await purgeAllUserMedia(user.id);
       const deletions: Array<PromiseLike<{ error: { message: string } | null }>> = [
         supabase.from('events').delete().eq('user_id', user.id),
         supabase.from('pregnancies').delete().eq('user_id', user.id),
@@ -140,6 +189,7 @@ export async function requestAccountDeletion(): Promise<void> {
     }
     await supabase.auth.signOut();
   }
+  await clearLocalMediaCache();
   clearAllLocalData();
   try {
     await flagStore.deleteItemAsync(BIOMETRIC_LOCK_KEY);

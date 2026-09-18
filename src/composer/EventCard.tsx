@@ -6,6 +6,7 @@
  * weight line, photo tiles, file chips). Warm, quiet, no clinical chrome.
  */
 
+import { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import Card from '../components/Card';
 import {
@@ -16,7 +17,8 @@ import {
   type as typeScale,
   type EventDotKind,
 } from '../theme/tokens';
-import type { LocalEvent } from '../lib/types';
+import { bucketForKind, type EventAttachment, type LocalEvent } from '../lib/types';
+import { getSignedMediaUrl } from '../sync/media';
 
 interface TypeMeta {
   label: string;
@@ -62,14 +64,75 @@ interface AttachmentRef {
   kind?: string;
   uri?: string;
   name?: string;
+  local_uri?: string;
+  upload?: string;
+  storage_path?: string;
 }
 
-function attachmentsOf(data: Record<string, unknown>): AttachmentRef[] {
+function attachmentsOf(data: Record<string, unknown>): EventAttachment[] {
   const raw = data.attachments;
   if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (a): a is AttachmentRef => typeof a === 'object' && a !== null,
-  );
+  const out: EventAttachment[] = [];
+  for (const a of raw) {
+    if (typeof a !== 'object' || a === null) continue;
+    const r = a as Record<string, unknown>;
+    out.push({
+      id: typeof r.id === 'string' ? r.id : '',
+      kind: r.kind === 'photo' ? 'photo' : 'file',
+      name: typeof r.name === 'string' ? r.name : 'Attachment',
+      mimeType: typeof r.mimeType === 'string' ? r.mimeType : undefined,
+      local_uri:
+        typeof r.local_uri === 'string'
+          ? r.local_uri
+          : typeof r.uri === 'string'
+            ? r.uri
+            : undefined,
+      upload: r.upload === 'done' ? 'done' : r.upload === 'failed' ? 'failed' : 'pending',
+      storage_path: typeof r.storage_path === 'string' ? r.storage_path : undefined,
+    });
+  }
+  return out;
+}
+
+/**
+ * Resolves the viewable URI for an attachment: the device-local copy when
+ * present, otherwise a short-lived signed URL for the cloud backup (e.g.
+ * on a second device, or on web after a tab was closed).
+ */
+function useAttachmentUri(a: EventAttachment): string | null {
+  const [uri, setUri] = useState<string | null>(a.local_uri ?? null);
+  useEffect(() => {
+    let live = true;
+    if (a.local_uri) {
+      setUri(a.local_uri);
+      return;
+    }
+    if (a.upload === 'done' && a.storage_path) {
+      setUri(null);
+      void getSignedMediaUrl(bucketForKind(a.kind), a.storage_path).then((signed) => {
+        if (live) setUri(signed);
+      });
+    } else {
+      setUri(null);
+    }
+    return () => {
+      live = false;
+    };
+  }, [a.local_uri, a.upload, a.storage_path, a.kind]);
+  return uri;
+}
+
+function MediaPhoto({ attachment }: { attachment: EventAttachment }) {
+  const uri = useAttachmentUri(attachment);
+  if (!uri) return null;
+  return <Image source={{ uri }} style={styles.photo} />;
+}
+
+/** One-line honest backup status for the card's attachments. */
+function backupStatus(atts: EventAttachment[]): string | null {
+  if (atts.some((a) => a.upload === 'failed')) return 'Not backed up yet';
+  if (atts.some((a) => a.upload === 'pending')) return 'Backing up…';
+  return null;
 }
 
 function visibilityLabel(v: LocalEvent['visibility']): string {
@@ -96,8 +159,9 @@ export default function EventCard({ event }: { event: LocalEvent }) {
     title = data.title;
   }
 
-  const photos = atts.filter((a) => a.kind === 'photo' && a.uri);
+  const photos = atts.filter((a) => a.kind === 'photo');
   const files = atts.filter((a) => a.kind !== 'photo');
+  const status = backupStatus(atts);
 
   return (
     <Card style={styles.card} testID={`event-card-${event.id}`}>
@@ -125,19 +189,20 @@ export default function EventCard({ event }: { event: LocalEvent }) {
       {photos.length > 0 ? (
         <View style={styles.photoRow}>
           {photos.slice(0, 3).map((p, i) => (
-            <Image key={p.uri ?? i} source={{ uri: p.uri }} style={styles.photo} />
+            <MediaPhoto key={p.id || i} attachment={p} />
           ))}
         </View>
       ) : null}
       {files.length > 0 ? (
         <View style={styles.chipRow}>
           {files.map((f, i) => (
-            <View key={f.uri ?? i} style={styles.fchip}>
+            <View key={f.id || i} style={styles.fchip}>
               <Text style={styles.fchipText}>▤ {f.name ?? 'Attachment'}</Text>
             </View>
           ))}
         </View>
       ) : null}
+      {status ? <Text style={styles.backupStatus}>{status}</Text> : null}
     </Card>
   );
 }
@@ -236,5 +301,10 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: 14,
     backgroundColor: colors.blush,
+  },
+  backupStatus: {
+    ...typeScale.footnote,
+    color: colors.muted,
+    marginTop: spacing.sm,
   },
 });

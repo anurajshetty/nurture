@@ -53,21 +53,21 @@ export async function pickFromCamera(): Promise<PendingAttachment[]> {
   return result.assets.map((a) => toPhoto(a.uri, a.mimeType));
 }
 
-/** Picks photos/videos from the library (multi-select). */
-export async function pickFromLibrary(opts?: { videosOnly?: boolean }): Promise<PendingAttachment[]> {
+/** Picks photos from the library (multi-select). v1 is photos + PDFs only — no video. */
+export async function pickFromLibrary(): Promise<PendingAttachment[]> {
   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!perm.granted) return [];
   const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: opts?.videosOnly ? ['videos'] : ['images', 'videos'],
+    mediaTypes: ['images'],
     allowsMultipleSelection: true,
     quality: 0.8,
   });
   if (result.canceled) return [];
   return result.assets.map((a) => ({
     id: Crypto.randomUUID(),
-    kind: (a.type === 'video' ? 'video' : 'photo') as PendingAttachment['kind'],
+    kind: 'photo' as const,
     uri: a.uri,
-    name: a.fileName ?? fileName(a.uri, a.type === 'video' ? 'video.mp4' : 'photo.jpg'),
+    name: a.fileName ?? fileName(a.uri, 'photo.jpg'),
     mimeType: a.mimeType,
   }));
 }

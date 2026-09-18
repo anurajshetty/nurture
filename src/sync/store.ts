@@ -13,7 +13,7 @@
 
 import * as Crypto from 'expo-crypto';
 import { getDb } from '../lib/db';
-import type { EventInput, LocalEvent, Pregnancy, Visibility } from '../lib/types';
+import type { EventAttachment, EventInput, LocalEvent, Pregnancy, Visibility } from '../lib/types';
 
 /** Raw events-table row as returned by SQLite. */
 interface EventRow {
@@ -133,6 +133,35 @@ export function deleteEvent(id: string): void {
 export function getEvent(id: string): LocalEvent | null {
   const row = getDb().getFirstSync<EventRow>('SELECT * FROM events WHERE id = ?', id);
   return row ? rowToEvent(row) : null;
+}
+
+/**
+ * Rewrites an event's attachment list (Epic 2.3): updates `data.attachments`,
+ * marks the event dirty, and queues an upsert so the next text sync carries
+ * the new metadata (upload status / storage paths) to the server and other
+ * devices. No-op when the event doesn't exist.
+ */
+export function setEventAttachments(id: string, attachments: EventAttachment[]): void {
+  const db = getDb();
+  const row = db.getFirstSync<{ data: string }>('SELECT data FROM events WHERE id = ?', id);
+  if (!row) return;
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(row.data) as Record<string, unknown>;
+  } catch {
+    data = {};
+  }
+  data.attachments = attachments;
+  const now = new Date().toISOString();
+  db.withTransactionSync(() => {
+    db.runSync('UPDATE events SET data = ?, updated_at = ?, dirty = 1 WHERE id = ?', JSON.stringify(data), now, id);
+    db.runSync(
+      `INSERT INTO outbox (id, event_id, op, attempts, created_at) VALUES (?, ?, 'upsert', 0, ?)`,
+      Crypto.randomUUID(),
+      id,
+      now,
+    );
+  });
 }
 
 /** Lists local (non-deleted) events, newest first. */
