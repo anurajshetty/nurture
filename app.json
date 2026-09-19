@@ -40,9 +40,6 @@
           "speechRecognitionPermission": "Nurture turns your dictated words into a draft you review before saving. Audio stays on this device when the device supports it."
         }
       ]
-    ],
-    "experiments": {
-      "baseUrl": "/nurture"
-    }
+    ]
   }
 }
