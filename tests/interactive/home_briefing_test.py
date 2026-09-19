@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Interactive browser test: Home briefing screen (track 2: briefing UI).
+Interactive browser test: Home briefing screen (enriched Home with delight).
 
 Drives the REAL Nurture web UI in real Chromium against a Metro dev
 server (proxied as https://nurture.test so the sandbox's localhost block
@@ -17,10 +17,13 @@ forced through that seam — the test NEVER hits a real API (requests to
 Run:  python3 tests/interactive/home_briefing_test.py [--keep-open]
 
 Flows:
-  1. live      -> 4 cards render in order (baby, body, know, tips) with the
-                   week/day header, "Updated today", and the disclaimer footer
-  2. generating-> warm spinner message + skeleton shimmer, no cards
-  3. offline   -> cached cards + the gentle offline banner ("Updated yesterday")
+  1. live      -> 4 routine rows in order (baby, body, know, tips), the
+                   "A little wonder" divider, then 3 delight rows
+                   (fact + size + one rotating); all start collapsed;
+                   tap-to-expand in place; accordion (one open at a time);
+                   tap the open row to collapse
+  2. generating-> warm spinner message + skeleton shimmer, no rows
+  3. offline   -> cached rows + the gentle offline banner ("Updated yesterday")
   4. empty     -> warm empty state with retry button
   5. no-input  -> no composer/mic/input/textarea anywhere on the screen
 """
@@ -45,6 +48,14 @@ KEEP_OPEN = "--keep-open" in sys.argv
 
 TODAY = date.today().isoformat()
 YESTERDAY = (date.today() - timedelta(days=1)).isoformat()
+
+ROTATING_TITLES = [
+    "For the partner",
+    "Traditions",
+    "Story of the week",
+    "Name of the week",
+    "Milestone ahead",
+]
 
 
 def make_briefing(generated_for):
@@ -95,6 +106,14 @@ def make_briefing(generated_for):
 
 
 def start_metro():
+    # A crashed earlier run can leave a stale dev server on the port, which
+    # would serve an outdated bundle — clear it before booting a fresh one.
+    # (The [e] trick keeps pkill from matching its own command line.)
+    subprocess.run(
+        ["pkill", "-f", r"[e]xpo start --web.*--port " + str(METRO_PORT)],
+        capture_output=True,
+    )
+    time.sleep(1)
     env = dict(os.environ, BROWSER="none", CI="1")
     proc = subprocess.Popen(
         ["npx", "expo", "start", "--web", "--non-interactive", "--port", str(METRO_PORT)],
@@ -202,44 +221,138 @@ def main():
                     [status, briefing],
                 )
 
-            # ---- Flow 1: live — all 4 cards in order ----
-            force("live", make_briefing(TODAY))
-            try:
+            def wait_live():
+                force("live", make_briefing(TODAY))
                 page.get_by_test_id("briefing-card-tips").wait_for(timeout=15000)
-                live_ready = True
-            except Exception:
-                live_ready = False
-            check("flow1: live renders all four cards", live_ready)
+                # Delight cards build in an effect after the briefing lands.
+                page.get_by_test_id("delight-card-fact").wait_for(timeout=15000)
+
+            # ---- Flow 1: live — routine rows, divider, delight rows ----
+            wait_live()
             for tid, title in [
                 ("briefing-card-baby", "Baby's development"),
                 ("briefing-card-body", "Your body this week"),
                 ("briefing-card-know", "Good to know"),
                 ("briefing-card-tips", "Tips"),
+                ("delight-card-fact", "Did you know?"),
+                ("delight-card-size", "How big is Mira?"),
+                ("delight-card-rotating", None),
             ]:
-                card = page.get_by_test_id(tid)
-                check(f"flow1: {tid} shows title {title!r}", card.get_by_text(title).count() > 0)
+                row = page.get_by_test_id(tid)
+                check(f"flow1: {tid} renders", row.count() > 0)
+                if title:
+                    check(f"flow1: {tid} shows title {title!r}",
+                          row.get_by_text(title, exact=True).count() > 0)
 
-            text = page.get_by_test_id("briefing-test-root").inner_text()
-            order = [text.index(m) for m in
-                     ("BABY_MARKER_1", "BODY_MARKER_1", "KNOW_MARKER_1", "TIPS_MARKER_1")]
-            check("flow1: cards in order baby -> body -> know -> tips",
-                  order == sorted(order), f"indices={order}")
+            rot_text = page.get_by_test_id("delight-card-rotating").inner_text()
+            check("flow1: rotating card is one of the 5 kinds",
+                  any(t in rot_text for t in ROTATING_TITLES), f"text={rot_text[:60]!r}")
+
+            # Week-28 size card is deterministic (fixed per-week mapping).
+            size_text = page.get_by_test_id("delight-card-size").inner_text()
+            check("flow1: week-28 size card mentions the bowling pin",
+                  "bowling pin" in size_text, f"size={size_text[:90]!r}")
+
+            # DOM order: 4 routine rows -> divider -> 3 delight rows.
+            order_ok = page.evaluate("""() => {
+              const ids = ['briefing-card-baby','briefing-card-body','briefing-card-know',
+                           'briefing-card-tips','briefing-wonder-divider',
+                           'delight-card-fact','delight-card-size','delight-card-rotating'];
+              const els = ids.map(id => document.querySelector(`[data-testid="${id}"]`));
+              if (els.some(e => !e)) return 'missing: ' + ids[els.findIndex(e => !e)];
+              for (let i = 1; i < els.length; i++) {
+                if (!(els[i-1].compareDocumentPosition(els[i]) & Node.DOCUMENT_POSITION_FOLLOWING))
+                  return 'out of order at ' + ids[i];
+              }
+              return 'ok';
+            }""")
+            check("flow1: routine rows, divider, then delight rows in order", order_ok == "ok", order_ok)
+            divider_text = page.get_by_test_id("briefing-wonder-divider").inner_text()
+            check("flow1: divider reads 'A little wonder'",
+                  "a little wonder" in divider_text.lower(),
+                  f"divider={divider_text!r}")
 
             header = page.get_by_test_id("briefing-header").inner_text()
             check("flow1: header eyebrow shows week/day/weeks-to-go",
                   "WEEK 28" in header and "DAY 3" in header and "12 WEEKS TO GO" in header,
                   f"header={header[:80]!r}")
-            check("flow1: header title present",
-                  "What's happening this week" in header)
+            check("flow1: header title present", "What's happening this week" in header)
             updated = page.get_by_test_id("briefing-updated").inner_text()
-            check("flow1: subtitle says Updated today", "Updated today" in updated,
-                  f"updated={updated!r}")
+            check("flow1: subtitle says Updated today", "Updated today" in updated, f"updated={updated!r}")
             disclaimer = page.get_by_test_id("briefing-disclaimer").inner_text()
             check("flow1: disclaimer footer present",
                   "Not medical advice" in disclaimer and "Reviewed Aug 2026" in disclaimer,
                   f"disclaimer={disclaimer!r}")
 
-            # ---- Flow 2: generating — spinner + skeletons, no cards ----
+            # ---- Flow 1b: rows start collapsed; tap to expand in place ----
+            baby = page.get_by_test_id("briefing-card-baby")
+            check("flow1b: baby row starts collapsed (body hidden)",
+                  "BABY_MARKER_1" not in baby.inner_text())
+            baby.get_by_text("Baby's development", exact=True).click()
+            try:
+                page.wait_for_function(
+                    "() => document.querySelector('[data-testid=\"briefing-card-baby\"]')"
+                    ".innerText.includes('BABY_MARKER_1')",
+                    timeout=8000)
+                baby_open = True
+            except Exception:
+                baby_open = False
+            check("flow1b: tapping the baby row expands it in place", baby_open)
+
+            # ---- Flow 1c: accordion — opening another closes the first ----
+            body_row = page.get_by_test_id("briefing-card-body")
+            body_row.get_by_text("Your body this week", exact=True).click()
+            try:
+                page.wait_for_function(
+                    "() => document.querySelector('[data-testid=\"briefing-card-body\"]')"
+                    ".innerText.includes('BODY_MARKER_1')",
+                    timeout=8000)
+                body_open = True
+            except Exception:
+                body_open = False
+            check("flow1c: tapping the body row expands it", body_open)
+            check("flow1c: accordion closed the baby row",
+                  "BABY_MARKER_1" not in baby.inner_text())
+            check("flow1c: exactly one row open",
+                  page.evaluate("""() => {
+                    const ids = ['briefing-card-baby','briefing-card-body','briefing-card-know',
+                                 'briefing-card-tips','delight-card-fact','delight-card-size','delight-card-rotating'];
+                    const markers = ['BABY_MARKER_1','BODY_MARKER_1','KNOW_MARKER_1','TIPS_MARKER_1'];
+                    let open = 0;
+                    for (const m of markers) {
+                      if (document.body.innerText.includes(m)) open++;
+                    }
+                    return open;
+                  }""") == 1)
+
+            # ---- Flow 1d: tapping the open row collapses it ----
+            body_row.get_by_text("Your body this week", exact=True).click()
+            try:
+                page.wait_for_function(
+                    "() => !document.querySelector('[data-testid=\"briefing-card-body\"]')"
+                    ".innerText.includes('BODY_MARKER_1')",
+                    timeout=8000)
+                body_closed = True
+            except Exception:
+                body_closed = False
+            check("flow1d: tapping the open row collapses it", body_closed)
+
+            # ---- Flow 1e: delight rows expand too ----
+            fact = page.get_by_test_id("delight-card-fact")
+            fact.get_by_text("Did you know?", exact=True).click()
+            try:
+                page.wait_for_function(
+                    """() => {
+                      const t = document.querySelector('[data-testid="delight-card-fact"]').innerText;
+                      return t.split('\\n').length > 3;
+                    }""",
+                    timeout=8000)
+                fact_open = True
+            except Exception:
+                fact_open = False
+            check("flow1e: tapping the fact row expands it", fact_open)
+
+            # ---- Flow 2: generating — spinner + skeletons, no rows ----
             force("generating", None)
             try:
                 page.get_by_text("Putting your week together").wait_for(timeout=15000)
@@ -247,12 +360,13 @@ def main():
             except Exception:
                 gen_ready = False
             check("flow2: generating shows warm spinner message", gen_ready)
-            check("flow2: generating shows no briefing cards",
-                  page.get_by_test_id("briefing-card-baby").count() == 0)
+            check("flow2: generating shows no briefing rows",
+                  page.get_by_test_id("briefing-card-baby").count() == 0
+                  and page.get_by_test_id("delight-card-fact").count() == 0)
             check("flow2: generating shows shimmer copy",
                   page.get_by_text("your briefing will appear here").count() > 0)
 
-            # ---- Flow 3: offline — cached cards + banner ----
+            # ---- Flow 3: offline — cached rows + banner ----
             force("offline", make_briefing(YESTERDAY))
             try:
                 page.get_by_test_id("briefing-offline-banner").wait_for(timeout=15000)
@@ -263,9 +377,10 @@ def main():
             banner = page.get_by_test_id("briefing-offline-banner").inner_text()
             check("flow3: banner copy is gentle", "You're offline" in banner,
                   f"banner={banner[:80]!r}")
-            check("flow3: offline still shows cached cards",
-                  page.get_by_test_id("briefing-card-baby").get_by_text("BABY_MARKER_1").count() > 0
-                  and page.get_by_test_id("briefing-card-tips").get_by_text("TIPS_MARKER_1").count() > 0)
+            page.get_by_test_id("delight-card-fact").wait_for(timeout=15000)
+            check("flow3: offline still shows cached rows + delight",
+                  page.get_by_test_id("briefing-card-baby").count() > 0
+                  and page.get_by_test_id("delight-card-size").count() > 0)
             updated_off = page.get_by_test_id("briefing-updated").inner_text()
             check("flow3: subtitle says Updated yesterday", "Updated yesterday" in updated_off,
                   f"updated={updated_off!r}")
@@ -282,8 +397,7 @@ def main():
                   page.get_by_text("Your briefing will appear here").count() > 0)
 
             # ---- Flow 5: Home is cards only — no input surface anywhere ----
-            force("live", make_briefing(TODAY))
-            page.get_by_test_id("briefing-card-tips").wait_for(timeout=15000)
+            wait_live()
             n_inputs = page.locator("input, textarea").count()
             check("flow5: no input/textarea elements on the briefing screen", n_inputs == 0,
                   f"found {n_inputs}")
@@ -301,6 +415,10 @@ def main():
             browser.close()
     finally:
         metro.terminate()
+        try:
+            metro.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            metro.kill()
 
     print()
     if failures:

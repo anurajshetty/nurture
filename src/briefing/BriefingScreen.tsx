@@ -1,30 +1,45 @@
 /**
- * Briefing screen (track 2: briefing UI) — the new Home tab.
+ * Briefing screen — the Home tab.
  *
- * Renders the week-aware morning briefing: Baby's development → Your body
- * this week → Good to know → Tips. Cards only — no composer, no mic, no
- * input of any kind; nothing tappable except the tab bar.
+ * Renders the week-aware morning briefing as compact expandable rows:
+ * the 4 routine cards first (Baby's development → Your body this week →
+ * Good to know → Tips), then a quiet "A little wonder" divider, then the
+ * 3 delight cards ("Did you know?" + "How big is Mira?" + one rotating
+ * card). Tapping a row expands its full text in place; accordion — only
+ * one row open at a time.
+ *
+ * Cards only — no composer, no mic, no input of any kind; nothing tappable
+ * except the rows themselves and the tab bar.
  *
  * Consumes `useBriefing()` (owned by the refresh-logic agent) for the real
  * data; the tab agent's new app/(tabs)/index.tsx renders this component.
+ * Delight content comes from ./delight (on-device curated banks).
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  LayoutAnimation,
+  Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import Screen from '../components/Screen';
-import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import Button from '../components/Button';
 import { colors, fontDisplay, radii, shadow, spacing, type as typeScale } from '../theme/tokens';
 import { useOnboarding } from '../onboarding/useOnboarding';
 import { useBriefing } from './useBriefing';
 import { useBriefingTestOverride } from './testSeam';
+import { defaultStore, type KvStore } from './cache';
+import { todayISO } from '../onboarding/dates';
+import {
+  buildDelightCards,
+  type DelightBody,
+  type DelightCard,
+} from './delight';
 import type { Briefing, BriefingCard } from './types';
 
 /** Card order is fixed (Anuraj's choice): baby → body → know → tips. */
@@ -65,6 +80,115 @@ function orderedCards(cards: BriefingCard[]): BriefingCard[] {
   );
 }
 
+/** One compact row on screen: routine and delight cards share this shape. */
+interface RowCard {
+  id: string;
+  title: string;
+  preview: string;
+  body: ReactNode;
+  tint: string;
+  glyph: string;
+  glyphColor: string;
+  testID: string;
+}
+
+function DelightBodyText({ body }: { body: DelightBody }) {
+  return (
+    <>
+      {body.map((para, i) => (
+        <Text
+          key={i}
+          style={[styles.btxt, i === body.length - 1 && styles.btxtLast]}
+        >
+          {para.map((run, j) => (
+            <Text key={j} style={run.bold ? styles.bold : undefined}>
+              {run.text}
+            </Text>
+          ))}
+        </Text>
+      ))}
+    </>
+  );
+}
+
+function routineRow(card: BriefingCard): RowCard {
+  const tile = TILE_BY_CARD[card.id];
+  return {
+    id: `briefing-${card.id}`,
+    title: card.title,
+    preview: card.subtitle,
+    body: (
+      <>
+        {card.body.map((para, i) => (
+          <Text
+            key={i}
+            style={[styles.btxt, i === card.body.length - 1 && styles.btxtLast]}
+          >
+            {para}
+          </Text>
+        ))}
+      </>
+    ),
+    tint: tile.tint,
+    glyph: tile.glyph,
+    glyphColor: tile.glyphColor,
+    testID: `briefing-card-${card.id}`,
+  };
+}
+
+function delightRow(card: DelightCard): RowCard {
+  return {
+    id: card.id,
+    title: card.title,
+    preview: card.preview,
+    body: <DelightBodyText body={card.body} />,
+    tint: card.tint,
+    glyph: card.glyph,
+    glyphColor: card.glyphColor,
+    testID: card.id,
+  };
+}
+
+function ExpandableRow({
+  card,
+  open,
+  onToggle,
+}: {
+  card: RowCard;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <View testID={card.testID} style={styles.row}>
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${card.title}. ${open ? 'Collapse' : 'Expand'}`}
+        style={styles.rowHead}
+      >
+        <View style={[styles.tile, { backgroundColor: card.tint }]}>
+          <Text style={[styles.tileGlyph, { color: card.glyphColor }]}>
+            {card.glyph}
+          </Text>
+        </View>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>{card.title}</Text>
+          <Text
+            style={styles.rowPreview}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {card.preview}
+          </Text>
+        </View>
+        <Text style={[styles.chev, open && styles.chevOpen]}>{'›'}</Text>
+      </Pressable>
+      {open && <View style={styles.rowBody}>{card.body}</View>}
+    </View>
+  );
+}
+
 function Header({ briefing }: { briefing: Briefing }) {
   const weeksToGo = Math.max(0, 40 - briefing.week);
   const weekWord = weeksToGo === 1 ? 'week' : 'weeks';
@@ -83,28 +207,13 @@ function Header({ briefing }: { briefing: Briefing }) {
   );
 }
 
-function BriefingCardView({ card }: { card: BriefingCard }) {
-  const tile = TILE_BY_CARD[card.id];
+function WonderDivider() {
   return (
-    <Card testID={`briefing-card-${card.id}`} style={styles.bcard}>
-      <View style={styles.bhead}>
-        <View style={[styles.tile, { backgroundColor: tile.tint }]}>
-          <Text style={[styles.tileGlyph, { color: tile.glyphColor }]}>{tile.glyph}</Text>
-        </View>
-        <View style={styles.bheadText}>
-          <Text style={styles.btitle}>{card.title}</Text>
-          <Text style={styles.bsub}>{card.subtitle}</Text>
-        </View>
-      </View>
-      {card.body.map((para, i) => (
-        <Text
-          key={i}
-          style={[styles.btxt, i === card.body.length - 1 && styles.btxtLast]}
-        >
-          {para}
-        </Text>
-      ))}
-    </Card>
+    <View testID="briefing-wonder-divider" style={styles.wonder}>
+      <View style={styles.wonderLine} />
+      <Text style={styles.wonderText}>A little wonder</Text>
+      <View style={styles.wonderLine} />
+    </View>
   );
 }
 
@@ -180,7 +289,7 @@ function EmptyView({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-/** Briefing screen: the new Home tab. No props. */
+/** Briefing screen: the Home tab. No props. */
 export function BriefingScreen() {
   const { status, briefing, retry } = useBriefing();
   const { loading: onboardingLoading, pregnancy } = useOnboarding();
@@ -192,6 +301,42 @@ export function BriefingScreen() {
   const effBriefing = override ? override.briefing : briefing;
   // Test override bypasses the due-date gate; the real flow never sets one.
   const hasDueDate = !!pregnancy?.dueDate || !!override;
+
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [delight, setDelight] = useState<DelightCard[] | null>(null);
+  const storeRef = useRef<KvStore | null>(null);
+
+  // Delight cards derive from the briefing's week; rebuilt when the day or
+  // week changes. Rotation state persists on-device via the kv store.
+  useEffect(() => {
+    if (!effBriefing) {
+      setDelight(null);
+      return;
+    }
+    if (storeRef.current === null) {
+      try {
+        storeRef.current = defaultStore();
+      } catch {
+        storeRef.current = null;
+      }
+    }
+    setDelight(
+      buildDelightCards(effBriefing.week, storeRef.current, todayISO()),
+    );
+    setOpenId(null);
+  }, [effBriefing?.generatedForDate, effBriefing?.week]);
+
+  const rows: RowCard[] = useMemo(() => {
+    if (!effBriefing) return [];
+    const routine = orderedCards(effBriefing.cards).map(routineRow);
+    const wonder = (delight ?? []).map(delightRow);
+    return [...routine, ...wonder];
+  }, [effBriefing, delight]);
+
+  const toggle = (id: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setOpenId((cur) => (cur === id ? null : id));
+  };
 
   if (onboardingLoading && !override) {
     return <View style={{ flex: 1, backgroundColor: colors.bg }} />;
@@ -215,6 +360,7 @@ export function BriefingScreen() {
         </Screen>
       );
     }
+    const routineCount = orderedCards(effBriefing.cards).length;
     return (
       <Screen testID="briefing-root">
         <Header briefing={effBriefing} />
@@ -223,9 +369,27 @@ export function BriefingScreen() {
           <GeneratingView />
         ) : (
           <>
-            {orderedCards(effBriefing.cards).map((card) => (
-              <BriefingCardView key={card.id} card={card} />
+            {rows.slice(0, routineCount).map((card) => (
+              <ExpandableRow
+                key={card.id}
+                card={card}
+                open={openId === card.id}
+                onToggle={() => toggle(card.id)}
+              />
             ))}
+            {delight && delight.length > 0 && (
+              <>
+                <WonderDivider />
+                {rows.slice(routineCount).map((card) => (
+                  <ExpandableRow
+                    key={card.id}
+                    card={card}
+                    open={openId === card.id}
+                    onToggle={() => toggle(card.id)}
+                  />
+                ))}
+              </>
+            )}
             <Disclaimer reviewDate={effBriefing.reviewDate} />
           </>
         )}
@@ -267,39 +431,61 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginBottom: spacing.xs,
   },
-  bcard: {
+  // Compact expandable row (routine + delight share this component).
+  row: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
     marginTop: spacing.md,
-    padding: 18,
-    borderRadius: radii.cardLarge,
+    overflow: 'hidden',
+    ...shadow.card,
   },
-  bhead: {
+  rowHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    padding: 13,
+    paddingHorizontal: 15,
+    minHeight: 64,
   },
   tile: {
-    width: 46,
-    height: 46,
-    borderRadius: 15,
+    width: 40,
+    height: 40,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 13,
+    marginRight: 12,
   },
   tileGlyph: {
-    fontSize: 22,
-    lineHeight: 26,
+    fontSize: 21,
+    lineHeight: 24,
   },
-  bheadText: {
+  rowText: {
     flex: 1,
+    minWidth: 0,
   },
-  btitle: {
-    ...typeScale.headline,
+  rowTitle: {
+    fontSize: 15.5,
+    fontWeight: '700',
     color: colors.ink,
   },
-  bsub: {
-    ...typeScale.footnote,
+  rowPreview: {
+    fontSize: 13,
     color: colors.muted,
     marginTop: 2,
+  },
+  chev: {
+    fontSize: 19,
+    fontWeight: '600',
+    color: colors.muted,
+    marginLeft: 8,
+    transform: [{ rotate: '90deg' }],
+  },
+  chevOpen: {
+    transform: [{ rotate: '-90deg' }],
+  },
+  rowBody: {
+    paddingHorizontal: 15,
+    paddingBottom: 16,
+    paddingTop: 2,
   },
   btxt: {
     fontSize: 14.5,
@@ -309,6 +495,30 @@ const styles = StyleSheet.create({
   },
   btxtLast: {
     marginBottom: 0,
+  },
+  bold: {
+    fontWeight: '700',
+    color: colors.ink,
+  },
+  // "A little wonder" divider between routine and delight.
+  wonder: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 28,
+    marginHorizontal: 4,
+  },
+  wonderLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.line,
+  },
+  wonderText: {
+    fontSize: 11.5,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+    color: colors.coralDeep,
+    fontWeight: '700',
+    marginHorizontal: 10,
   },
   offline: {
     flexDirection: 'row',
