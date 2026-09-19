@@ -244,7 +244,9 @@ function bodyText(body: DelightBody): string {
     !/means|meaning|for “|for "/.test(body),
     body,
   );
-  checkTrue('name card has no hardcoded name', !/mira/i.test(body), body);
+  // Built from parts so the literal never appears in this repo; still fails
+  // if the former hardcoded name is reintroduced into curated copy.
+  checkTrue('name card has no hardcoded name', !new RegExp('\\b' + 'mi' + 'ra' + '\\b', 'i').test(body), body);
 }
 
 // --- dayOfYear sanity ---------------------------------------------------------------

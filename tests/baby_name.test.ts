@@ -3,7 +3,7 @@
  *
  * - withBabyName: pure {Name}/{name} token substitution.
  * - Curated-content audit: no delight bank, size entry, or matrix row may
- *   contain a hardcoded "Mira" — the name (or the generic fallback) is
+ *   contain a hardcoded personal name — the name (or the generic fallback) is
  *   substituted on-device at briefing assembly.
  *
  * Pure logic only — no network, no SQLite. Run with:
@@ -57,10 +57,10 @@ function bodyText(body: DelightBody): string {
 
 // --- withBabyName ---------------------------------------------------------
 {
-  check('name set, capitalized token', withBabyName('{Name} is growing.', 'Mira'), 'Mira is growing.');
-  check('name set, lowercase token', withBabyName('and {name} has been tasting.', 'Mira'), 'and Mira has been tasting.');
-  check('possessive rides along', withBabyName("{Name}'s grip is strong.", 'Mira'), "Mira's grip is strong.");
-  check('mid-sentence possessive', withBabyName("early term — {name}'s organs are ready.", 'Mira'), "early term — Mira's organs are ready.");
+  check('name set, capitalized token', withBabyName('{Name} is growing.', 'Wren'), 'Wren is growing.');
+  check('name set, lowercase token', withBabyName('and {name} has been tasting.', 'Wren'), 'and Wren has been tasting.');
+  check('possessive rides along', withBabyName("{Name}'s grip is strong.", 'Wren'), "Wren's grip is strong.");
+  check('mid-sentence possessive', withBabyName("early term — {name}'s organs are ready.", 'Wren'), "early term — Wren's organs are ready.");
   check(
     'no name → generic fallback',
     withBabyName('{Name} is growing and {name} is loved.', null),
@@ -68,8 +68,8 @@ function bodyText(body: DelightBody): string {
   );
   check('blank name → generic fallback', withBabyName('{Name} is growing.', '   '), 'Your baby is growing.');
   check('undefined → generic fallback', withBabyName('How big is {name}?', undefined), 'How big is your baby?');
-  check('no tokens → untouched', withBabyName('Did you know?', 'Mira'), 'Did you know?');
-  check('name is trimmed', withBabyName('Hello, {Name}!', '  Mira  '), 'Hello, Mira!');
+  check('no tokens → untouched', withBabyName('Did you know?', 'Wren'), 'Did you know?');
+  check('name is trimmed', withBabyName('Hello, {Name}!', '  Wren  '), 'Hello, Wren!');
   check(
     'token constants are the documented pair',
     [BABY_NAME_TOKEN_CAP, BABY_NAME_TOKEN],
@@ -77,7 +77,10 @@ function bodyText(body: DelightBody): string {
   );
 }
 
-// --- audit: no hardcoded "Mira" in curated copy ---------------------------
+// --- audit: no hardcoded personal name in curated copy --------------------
+// The searched name is built from parts so the literal never appears in this
+// repo — the audit still fails if the former hardcoded name is reintroduced.
+const FORMER_NAME_PATTERN = new RegExp('\\b' + 'mi' + 'ra' + '\\b', 'i');
 {
   const texts: string[] = [];
   for (const f of FACTS) texts.push(f.preview, bodyText(f.body));
@@ -108,8 +111,8 @@ function bodyText(body: DelightBody): string {
       ...(r.delight.freshAngles ?? []),
     );
   }
-  const hits = texts.filter((t) => /\bmira\b/i.test(t));
-  check('no curated string hardcodes "Mira"', hits, []);
+  const hits = texts.filter((t) => FORMER_NAME_PATTERN.test(t));
+  check('no curated string hardcodes a personal name', hits, []);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
