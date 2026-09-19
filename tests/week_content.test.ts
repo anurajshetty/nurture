@@ -19,7 +19,9 @@ import {
   getWeekNumber,
   getWeekQuestions,
   getWeekRangeLabel,
+  resolveNameTokens,
   shouldShowWeekContent,
+  weekGreeting,
 } from '../src/week/content';
 
 declare const process: { exit(code: number): void };
@@ -74,10 +76,9 @@ ok(
   c37.highlights.every((h) => h.length > 0),
   'highlights non-empty',
 );
-eq(c37.readings.length, 3, '3 reading sections');
+eq(c37.readings.length, 2, '2 reading sections');
 eq(c37.readings[0].title, 'Your body this week', 'reading 1 title');
-eq(c37.readings[1].title, 'Good to know', 'reading 2 title');
-eq(c37.readings[2].title, 'Tips for this week', 'reading 3 title');
+eq(c37.readings[1].title, 'Tips for this week', 'reading 2 title');
 ok(
   c37.readings.every((r) => r.body.length > 0),
   'readings have body paragraphs',
@@ -108,7 +109,7 @@ eq(c20.week, 20, 'fallback content week');
 ok(c20.size !== null, 'week 20 has a size entry (banana)');
 eq(c20.size?.staple, 'a banana', 'week 20 size staple');
 eq(c20.highlights.length, 3, 'fallback: 3 highlights');
-eq(c20.readings.length, 3, 'fallback: 3 readings');
+eq(c20.readings.length, 2, 'fallback: 2 readings');
 eq(c20.questions.length, 2, 'fallback: 2 questions');
 
 // --- getWeekContent: size coverage edges --------------------------------
@@ -186,6 +187,83 @@ ok(scanned > 0, `safety-scanned ${scanned} copy blocks`);
 
 eq(MIN_WEEK, 4, 'MIN_WEEK');
 eq(MAX_WEEK, 42, 'MAX_WEEK');
+
+// --- name tokens ----------------------------------------------------------
+eq(
+  resolveNameTokens('{Name} is gaining fast', 'Wren'),
+  'Wren is gaining fast',
+  'capital token uses the saved name',
+);
+eq(
+  resolveNameTokens("Early term — {name}'s organs are ready", 'Wren'),
+  "Early term — Wren's organs are ready",
+  'lowercase token uses the saved name',
+);
+eq(
+  resolveNameTokens('{Name} is growing', null),
+  'Your baby is growing',
+  'capital token falls back to "Your baby"',
+);
+eq(
+  resolveNameTokens("{name}'s grip is strong", null),
+  "your baby's grip is strong",
+  'lowercase token falls back to "your baby"',
+);
+eq(
+  resolveNameTokens('{Name} and {name}', '  '),
+  'Your baby and your baby',
+  'blank name counts as unset',
+);
+
+// Tokens resolve inside assembled Week content (no raw tokens leak).
+{
+  const named = getWeekContent(37, DUE, TODAY, 'Wren');
+  const unnamed = getWeekContent(37, DUE, TODAY, null);
+  const all = (c: ReturnType<typeof getWeekContent>) => [
+    ...c.highlights,
+    ...c.readings.flatMap((r) => r.body),
+  ];
+  ok(
+    all(named).every((t) => !/\{(Name|name)\}/.test(t)),
+    'named: no raw tokens in highlights/readings',
+  );
+  ok(
+    all(unnamed).every((t) => !/\{(Name|name)\}/.test(t)),
+    'unnamed: no raw tokens in highlights/readings',
+  );
+  ok(
+    all(named).some((t) => t.includes('Wren')),
+    'named: baby name appears in copy',
+  );
+  ok(
+    all(unnamed).some((t) => /[Yy]our baby/.test(t)),
+    'unnamed: generic "your baby" wording appears',
+  );
+}
+
+// --- warm greeting ----------------------------------------------------------
+eq(weekGreeting(8, 'Wren'), 'The beginning of everything, Wren.', 'greeting: early, named');
+eq(weekGreeting(8, null), 'The beginning of everything.', 'greeting: early, unnamed');
+eq(weekGreeting(20, 'Wren'), 'Look how far you and Wren have come.', 'greeting: middle, named');
+eq(weekGreeting(20, null), `Look how far you've come.`, 'greeting: middle, unnamed');
+eq(weekGreeting(30, 'Wren'), 'The home stretch. Wren is nearly here.', 'greeting: late, named');
+eq(weekGreeting(30, null), 'The home stretch.', 'greeting: late, unnamed');
+eq(weekGreeting(37, 'Wren'), `Hey, you're almost there. Any day now, Wren.`, 'greeting: 37+, named');
+eq(weekGreeting(37, null), `Hey, you're almost there.`, 'greeting: 37+, unnamed');
+eq(weekGreeting(42, null), `Hey, you're almost there.`, 'greeting: week 42');
+{
+  const bands: Array<[number, string | null]> = [
+    [4, 'Wren'], [12, null], [13, 'Wren'], [27, null],
+    [28, 'Wren'], [36, null], [37, 'Wren'], [42, null],
+  ];
+  ok(
+    bands.every(([w, n]) => {
+      const g = weekGreeting(w, n);
+      return !/[;—]/.test(g) && !/\{(Name|name)\}/.test(g);
+    }),
+    'greeting: all bands, no semicolons/em dashes/tokens',
+  );
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

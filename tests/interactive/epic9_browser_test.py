@@ -11,8 +11,8 @@ Verifies:
   3. Partner-memory row: "Shared memories with Alex", keep option -> decided
   4. Delete row -> gentle guard (cancel keeps story; confirm deletes)
   5. "I'll decide later" closes the sheet, everything stays private
-  6. Afterwards Home: "Your story", timeline as memories, Gentle reads,
-     zero developmental content, quiet note
+  6. Landing tab in afterwards mode: the Week tab renders its quiet
+     stopped state, zero developmental content
   7. Week tab: quiet stopped state
   8. Zero page errors throughout
 
@@ -26,7 +26,7 @@ import os
 import sys
 import time
 
-DIST = os.path.expanduser("~/workspace/epic9-work/dist")
+DIST = os.path.expanduser("~/workspace/nurture-v12/dist")
 
 
 def free_port():
@@ -198,23 +198,17 @@ def main():
         page.wait_for_timeout(1000)
         check(page.get_by_text("It's done.").count() == 0, "\"I'll decide later\" closes the sheet")
 
-        # ---- 6. Afterwards Home ----
-        print("Afterwards Home...")
+        # ---- 6. Landing tab in afterwards mode ----
+        # The Home screen is gone (Sept 2026): the landing tab is Week, and in
+        # afterwards mode it renders its quiet stopped state.
+        print("Landing tab (afterwards)...")
         page.goto(BASE, wait_until="networkidle")
         page.wait_for_timeout(3000)
-        check(page.locator('[data-testid="afterwards-home"]').count() > 0,
-              "afterwards Home renders")
-        check(page.get_by_text("Your story").count() > 0, "\"Your story\" title")
-        check(page.get_by_text("Gentle reads").count() > 0, "Gentle reads module visible")
-        for title in ["Coping with pregnancy loss",
-                      "Talking about it with people you love",
-                      "When you're ready: what's next"]:
-            check(page.get_by_text(title).count() > 0, f"gentle read: {title[:30]}…")
-        check(page.get_by_text("Pregnancy updates are off").count() > 0, "quiet note present")
-        # Two moments were saved before stopping — the timeline row shows them as memories.
-        trow = page.locator('[data-testid="afterwards-timeline-row"]')
-        check(trow.count() > 0 and "2 moments" in trow.inner_text(),
-              "timeline row: moments kept as memories")
+        check(page.locator('[data-testid="week-screen"]').count() > 0,
+              "landing tab is the Week tab")
+        check(page.get_by_text("Your week view is resting").count() > 0,
+              "Week tab quiet stopped state on landing")
+        check(page.get_by_text("Week 37").count() == 0, "no week number when stopped")
         # Zero developmental content.
         body_text = page.locator("body").inner_text()
         for banned in ["What's happening this week", "A little wonder", "WEEK ",
@@ -247,13 +241,13 @@ def main():
         check(page.get_by_text("Your story has been deleted.").count() > 0,
               "plain deletion confirmation toast copy present")
 
-        # ---- 9. Afterwards Home after deletion: timeline row hides ----
+        # ---- 9. Landing tab after deletion: still the quiet Week ----
         page.goto(BASE, wait_until="networkidle")
         page.wait_for_timeout(3000)
-        check(page.locator('[data-testid="afterwards-home"]').count() > 0,
-              "afterwards Home still renders after deletion")
-        check(page.locator('[data-testid="afterwards-timeline-row"]').count() == 0,
-              "timeline row hidden when nothing saved")
+        check(page.locator('[data-testid="week-screen"]').count() > 0,
+              "landing tab still the Week tab after deletion")
+        check(page.get_by_text("Your week view is resting").count() > 0,
+              "Week tab quiet stopped state after deletion")
 
         browser.close()
 

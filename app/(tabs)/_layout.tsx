@@ -3,9 +3,8 @@ import { StyleSheet, Text } from 'react-native';
 import { colors, spacing } from '../../src/theme/tokens';
 
 const TAB_GLYPHS = {
-  index: '⌂',
-  logs: '☰',
   week: '◍',
+  logs: '☰',
   plan: '▤',
   you: '☺',
 } as const;
@@ -22,13 +21,16 @@ function TabGlyph({ glyph, focused }: { glyph: string; focused: boolean }) {
 }
 
 /**
- * Tab shell: Home · Logs · Week · Plan · You. Warm tab bar, coral-deep active
+ * Tab shell: Week · Logs · Plan · You. Warm tab bar, coral-deep active
  * tint, every target ≥48pt, no headers (each screen owns its title).
- * Home is the index route, so it stays the default landing tab.
+ * Week is the initial route, so it stays the default landing tab
+ * (Anuraj, Sept 2026: the Home briefing screen was removed and Week
+ * became the home/landing screen).
  */
 export default function TabsLayout() {
   return (
     <Tabs
+      initialRouteName="week"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.coralDeep,
@@ -39,11 +41,11 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen
-        name="index"
+        name="week"
         options={{
-          title: 'Home',
+          title: 'Week',
           tabBarIcon: ({ focused }) => (
-            <TabGlyph glyph={TAB_GLYPHS.index} focused={focused} />
+            <TabGlyph glyph={TAB_GLYPHS.week} focused={focused} />
           ),
         }}
       />
@@ -53,15 +55,6 @@ export default function TabsLayout() {
           title: 'Logs',
           tabBarIcon: ({ focused }) => (
             <TabGlyph glyph={TAB_GLYPHS.logs} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="week"
-        options={{
-          title: 'Week',
-          tabBarIcon: ({ focused }) => (
-            <TabGlyph glyph={TAB_GLYPHS.week} focused={focused} />
           ),
         }}
       />

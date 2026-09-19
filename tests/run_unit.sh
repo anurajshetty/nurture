@@ -59,6 +59,9 @@ tsc1 tests/delight.test.ts src/briefing/delight.ts src/theme/tokens.ts && run "d
 OUT=/tmp/nurture-babyname-tests
 tsc1 tests/baby_name.test.ts src/briefing/context.ts src/briefing/delight.ts src/briefing/matrix.ts src/theme/tokens.ts src/lib/types.ts src/onboarding/dates.ts && run "baby_name" node $OUT/tests/baby_name.test.js
 
+OUT=/tmp/nurture-tests-appt
+tsc1 tests/week_appointments.test.ts src/week/appointments.ts && run "week_appointments" env TZ=America/Los_Angeles node $OUT/tests/week_appointments.test.js
+
 OUT=/tmp/nurture-tests-week
 tsc1 tests/week_content.test.ts src/week/content.ts src/briefing/matrix.ts src/briefing/delight.ts src/briefing/context.ts src/briefing/types.ts src/theme/tokens.ts src/lib/types.ts src/onboarding/dates.ts && run "week_content" node $OUT/tests/week_content.test.js
 

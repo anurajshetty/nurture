@@ -43,12 +43,8 @@ import {
 } from '../../src/support/afterwardsCopy';
 import type { AftermathDecisions } from '../../src/lib/types';
 import {
-  AGE_BAND_OPTIONS,
-  getAgeBand,
   getBabyName,
-  setAgeBand,
   setBabyName,
-  type AgeBandValue,
 } from '../../src/briefing/context';
 import { clearBriefing } from '../../src/briefing/cache';
 import { formatLong, weekOf } from '../../src/onboarding/dates';
@@ -288,12 +284,8 @@ export default function YouScreen() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Weekly-briefing age band (track 3): optional, local-only.
-  const [ageBand, setAgeBandState] = useState<AgeBandValue | null>(null);
-  const [bandOpen, setBandOpen] = useState(false);
-
-  // Baby name (Sept 2026): optional, local-only — the briefing uses it
-  // where it would otherwise say "baby".
+  // Baby name (Sept 2026): optional, local-only — hers to keep, shown
+  // back in this row.
   const [babyName, setBabyNameState] = useState<string | null>(null);
   const [nameOpen, setNameOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
@@ -378,13 +370,8 @@ export default function YouScreen() {
     };
   }, []);
 
-  // Load the optional briefing age band (track 3) — local-only, never synced.
+  // Load the saved baby name — local-only, never synced.
   useEffect(() => {
-    try {
-      setAgeBandState(getAgeBand());
-    } catch {
-      // kv unreadable — the row just reads "Not set".
-    }
     try {
       setBabyNameState(getBabyName());
     } catch {
@@ -499,28 +486,7 @@ export default function YouScreen() {
     setStopOpen(true);
   }, [loadAftermath]);
 
-  // Weekly-briefing age band (track 3): saved immediately on tap, local-only.
-  const chooseAgeBand = useCallback(
-    (band: AgeBandValue | null) => {
-      try {
-        setAgeBand(band);
-      } catch {
-        showToast('That didn’t go through — nothing changed.');
-        return;
-      }
-      setAgeBandState(band);
-      setBandOpen(false);
-      showToast(band ? 'Saved — your weekly briefing will use it.' : 'Cleared.');
-    },
-    [showToast],
-  );
-
-  const ageBandLabel =
-    AGE_BAND_OPTIONS.find((o) => o.value === ageBand)?.label ?? 'Not set';
-
-  // Baby name: saved immediately, local-only. The cached briefing is
-  // cleared so the new (or cleared) name takes effect on the next Home
-  // visit instead of waiting for tomorrow's refresh.
+  // Baby name: saved immediately, local-only.
   const saveBabyName = useCallback(
     (name: string | null) => {
       const trimmed = name?.trim() || null;
@@ -533,7 +499,7 @@ export default function YouScreen() {
       }
       setBabyNameState(trimmed);
       setNameOpen(false);
-      showToast(trimmed ? 'Saved — your weekly briefing will use it.' : 'Cleared.');
+      showToast(trimmed ? 'Saved.' : 'Cleared.');
     },
     [showToast],
   );
@@ -909,21 +875,13 @@ export default function YouScreen() {
         />
       </View>
 
-      <SectionHeader title="Weekly briefing" />
+      <SectionHeader title="Your baby" />
 
       <View style={styles.rows}>
         <SettingsRow
-          icon="◎"
-          title="Age band (optional)"
-          subtitle="Makes your weekly briefing a little more relevant."
-          value={ageBandLabel}
-          onPress={() => setBandOpen(true)}
-          testID="age-band-row"
-        />
-        <SettingsRow
           icon="♥"
           title="Baby’s name (optional)"
-          subtitle="Your weekly briefing can use it instead of “baby”."
+          subtitle="Just for you — it stays on this device."
           value={babyNameLabel}
           onPress={() => {
             setNameDraft(babyName ?? '');
@@ -1081,46 +1039,6 @@ export default function YouScreen() {
           </View>
         )}
       </ScrollView>
-      </BottomSheet>
-
-      <BottomSheet
-        visible={bandOpen}
-        onClose={() => setBandOpen(false)}
-        accessibilityLabel="Choose your age band"
-        testID="age-band-sheet"
-      >
-        <Text style={styles.sheetTitle} accessibilityRole="header">
-          Age band
-        </Text>
-        <Text style={styles.sheetLede}>
-          Optional. It stays on this device and is only ever sent as an
-          anonymous band like “30–34” — never your birth date.
-        </Text>
-        {[{ value: null as AgeBandValue | null, label: 'Not set' }, ...AGE_BAND_OPTIONS].map(
-          (o) => {
-            const selected = ageBand === o.value;
-            return (
-              <Pressable
-                key={o.label}
-                onPress={() => chooseAgeBand(o.value)}
-                accessibilityRole="radio"
-                accessibilityLabel={o.label}
-                accessibilityState={{ selected }}
-                style={[styles.disp, selected && styles.dispSelected]}
-              >
-                <View
-                  style={[styles.radio, selected && styles.radioSelected]}
-                  accessibilityElementsHidden
-                >
-                  {selected ? <View style={styles.radioDot} /> : null}
-                </View>
-                <View style={styles.dispText}>
-                  <Text style={styles.dispTitle}>{o.label}</Text>
-                </View>
-              </Pressable>
-            );
-          },
-        )}
       </BottomSheet>
 
       <BottomSheet

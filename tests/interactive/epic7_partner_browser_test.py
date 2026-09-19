@@ -138,9 +138,9 @@ def main():
         # ---- Flows 2-5: partner section in the You tab ----
         page.goto(BASE, timeout=30000)
         try:
-            page.get_by_test_id("home-screen").wait_for(timeout=30000)
+            page.get_by_test_id("week-screen").wait_for(timeout=30000)
         except Exception:
-            check("app boots to home", False, "home-screen never appeared")
+            check("app boots to Week", False, "week-screen never appeared")
             browser.close()
             sys.exit(1)
         seed_status = page.evaluate(SEED_JS)

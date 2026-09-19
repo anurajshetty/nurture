@@ -251,13 +251,13 @@ def main():
         # ---- Flow 1: boot ----
         page.goto(BASE, timeout=60000)
         try:
-            page.get_by_test_id("home-screen").wait_for(timeout=45000)
+            page.get_by_test_id("week-screen").wait_for(timeout=45000)
         except Exception:
-            check("flow1: app boots", False, "home-screen never appeared")
+            check("flow1: app boots", False, "week-screen never appeared")
             print("body:", page.evaluate("document.body.innerText.slice(0, 300)"))
             browser.close()
             sys.exit(1)
-        check("flow1: app boots to Home", True)
+        check("flow1: app boots to Week", True)
 
         seed = json.loads(page.evaluate(SEED_JS))
         check("flow1: hooks seeded an appointment", seed.get("status") == "seeded", str(seed))

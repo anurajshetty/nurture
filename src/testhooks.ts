@@ -8,7 +8,7 @@
  * Exposes `(window as any).__nurtureTest`:
  * - seedEvent(input) → saveEvent — inserts an event through the real store
  * - clearEvents() → clearAllEvents — resets the timeline
- * - completeOnboarding() — marks onboarding finished so the Home timeline
+ * - completeOnboarding() — marks onboarding finished so the tab shell
  *   renders without walking the onboarding flow
  * - seedPregnancy(input) → savePregnancy — inserts a pregnancy record
  *   (used to exercise pregnancy-week bands and the week-jump button)

@@ -131,14 +131,14 @@ def main():
         page.on("pageerror", lambda e: page_errors.append(str(e)[:200]))
         page.goto(BASE, timeout=30000)
 
-        home = page.get_by_test_id("home-screen")
+        home = page.get_by_test_id("week-screen")
         try:
             home.wait_for(timeout=30000)
         except Exception:
-            check("app boots to home", False, "home-screen never appeared")
+            check("app boots to Week", False, "week-screen never appeared")
             browser.close()
             sys.exit(1)
-        check("app boots to home", True)
+        check("app boots to Week", True)
 
         seeded = page.evaluate(SEED_JS)
         check("seeded via test hooks", seeded == "seeded", str(seeded))

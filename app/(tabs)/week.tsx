@@ -32,6 +32,7 @@ import {
 } from '../../src/theme/tokens';
 import {
   getActivePregnancy,
+  listEvents,
   listEventsInRange,
   listPregnancies,
   saveEvent,
@@ -44,8 +45,14 @@ import {
   getWeekContent,
   getWeekNumber,
   shouldShowWeekContent,
+  weekGreeting,
   type WeekContent,
 } from '../../src/week/content';
+import { getBabyName } from '../../src/briefing/context';
+import {
+  selectUpcomingAppointment,
+  type UpcomingAppointment,
+} from '../../src/week/appointments';
 
 /** Warm orb tones, cycled gently by week for subtle variety. */
 const ORB_TONES = ['#E8A94E', '#D98E3B', '#E5B25E', '#DDA44A', '#E9B558'];
@@ -101,6 +108,8 @@ export default function WeekScreen() {
   const [draft, setDraft] = useState('');
   const [savedTick, setSavedTick] = useState(0);
   const [moments, setMoments] = useState(0);
+  const [upcoming, setUpcoming] = useState<UpcomingAppointment | null>(null);
+  const [babyName, setBabyName] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -111,6 +120,19 @@ export default function WeekScreen() {
           v === null ? s.currentWeek : Math.min(v, s.currentWeek),
         );
         setMoments(countWeekMoments());
+        try {
+          setBabyName(getBabyName());
+        } catch {
+          setBabyName(null);
+        }
+        try {
+          const appts = listEvents(200).filter(
+            (e) => e.type === 'appointment',
+          );
+          setUpcoming(selectUpcomingAppointment(appts, Date.now()));
+        } catch {
+          setUpcoming(null);
+        }
       }
     }, []),
   );
@@ -145,7 +167,7 @@ export default function WeekScreen() {
         <EmptyState
           glyph="◍"
           title="Your week, unfolding"
-          copy="Week by week, you'll find gentle size comparisons, highlights, and reading here — written for exactly where you are, never ahead of you."
+          copy="Week by week, you'll find gentle size comparisons, highlights, and reading here. Written for exactly where you are, never ahead of you."
         />
       </Screen>
     );
@@ -157,7 +179,7 @@ export default function WeekScreen() {
         <EmptyState
           glyph="◍"
           title="Your week view is resting"
-          copy="Pregnancy updates are off. Your story is still here whenever you'd like to revisit it — nothing has been lost."
+          copy="Pregnancy updates are off. Your story is still here whenever you'd like to revisit it. Nothing has been lost."
         >
           <Button
             title="View your story"
@@ -176,8 +198,10 @@ export default function WeekScreen() {
     week,
     pregnancy.dueDate ?? '',
     todayISO(),
+    babyName,
   );
   const isCurrent = week === currentWeek;
+  const greeting = weekGreeting(week, babyName);
 
   const goWeek = (d: -1 | 1) => {
     setViewWeek((v) => {
@@ -250,6 +274,11 @@ export default function WeekScreen() {
         </Pressable>
       ) : null}
 
+      {/* Warm greeting */}
+      <Text style={styles.greeting} testID="week-greeting">
+        {greeting}
+      </Text>
+
       {/* Size hero */}
       <View style={styles.sizeHero} testID="week-size-hero">
         <View
@@ -276,6 +305,28 @@ export default function WeekScreen() {
           </>
         )}
       </View>
+
+      {/* Upcoming appointment — current week only */}
+      {isCurrent && upcoming ? (
+        <Card
+          testID="week-appointment-card"
+          onPress={() => router.push('/plan')}
+          accessibilityLabel={`A gentle nudge. ${upcoming.title}. ${upcoming.when}. Tap to open Plan.`}
+        >
+          <Text style={styles.apptHeadline}>A gentle nudge</Text>
+          <Text style={styles.apptTitle} testID="week-appointment-title">
+            {upcoming.title}
+          </Text>
+          <Text style={styles.apptWhen} testID="week-appointment-when">
+            {upcoming.when}
+          </Text>
+          {upcoming.more > 0 ? (
+            <Text style={styles.apptMore} testID="week-appointment-more">
+              +{upcoming.more} more
+            </Text>
+          ) : null}
+        </Card>
+      ) : null}
 
       {/* Highlights */}
       <Kicker>Highlights this week</Kicker>
@@ -405,13 +456,13 @@ export default function WeekScreen() {
         </Text>
         <Text style={styles.storyCopy}>
           {moments === 0
-            ? 'Nothing saved this week yet — your story is waiting whenever you are.'
+            ? 'Nothing saved this week yet. Your story is waiting whenever you are.'
             : 'Your story is filling in beautifully.'}
         </Text>
       </Card>
 
       <Text style={styles.footer} testID="week-footer">
-        General information only — not medical advice.{'\n'}Content updated
+        General information only. Not medical advice.{'\n'}Content updated
         Sep 2026
       </Text>
     </Screen>
@@ -471,6 +522,16 @@ const styles = StyleSheet.create({
     color: colors.muted,
     textAlign: 'center',
     marginBottom: spacing.sm,
+  },
+  greeting: {
+    fontFamily: 'Georgia',
+    fontSize: 18,
+    fontStyle: 'italic',
+    color: colors.ink,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.lg,
   },
   backPill: {
     alignSelf: 'center',
@@ -697,6 +758,30 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.ink,
     marginBottom: spacing.xs,
+  },
+  apptHeadline: {
+    fontSize: 12,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: colors.coralDeep,
+    fontWeight: '700',
+    marginBottom: spacing.xs,
+  },
+  apptTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.ink,
+    marginBottom: 2,
+  },
+  apptWhen: {
+    fontSize: 14.5,
+    color: '#5C554D',
+    lineHeight: 21,
+  },
+  apptMore: {
+    fontSize: 13,
+    color: colors.muted,
+    marginTop: spacing.xs,
   },
   storyCopy: {
     fontSize: 14.5,

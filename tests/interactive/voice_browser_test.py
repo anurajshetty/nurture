@@ -181,8 +181,8 @@ def main():
         page = ctx.new_page()
         page.on("pageerror", lambda e: print("PAGEERROR:", str(e)[:200]))
         page.goto(BASE, timeout=30000)
-        page.get_by_test_id("home-screen").wait_for(timeout=30000)
-        # Composer now lives on the Logs tab (new Home = briefing).
+        page.get_by_test_id("week-screen").wait_for(timeout=30000)
+        # Composer lives on the Logs tab.
         page.get_by_role("tab", name="Logs").click()
         page.get_by_test_id("logs-screen").wait_for(timeout=10000)
         mic = page.get_by_role("button", name="Dictate a moment")

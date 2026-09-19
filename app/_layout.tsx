@@ -44,6 +44,9 @@ function RootNavigator() {
         <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
       )}
       <Stack.Screen name="auth" />
+      {/* Root landing redirect (Sept 2026): always registered — it sends
+          finished onboarding to Week and everyone else to onboarding. */}
+      <Stack.Screen name="index" />
       {completed && (
         <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
       )}

@@ -129,7 +129,7 @@ const LATE_PREP = [PREP_PEDIATRICIAN, PREP_CAR_SEAT];
 const ROW_36: WeekMatrixRow = {
   week: 36,
   anchors: {
-    baby: '{Name} is gaining about an ounce a day now — the plumping-up phase.',
+    baby: '{Name} is gaining about an ounce a day now. The plumping-up phase.',
     body: 'Weekly check-ins often begin now — short visits, mostly listening.',
   },
   milestones: [
@@ -157,22 +157,22 @@ const ROW_36: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'Gaining about an ounce a day — the plumping-up phase.',
+      'Gaining about an ounce a day. The plumping-up phase.',
       'The brain and lungs are putting on finishing touches.',
-      'She\'s likely head-down now, settling into launch position.',
+      'She\'s likely head-down now, settling into place for her arrival.',
     ],
     body: [
-      'Weekly check-ins often start now — short, reassuring visits.',
-      'Sleep is choppy; rest when you can, without guilt.',
-      'Braxton Hicks may be more noticeable — tightening that comes and goes.',
+      'Weekly check-ins often start now. They\'re usually short and reassuring.',
+      'Sleep is choppy. Rest when you can, without guilt.',
+      'Braxton Hicks may be more noticeable now. It\'s a tightening feeling that comes and goes.',
     ],
     know: [
       'Group B strep screening usually happens around 36–37 weeks — a quick swab, nothing more.',
       'Kick counts: many providers suggest keeping an eye on her usual pattern.',
     ],
     tips: [
-      'Keep the hospital bag by the door — packed is peaceful.',
-      'Stock the freezer with a few easy meals; future-you says thanks.',
+      'Keep the hospital bag by the door. Knowing it\'s packed feels good.',
+      'Stock the freezer with a few easy meals. You\'ll be glad later.',
     ],
   },
   firstTimeNote:
@@ -185,7 +185,7 @@ const ROW_36: WeekMatrixRow = {
 const ROW_37: WeekMatrixRow = {
   week: 37,
   anchors: {
-    baby: 'Early term — {name}\'s organs are ready; now it\'s all about plumping up.',
+    baby: 'Early term means {name}\'s organs are ready. Now it\'s all about plumping up.',
     body: 'The heaviness shifts — many describe week 37 as "any day now" energy.',
   },
   milestones: [
@@ -206,22 +206,22 @@ const ROW_37: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'Early term: the brain and lungs are ready for the outside.',
-      'She\'s gaining steadily — about half a pound a week.',
-      'Vernix is mostly gone; her skin is smoothing out.',
+      'At early term, the brain and lungs are ready for the outside world.',
+      'She\'s gaining steadily, about half a pound a week.',
+      'Vernix is mostly gone, and her skin is smoothing out.',
     ],
     body: [
-      'The "any day now" feeling is real — and normal.',
-      'Rest is productive now; growing a person is the work.',
-      'You might notice more discharge — the body preparing quietly.',
+      'The "any day now" feeling is real, and it\'s completely normal.',
+      'Rest is productive now. Growing a person is the work.',
+      'You might notice more discharge as your body quietly prepares.',
     ],
     know: [
       'Early term spans 37–38 weeks; full term starts at 39.',
       'If your water breaks or contractions find a rhythm, most providers want to hear from you.',
     ],
     tips: [
-      'Keep your phone charged and the car fueled — the boring stuff matters.',
-      'A short daily walk can feel good — gentle, no goals.',
+      'Keep your phone charged and the car fueled. The boring stuff matters.',
+      'A short daily walk can feel good. No distance goals, just gentle.',
     ],
   },
   firstTimeNote:
@@ -234,7 +234,7 @@ const ROW_37: WeekMatrixRow = {
 const ROW_38: WeekMatrixRow = {
   week: 38,
   anchors: {
-    baby: '{Name}\'s grip is strong now — she\'ll wrap those tiny fingers around yours.',
+    baby: '{Name}\'s grip is strong now. She\'ll wrap those tiny fingers around yours.',
     body: 'The finish line is close enough to picture — rest is the assignment.',
   },
   milestones: [
@@ -255,22 +255,22 @@ const ROW_38: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'Her organs are ready; she\'s mostly gaining weight now.',
-      'The grip reflex is strong — practice for your finger.',
-      'Brain development continues at a remarkable pace.',
+      'Her organs are ready, and she\'s mostly gaining weight now.',
+      'Her grip reflex is strong now, ready to wrap around your finger.',
+      'Her brain is still developing quickly.',
     ],
     body: [
-      'Trouble sleeping is nearly universal now — naps count.',
-      'You might feel her drop lower — the "lightening" cliché.',
-      'Swelling in feet and ankles is common; rest with them up.',
+      'Trouble sleeping is pretty common now. Naps count.',
+      'You might feel her drop lower. That\'s the "lightening" everyone talks about.',
+      'Swelling in feet and ankles is common. Rest with your feet up.',
     ],
     know: [
       'Full term at 39 weeks is when most systems are at their best.',
       'Contractions that come regularly and get stronger deserve a call.',
     ],
     tips: [
-      'Say yes to help — meals, errands, company.',
-      'Pack snacks for the hospital bag; labor is hungry work.',
+      'Say yes to help. Meals, errands, company.',
+      'Pack snacks for the hospital bag. Labor is hungry work.',
     ],
   },
   firstTimeNote:
@@ -283,7 +283,7 @@ const ROW_38: WeekMatrixRow = {
 const ROW_39: WeekMatrixRow = {
   week: 39,
   anchors: {
-    baby: 'Full term — {name} is ready whenever she is. The grand finale.',
+    baby: 'Full term. {name} is ready whenever she is. The grand finale.',
     body: 'You\'ve done the long work — now it\'s waiting, wonderfully.',
   },
   milestones: [
@@ -304,22 +304,22 @@ const ROW_39: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'Full term: every system is ready for the outside world.',
-      'She\'s about 20 inches and over 7 pounds — give or take.',
+      'At full term, every system is ready for the outside world.',
+      'She\'s about 20 inches long and a little over 7 pounds.',
       'The placenta is still working hard, right to the end.',
     ],
     body: [
-      'Nesting may peak — channel it gently, not frantically.',
-      'False alarms are common; timing contractions helps tell.',
-      'You\'re in the home stretch — be kind to yourself hourly.',
+      'Nesting may peak now. It\'s easy to go overboard, so take it easy.',
+      'False alarms are common. Timing contractions helps you tell the difference.',
+      'You\'re in the home stretch. Be extra kind to yourself.',
     ],
     know: [
       'Only about 1 in 20 babies arrives on the due date — the rest are fashionably early or late.',
       'Membrane sweeps and induction are conversations to have with your provider, not the internet.',
     ],
     tips: [
-      'Keep everything wonderfully boring — routine is restful.',
-      'Charge everything: phone, camera, patience.',
+      'Keep everything wonderfully boring. Routine is restful.',
+      'Keep the phone and camera charged.',
     ],
   },
   firstTimeNote:
@@ -332,7 +332,7 @@ const ROW_39: WeekMatrixRow = {
 const ROW_40: WeekMatrixRow = {
   week: 40,
   anchors: {
-    baby: 'The due date — {name}\'s estimated arrival. She\'ll come on her own schedule.',
+    baby: 'The due date is {name}\'s estimated arrival. She\'ll come on her own schedule.',
     body: 'You\'ve carried her 40 weeks — an extraordinary, ordinary miracle.',
   },
   milestones: [
@@ -353,13 +353,13 @@ const ROW_40: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'She\'s fully ready — just waiting for the right moment.',
-      'About 20 inches, about 7½ pounds — the classic newborn.',
-      'Her skull is still soft and flexible — designed for the journey.',
+      'She\'s fully ready, just waiting for the right moment.',
+      'Around 20 inches long and 7½ pounds. A classic newborn size.',
+      'Her skull is still soft and flexible. That helps with the birth itself.',
     ],
     body: [
-      'Waiting is the work now — and it\'s real work.',
-      'Gentle movement can feel good; so can doing nothing.',
+      'Waiting is the work now, and it\'s real work.',
+      'Gentle movement can feel good. So can doing nothing.',
       'Your provider will want to see you regularly from here.',
     ],
     know: [
@@ -367,8 +367,8 @@ const ROW_40: WeekMatrixRow = {
       'Keep your provider\'s number handy — they\'ll tell you exactly what deserves a call.',
     ],
     tips: [
-      'Distraction is a strategy — films, walks, naps.',
-      'Let people help; this is what the village is for.',
+      'Distraction is a strategy. Films, walks, naps.',
+      'Let people help. This is what the village is for.',
     ],
   },
   firstTimeNote:
@@ -381,7 +381,7 @@ const ROW_40: WeekMatrixRow = {
 const ROW_41: WeekMatrixRow = {
   week: 41,
   anchors: {
-    baby: 'Still cozy — some babies just like it in there.',
+    baby: 'Still cozy. Some babies just like it in there.',
     body: 'Extra check-ins now — reassurance for everyone.',
   },
   milestones: [
@@ -401,22 +401,22 @@ const ROW_41: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'She\'s still growing — a little more plump each day.',
-      'The placenta is monitored more closely now — routine and reassuring.',
-      'She\'s running out of room to dance, but she\'ll try anyway.',
+      'She\'s still growing, a little more plump each day.',
+      'The placenta gets monitored more closely now. It\'s routine and reassuring.',
+      'She\'s running out of room to move, but she\'ll try anyway.',
     ],
     body: [
-      'Non-stress tests or biophysical profiles may be scheduled — simple, painless check-ins.',
-      'Impatience is universal; be impatient together.',
-      'Rest when you can — the finale is physical work.',
+      'Non-stress tests or biophysical profiles may be scheduled. They\'re simple, painless check-ins.',
+      'Impatience is universal. It helps to be impatient together.',
+      'Rest when you can. The finale is physical work.',
     ],
     know: [
       'Most providers recommend planning the birth by 42 weeks.',
       'Induction methods are a personal conversation with your provider.',
     ],
     tips: [
-      'Keep the bag packed and the phone charged — still.',
-      'Long walks are the classic suggestion; do what feels right.',
+      'Keep the bag packed and the phone charged, still.',
+      'Long walks are the classic suggestion. Do what feels right.',
     ],
   },
   firstTimeNote:
@@ -429,7 +429,7 @@ const ROW_41: WeekMatrixRow = {
 const ROW_42: WeekMatrixRow = {
   week: 42,
   anchors: {
-    baby: '42 weeks — the far edge of the calendar. Arrival is planned, not awaited.',
+    baby: '42 weeks, the far edge of the calendar. Arrival is planned by now.',
     body: 'The longest wait — nearly over.',
   },
   milestones: [
@@ -449,8 +449,8 @@ const ROW_42: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'She\'s fully cooked — just waiting for the invitation.',
-      'Extra monitoring continues — everyone watched closely.',
+      'She\'s fully developed now, just waiting for the right moment.',
+      'Extra monitoring continues, so everyone is watched closely.',
       'The plan for her arrival is made together with your provider.',
     ],
     body: [
@@ -463,7 +463,7 @@ const ROW_42: WeekMatrixRow = {
       'Your care team\'s guidance is the map here.',
     ],
     tips: [
-      'You\'re almost there — really.',
+      'You\'re almost there. Really.',
       'One day, very soon, you\'ll hold her.',
     ],
   },
@@ -482,7 +482,7 @@ const ROW_42: WeekMatrixRow = {
 export const FALLBACK_ROW: WeekMatrixRow = {
   week: 0,
   anchors: {
-    baby: '{Name} is growing every day — length, weight, and new refinements.',
+    baby: '{Name} is growing every day. Length, weight, and new refinements.',
     body: 'Your body is doing remarkable, ordinary work.',
   },
   milestones: [],
@@ -494,12 +494,12 @@ export const FALLBACK_ROW: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'Growth is the theme — every week adds size and new refinements.',
+      'Growth is the theme. Every week adds size and new refinements.',
       'Her systems are developing on their own remarkable schedule.',
     ],
     body: [
       'Your body is adapting beautifully to its extraordinary task.',
-      'Rest when you need it — growing a person is real work.',
+      'Rest when you need it. Growing a person is real work.',
     ],
     know: [
       'Every week brings something new — your briefing keeps pace.',

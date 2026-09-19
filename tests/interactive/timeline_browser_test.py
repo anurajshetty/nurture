@@ -103,15 +103,15 @@ def main():
         page.on("pageerror", lambda e: print("PAGEERROR:", str(e)[:200]))
         page.goto(BASE, timeout=30000)
 
-        home = page.get_by_test_id("home-screen")
+        home = page.get_by_test_id("week-screen")
         try:
             home.wait_for(timeout=30000)
         except Exception:
-            check("app boots to home timeline", False, "home-screen never appeared")
+            check("app boots to week", False, "week-screen never appeared")
             print("body text:", page.evaluate("document.body.innerText.slice(0, 300)"))
             browser.close()
             sys.exit(1)
-        check("app boots to Home briefing", True)
+        check("app boots to Week", True)
 
         # Seed through the real store, then reload so the timeline reads them.
         seed_status = page.evaluate(SEED_JS)

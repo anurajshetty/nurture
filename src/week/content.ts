@@ -187,6 +187,48 @@ export function getWeekRangeLabel(
 }
 
 /* ------------------------------------------------------------------ */
+/* Name tokens + warm greeting                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Resolves the {Name}/{name} tokens in curated copy on-device with the
+ * saved baby name, falling back to warm generic "your baby" wording.
+ * Sentence-initial {Name} capitalizes the fallback ("Your baby").
+ */
+export function resolveNameTokens(
+  text: string,
+  babyName: string | null | undefined,
+): string {
+  const name = babyName?.trim() ? babyName.trim() : null;
+  return text
+    .replaceAll('{Name}', name ?? 'Your baby')
+    .replaceAll('{name}', name ?? 'your baby');
+}
+
+/**
+ * Warm stage-based greeting for the top of the Week screen
+ * (Anuraj, Sept 2026). Uses the saved baby name when present.
+ * Read aloud before shipping — each line should sound spoken.
+ */
+export function weekGreeting(
+  week: number,
+  babyName: string | null | undefined,
+): string {
+  const name = babyName?.trim() ? babyName.trim() : null;
+  if (week >= 37)
+    return name
+      ? `Hey, you're almost there. Any day now, ${name}.`
+      : `Hey, you're almost there.`;
+  if (week >= 28)
+    return name ? `The home stretch. ${name} is nearly here.` : `The home stretch.`;
+  if (week >= 13)
+    return name
+      ? `Look how far you and ${name} have come.`
+      : `Look how far you've come.`;
+  return name ? `The beginning of everything, ${name}.` : `The beginning of everything.`;
+}
+
+/* ------------------------------------------------------------------ */
 /* Main assembly                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -194,26 +236,40 @@ export function getWeekRangeLabel(
  * Assembles everything the Week tab shows for a gestational week.
  * Never throws, never returns undefined fields — the UI can render it
  * directly. All sources are bundled, so this works fully offline.
+ *
+ * `babyName` (optional) resolves the {Name}/{name} tokens in curated
+ * copy; when absent, warm generic "your baby" wording is used.
  */
 export function getWeekContent(
   week: number,
   dueDate: string,
   todayISO: string,
+  babyName?: string | null,
 ): WeekContent {
   const row = getMatrixRow(week);
   const size = SIZE_BY_WEEK[week] ?? null;
 
   const babySeeds = row.routineSeeds.baby;
   const highlights: [string, string, string] = [
-    row.anchors.baby,
-    babySeeds[0] ?? row.anchors.baby,
-    babySeeds[1] ?? babySeeds[0] ?? row.anchors.baby,
+    resolveNameTokens(row.anchors.baby, babyName),
+    resolveNameTokens(babySeeds[0] ?? row.anchors.baby, babyName),
+    resolveNameTokens(
+      babySeeds[1] ?? babySeeds[0] ?? row.anchors.baby,
+      babyName,
+    ),
   ];
 
   const readings: WeekReading[] = [
-    reading('body', 'Your body this week', row.routineSeeds.body),
-    reading('know', 'Good to know', row.routineSeeds.know),
-    reading('tips', 'Tips for this week', row.routineSeeds.tips),
+    reading(
+      'body',
+      'Your body this week',
+      row.routineSeeds.body.map((p) => resolveNameTokens(p, babyName)),
+    ),
+    reading(
+      'tips',
+      'Tips for this week',
+      row.routineSeeds.tips.map((p) => resolveNameTokens(p, babyName)),
+    ),
   ];
 
   return {
