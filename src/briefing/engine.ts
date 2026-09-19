@@ -7,7 +7,9 @@
  * complete offline fallback, so Home never blanks.
  *
  * Order (Anuraj, Sept 2026):
- * 1. Timely — milestone countdowns (next week) and prep windows.
+ * 1. Timely — v1.2 event-aware cards first (visit-prep ≤3 days, one-time
+ *    milestone-celebrated ≤7 days), then matrix milestone countdowns
+ *    (next week) and prep windows.
  * 2. Routine four, fixed: baby → body → know → tips.
  * 3. "New this week" — only on gestational days 1–2, below the routine
  *    cards (never at the top).
@@ -19,7 +21,8 @@
  *    the plan is not crowded.
  *
  * Out of scope for v1.1 (need Epics 4.5/4.7): visit-prep cards,
- * milestone-celebrated cards.
+ * milestone-celebrated cards. v1.2 (Track 2) builds them here, against the
+ * EngineInput contracts in ./v12cards.ts.
  */
 
 import { colors } from '../theme/tokens';
@@ -40,6 +43,18 @@ import {
 } from './matrix';
 import type { AgeBandValue } from './context';
 import type { PlanSection, PlanSlot, RichBody } from './types';
+import {
+  VISIT_PREP_WINDOW_DAYS,
+  MILESTONE_RECENCY_DAYS,
+  isWithinDaysAhead,
+  isWithinDaysAgo,
+  isCelebrated,
+  visitPrepLine,
+  celebratedLine,
+  v12Title,
+  type V12Appointment,
+  type V12Milestone,
+} from './v12cards';
 
 /** Routine-card titles — the stable contract, never rephrased. */
 const ROUTINE_TITLES = {
@@ -92,6 +107,24 @@ export interface EngineInput {
   logs: Array<{ id: string; text: string; date: string }>;
   /** Persisted delight rotation state. */
   store: DelightStore | null;
+  /**
+   * v1.2 (Track 2): nearest upcoming appointment, assembled by the caller
+   * from the store. Contract: { type:'appointment', occurredAt:<ISO>,
+   * data:{ title, note?, questions? } }.
+   */
+  upcomingAppointment?: V12Appointment | null;
+  /**
+   * v1.2 (Track 2): latest milestone event, assembled by the caller from
+   * the store. Contract: { type:'milestone', data:{ title, note? } }.
+   * "Recent" = within the last 7 days (the engine enforces the gate).
+   */
+  recentMilestone?: V12Milestone | null;
+  /**
+   * Epic 9 contract C3 — same boolean-gate shape as the appointment
+   * reminder planner: both v1.2 cards are suppressed when false.
+   * Optional; defaults to true so existing callers are unaffected.
+   */
+  pregnancyActive?: boolean;
 }
 
 /** The engine's output: the ordered plan plus its stable hash. */
@@ -146,6 +179,20 @@ function monthDay(iso: string): string {
   return label ? `${label} ${Number(m[3])}` : iso;
 }
 
+/**
+ * v1.1 age-band framing: the matrix row's note for her age band (when the
+ * curated row sets one) lands in the "body" card. Extracted as a pure
+ * helper so the path is unit-testable; v1.2 changes no copy here.
+ */
+export function applyAgeBandNote(
+  body: RichBody,
+  row: WeekMatrixRow,
+  ageBand: AgeBandValue | undefined,
+): void {
+  const note = ageBand ? row.ageBandNotes?.[ageBand] : undefined;
+  if (typeof note === 'string' && note.length > 0) body.push([{ text: note }]);
+}
+
 function routineSlot(
   id: RoutineId,
   row: WeekMatrixRow,
@@ -159,9 +206,7 @@ function routineSlot(
     const note = input.firstTimeMom ? row.firstTimeNote : row.experiencedNote;
     if (note) body.push([{ text: note }]);
   }
-  if (id === 'body' && input.ageBand && row.ageBandNotes?.[input.ageBand]) {
-    body.push([{ text: row.ageBandNotes[input.ageBand] as string }]);
-  }
+  if (id === 'body') applyAgeBandNote(body, row, input.ageBand);
   const preview =
     id === 'baby'
       ? row.anchors.baby
@@ -230,6 +275,57 @@ function headsupSlot(teaser: string): PlanSlot {
     glyph: tile.glyph,
     glyphColor: tile.glyphColor,
     testID: 'briefing-headsup',
+  };
+}
+
+/**
+ * v1.2 visit-prep card (proposal §5): appointment ≤3 days away, with the
+ * question-inbox count. Reuses the existing timely-prep tile — no new UI.
+ * phrase: false — the appointment title is her words and never leaves
+ * the device (proposal §1: no free text in the phraser payload).
+ */
+function visitPrepSlot(appt: V12Appointment): PlanSlot {
+  const line = visitPrepLine(appt);
+  const tile = TILES['timely-prep'];
+  return {
+    slotId: 'timely-visit-prep',
+    section: 'timely',
+    title: v12Title(appt.data, 'Appointment'),
+    preview: line,
+    body: para(line),
+    phrase: false,
+    tint: tile.tint,
+    glyph: tile.glyph,
+    glyphColor: tile.glyphColor,
+    testID: 'home-visit-prep',
+  };
+}
+
+/**
+ * v1.2 milestone-celebrated card (proposal §5): one-time per event id,
+ * auto-expires after 7 days (recency gate in buildPlan). Reuses the
+ * existing timely-milestone tile — no new UI. phrase: false — her
+ * milestone title is her words, never rephrased or sent up.
+ */
+function milestoneCelebratedSlot(m: V12Milestone): PlanSlot {
+  const line = celebratedLine(m);
+  const tile = TILES['timely-milestone'];
+  return {
+    slotId: 'timely-milestone-celebrated',
+    section: 'timely',
+    title: v12Title(m.data, 'Milestone'),
+    preview: line,
+    body: para(line),
+    phrase: false,
+    tint: tile.tint,
+    glyph: tile.glyph,
+    glyphColor: tile.glyphColor,
+    testID: 'home-milestone-celebrated',
+    // The delivery layer (policy.ts) marks this shown when the briefing is
+    // actually delivered — never here. The engine stays pure: a plan that
+    // is built but discarded (stale refresh, double effect) must not burn
+    // the one-time mark.
+    celebratedEventId: m.id,
   };
 }
 
@@ -307,8 +403,38 @@ export function buildPlan(input: EngineInput): EnginePlan {
   const row = getMatrixRow(input.week);
   const curated = hasCuratedRow(input.week);
 
-  // 1. Timely — milestones touching this week (incl. next-week countdowns)
-  //    and at most one prep-window card.
+  // 1. Timely — v1.2 event-aware cards first (most actionable), then the
+  //    matrix milestones touching this week (incl. next-week countdowns)
+  //    and at most one prep-window card. Contract C3: both v1.2 cards are
+  //    suppressed when the pregnancy is stopped (planner pattern).
+  const pregnancyActive = input.pregnancyActive !== false;
+  if (
+    pregnancyActive &&
+    input.upcomingAppointment &&
+    isWithinDaysAhead(
+      input.upcomingAppointment.occurredAt,
+      input.date,
+      VISIT_PREP_WINDOW_DAYS,
+    )
+  ) {
+    slots.push(visitPrepSlot(input.upcomingAppointment));
+  }
+  if (
+    pregnancyActive &&
+    input.recentMilestone &&
+    isWithinDaysAgo(
+      input.recentMilestone.occurredAt,
+      input.date,
+      MILESTONE_RECENCY_DAYS,
+    ) &&
+    input.store &&
+    !isCelebrated(input.store, input.recentMilestone.id)
+  ) {
+    // One-time per event id. The mark is written by the delivery layer
+    // (policy.ts) when this briefing actually reaches the screen — the
+    // engine only reads the gate, keeping buildPlan pure.
+    slots.push(milestoneCelebratedSlot(input.recentMilestone));
+  }
   const milestones = row.milestones.filter(
     (m) => m.weekOffset === 0 || m.weekOffset === 1,
   );

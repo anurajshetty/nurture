@@ -56,6 +56,12 @@ export interface PlanSlot {
   glyph: string;
   glyphColor: string;
   testID: string;
+  /**
+   * v1.2: milestone event id behind a one-time celebrated card. Set only by
+   * the milestone-celebrated slot; the delivery layer (policy.ts) marks it
+   * shown when the briefing actually reaches the screen.
+   */
+  celebratedEventId?: string;
 }
 
 /** One morning briefing: the engine's ordered plan, phrased where available. */

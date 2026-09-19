@@ -17,6 +17,9 @@ tsc1() { npx tsc --ignoreConfig "$@" --outDir "$OUT" --module commonjs --target 
 OUT=/tmp/nurture-briefing-tests
 tsc1 tests/home_briefing.test.ts src/briefing/cache.ts src/briefing/policy.ts src/briefing/client.ts src/briefing/context.ts src/briefing/types.ts src/briefing/engine.ts src/briefing/matrix.ts src/briefing/delight.ts src/theme/tokens.ts src/lib/types.ts src/onboarding/dates.ts && run "home_briefing" node $OUT/tests/home_briefing.test.js
 
+OUT=/tmp/nurture-v12-tests
+tsc1 tests/v12_home_cards.test.ts src/briefing/v12cards.ts src/briefing/engine.ts src/briefing/policy.ts src/briefing/cache.ts src/briefing/client.ts src/briefing/matrix.ts src/briefing/delight.ts src/briefing/context.ts src/briefing/types.ts src/plan/questions.ts src/theme/tokens.ts src/lib/types.ts src/onboarding/dates.ts && run "v12_home_cards" env TZ=UTC node $OUT/tests/v12_home_cards.test.js
+
 OUT=/tmp/nurture-matrix-tests
 tsc1 tests/briefing_matrix.test.ts src/briefing/engine.ts src/briefing/matrix.ts src/briefing/delight.ts src/briefing/context.ts src/briefing/types.ts src/theme/tokens.ts src/lib/types.ts src/onboarding/dates.ts && run "briefing_matrix" node $OUT/tests/briefing_matrix.test.js
 
@@ -40,6 +43,9 @@ tsc1 tests/epic2.test.ts src/composer/intent.ts src/composer/moodWindow.ts src/n
 
 OUT=/tmp/nurture-tests23
 tsc1 tests/epic2_3.test.ts src/composer/exif.ts src/sync/mediaShape.ts src/lib/types.ts && run "epic2_3" node $OUT/tests/epic2_3.test.js
+
+OUT=/tmp/nurture-tests-457
+tsc1 tests/epic4_5_4_7.test.ts src/composer/intent.ts src/onboarding/dates.ts src/lib/types.ts && run "epic4_5_4_7" env TZ=UTC node $OUT/tests/epic4_5_4_7.test.js
 
 OUT=/tmp/nurture-tests24
 npx tsc --ignoreConfig tests/epic2_4.test.ts src/composer/voice.ts --outDir $OUT --module commonjs --target es2022 --lib es2022,dom --skipLibCheck --esModuleInterop && run "epic2_4" node $OUT/tests/epic2_4.test.js

@@ -7,8 +7,18 @@
  */
 
 import type { EventInput } from '../lib/types';
+import { todayISO } from '../onboarding/dates';
 
-export type IntentKind = 'symptom' | 'movement' | 'appointment' | 'weight';
+export type IntentKind = 'symptom' | 'movement' | 'milestone' | 'appointment' | 'weight';
+
+/**
+ * Optional build context for proposals that need more than the note text.
+ * Passed ONLY from an explicit "Save" tap.
+ */
+export interface ProposalBuildOpts {
+  /** ISO date/datetime for the event's occurredAt. Defaults to today when unset. */
+  occurredAt?: string;
+}
 
 export interface IntentProposal {
   kind: IntentKind;
@@ -22,7 +32,7 @@ export interface IntentProposal {
    * Builds the structured event. Called ONLY from the explicit "Save"
    * tap — never speculatively.
    */
-  buildEvent: (noteText: string) => EventInput;
+  buildEvent: (noteText: string, opts?: ProposalBuildOpts) => EventInput;
 }
 
 /** Canonical symptom name → trigger phrases (lowercase, matched as substrings). */
@@ -53,6 +63,21 @@ const APPOINTMENT_TRIGGERS = [
 ];
 
 const WEIGHT_RE = /(\d{2,3}(?:\.\d)?)\s?(lbs?|pounds?|kgs?|kilos?)\b/i;
+
+/**
+ * Milestone trigger phrases (Epic 4.7). Each entry is matched with word
+ * boundaries, and every phrase is phrased as an unambiguous celebration
+ * so appointment/symptom triggers can't shadow it: none of these contain
+ * 'ultrasound', 'scan appointment', 'checkup', 'appointment', 'midwife',
+ * or any symptom phrase as a substring.
+ */
+const MILESTONE_TRIGGERS: Array<{ title: string; triggers: string[] }> = [
+  { title: 'First heartbeat', triggers: ['heard the heartbeat', 'first heartbeat'] },
+  { title: 'Saw the baby', triggers: ['saw the baby', 'baby on the screen'] },
+  { title: 'Picked a name', triggers: ['picked a name', 'chose a name', 'decided on a name', 'named the baby'] },
+  { title: 'Nursery progress', triggers: ['nursery'] },
+  { title: 'Hospital bag packed', triggers: ['packed the hospital bag', 'hospital bag is packed', 'hospital bag packed'] },
+];
 
 function normalizeWeightUnit(raw: string): 'lb' | 'kg' {
   return /^k/i.test(raw) ? 'kg' : 'lb';
@@ -121,14 +146,33 @@ export function detectIntents(text: string): IntentProposal[] {
     });
   }
 
+  for (const m of MILESTONE_TRIGGERS) {
+    if (m.triggers.some((t) => includesWord(lower, t))) {
+      proposals.push({
+        kind: 'milestone',
+        title: 'Save as a milestone?',
+        subtitle: 'Worth keeping — these are the moments you’ll look back on.',
+        labels: [m.title],
+        buildEvent: (noteText) => ({
+          type: 'milestone',
+          data: { title: m.title, note: noteText },
+        }),
+      });
+      break;
+    }
+  }
+
   if (APPOINTMENT_TRIGGERS.some((t) => lower.includes(t))) {
     proposals.push({
       kind: 'appointment',
       title: 'Save as appointment?',
       subtitle: 'Kept with your notes and questions for the visit.',
       labels: ['Appointment'],
-      buildEvent: (noteText) => ({
+      // occurredAt comes from the picker's "When?" row (Composer passes it
+      // in opts); defaults to today when she leaves the picker untouched.
+      buildEvent: (noteText, opts) => ({
         type: 'appointment',
+        occurredAt: opts?.occurredAt ?? todayISO(),
         data: { title: 'Appointment', note: noteText },
       }),
     });

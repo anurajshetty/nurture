@@ -26,6 +26,12 @@ import { defaultStore, type KvStore } from './cache';
 import { phrasePlan } from './client';
 import { refreshBriefing } from './policy';
 import { todayISO } from '../onboarding/dates';
+import { listUpcomingAppointments } from '../notifications/appointments';
+import {
+  readLatestMilestoneEvent,
+  type V12Appointment,
+} from './v12cards';
+import { isAfterwards } from './afterwards';
 
 /**
  * Network fast-path: on web, navigator.onLine === false skips the fetch
@@ -62,6 +68,21 @@ export function useBriefing(): {
       online: isOnlineNow(),
       buildContext,
       getRecentLogs: () => getRecentNoteLogs(),
+      // v1.2 (Track 2): the engine stays pure — these assemble the two new
+      // EngineInput fields from the store. listUpcomingAppointments is the
+      // existing Epic 6 reader (soonest first); the milestone reader lives
+      // in ./v12cards.ts. All best-effort: a throw yields "no card".
+      getUpcomingAppointment: (): V12Appointment | null => {
+        try {
+          return listUpcomingAppointments(1)[0] ?? null;
+        } catch {
+          return null;
+        }
+      },
+      getRecentMilestone: () => readLatestMilestoneEvent(),
+      // Epic 9 contract C3 — the same boolean-gate shape the appointment
+      // reminder planner uses (pregnancyActive in, suppression out).
+      isPregnancyActive: () => !isAfterwards(),
       phrase: (req) => phrasePlan(req),
       onUpdate: (s, b) => {
         if (!cancelled) {

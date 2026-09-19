@@ -24,6 +24,8 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import BottomSheet from '../components/BottomSheet';
+import { DatePickerField } from '../components/DatePickerField';
+import { toISODate } from '../onboarding/dates';
 import { colors, radii, shadow, spacing, type as typeScale } from '../theme/tokens';
 import { deleteEvent, saveEvent } from '../sync/store';
 import {
@@ -61,6 +63,13 @@ interface Toast {
 const TOAST_MS = 8000;
 const MOOD_POPOVER_MS = 12000;
 
+// "When?" row bounds on the appointment proposal (Epic 4.5): appointments
+// are logged past or future, so the picker spans a year either way.
+const APPT_MIN_DATE = new Date();
+APPT_MIN_DATE.setFullYear(APPT_MIN_DATE.getFullYear() - 1);
+const APPT_MAX_DATE = new Date();
+APPT_MAX_DATE.setFullYear(APPT_MAX_DATE.getFullYear() + 1);
+
 function formatElapsed(totalSecs: number): string {
   const m = Math.floor(totalSecs / 60);
   const s = totalSecs % 60;
@@ -89,6 +98,9 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
   const [moodOpen, setMoodOpen] = useState(false);
   const [proposals, setProposals] = useState<IntentProposal[]>([]);
   const [proposalIdx, setProposalIdx] = useState(0);
+  // Epic 4.5: the "When?" date on the appointment proposal. null means
+  // untouched — buildEvent then defaults the event's occurredAt to today.
+  const [appointmentDate, setAppointmentDate] = useState<Date | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
 
   const sessionRef = useRef<{ stop: () => void; abort: () => void } | null>(null);
@@ -242,6 +254,7 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
     const found = detectIntents(noteText);
     setProposals(found);
     setProposalIdx(0);
+    setAppointmentDate(null);
 
     afterSave(event, 'Saved to your story');
   }, [text, hasAttachments, attachments, afterSave]);
@@ -294,6 +307,7 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
   }, []);
 
   const advanceProposal = useCallback(() => {
+    setAppointmentDate(null);
     const next = proposalIdx + 1;
     if (next < proposals.length) {
       setProposalIdx(next);
@@ -307,11 +321,15 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
     const p = proposals[proposalIdx];
     if (!p) return;
     // buildEvent is invoked ONLY here — from her explicit "Save" tap.
-    const input = p.buildEvent(lastNoteRef.current);
+    // Epic 4.5: the appointment proposal carries the picker's "When?"
+    // date as the event's occurredAt (today when untouched).
+    const opts =
+      p.kind === 'appointment' ? { occurredAt: toISODate(appointmentDate ?? new Date()) } : undefined;
+    const input = p.buildEvent(lastNoteRef.current, opts);
     const event = saveEvent({ ...input, visibility: 'private' });
     advanceProposal();
     afterSave(event, 'Saved to your story');
-  }, [proposals, proposalIdx, advanceProposal, afterSave]);
+  }, [proposals, proposalIdx, appointmentDate, advanceProposal, afterSave]);
 
   const addAttachments = useCallback(
     async (pick: () => Promise<PendingAttachment[]>) => {
@@ -374,6 +392,21 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
               </View>
             ))}
           </View>
+          {proposal.kind === 'appointment' ? (
+            <View style={styles.whenRow}>
+              <Text style={styles.whenLabel}>When?</Text>
+              <View style={styles.whenPicker}>
+                <DatePickerField
+                  value={appointmentDate ?? new Date()}
+                  minimumDate={APPT_MIN_DATE}
+                  maximumDate={APPT_MAX_DATE}
+                  onChange={setAppointmentDate}
+                  accessibilityLabel="Appointment date"
+                  testID="appointment-date-picker"
+                />
+              </View>
+            </View>
+          ) : null}
           <View style={styles.proposalActions}>
             <Pressable
               style={styles.proposalSave}
@@ -617,6 +650,20 @@ const styles = StyleSheet.create({
     ...typeScale.subhead,
     fontWeight: '600',
     color: colors.coralDeep,
+  },
+  whenRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  whenLabel: {
+    ...typeScale.subhead,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  whenPicker: {
+    flex: 1,
   },
   proposalActions: {
     flexDirection: 'row',

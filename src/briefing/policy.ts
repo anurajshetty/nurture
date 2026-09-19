@@ -43,6 +43,8 @@ import {
   isFreshFor,
   type KvStore,
 } from './cache';
+import type { V12Appointment, V12Milestone } from './v12cards';
+import { markCelebrated } from './v12cards';
 
 /** Everything refreshBriefing needs; the hook supplies the real ones, tests supply fakes. */
 export interface RefreshDeps {
@@ -67,6 +69,16 @@ export interface RefreshDeps {
    * failure — the policy falls back to the curated plan.
    */
   phrase?: (req: PhraseRequestBody) => Promise<{ phrased: PhrasedSlots; reviewDate: string }>;
+  /**
+   * v1.2 (Track 2): raw event-aware signals, read from the store by the
+   * hook. All optional — the engine treats a missing signal as "no card".
+   * The engine applies the ≤3-day / ≤7-day windows, the one-time kv gate,
+   * and the C3 stop-state suppression itself.
+   */
+  getUpcomingAppointment?: () => V12Appointment | null;
+  getRecentMilestone?: () => V12Milestone | null;
+  /** Contract C3: false suppresses both v1.2 cards (planner pattern). */
+  isPregnancyActive?: () => boolean;
   onUpdate: (status: BriefingStatus, briefing: Briefing | null) => void;
 }
 
@@ -93,6 +105,27 @@ export function buildPhraseRequest(
       .filter((s) => s.phrase)
       .map((s) => ({ slotId: s.slotId, preview: s.preview, body: bodyToLines(s.body) })),
   };
+}
+
+/**
+ * v1.2: burn the one-time mark for every celebrated card in a briefing that
+ * is actually being delivered to the screen. The engine only reads the gate
+ * (buildPlan stays pure); marking here means a plan that is built but
+ * discarded — stale refresh, double effect, phrase fallback — can never burn
+ * the mark without showing the card. Best-effort; never throws.
+ */
+function markDeliveredCelebrations(
+  store: KvStore,
+  briefing: Briefing,
+  today: string,
+): void {
+  try {
+    for (const s of briefing.slots) {
+      if (s.celebratedEventId) markCelebrated(store, s.celebratedEventId, today);
+    }
+  } catch {
+    // A lost mark just means the next refresh re-checks; harmless.
+  }
 }
 
 /** Assemble the final Briefing from the plan (+ optional phrasing). */
@@ -155,6 +188,32 @@ export async function refreshBriefing(deps: RefreshDeps): Promise<void> {
       } catch {
         logs = [];
       }
+      // v1.2 signals: read from the store; the engine gates them (windows,
+      // one-time kv, C3). Each read is isolated — a failing signal never
+      // breaks the briefing.
+      let upcomingAppointment: V12Appointment | null = null;
+      let recentMilestone: V12Milestone | null = null;
+      let pregnancyActive = true;
+      try {
+        if (deps.getUpcomingAppointment) {
+          upcomingAppointment = deps.getUpcomingAppointment() ?? null;
+        }
+      } catch {
+        upcomingAppointment = null;
+      }
+      try {
+        if (deps.getRecentMilestone) {
+          recentMilestone = deps.getRecentMilestone() ?? null;
+        }
+      } catch {
+        recentMilestone = null;
+      }
+      try {
+        // Fail closed for C3: an unreadable stop signal suppresses the cards.
+        if (deps.isPregnancyActive) pregnancyActive = deps.isPregnancyActive();
+      } catch {
+        pregnancyActive = false;
+      }
       plan = buildPlan({
         week: ctx.week,
         day: ctx.day,
@@ -164,6 +223,9 @@ export async function refreshBriefing(deps: RefreshDeps): Promise<void> {
         symptomThemes: ctx.symptomThemes,
         logs,
         store,
+        upcomingAppointment,
+        recentMilestone,
+        pregnancyActive,
       });
     } catch {
       // Engine failure is not expected (buildPlan never throws by design);
@@ -182,6 +244,7 @@ export async function refreshBriefing(deps: RefreshDeps): Promise<void> {
       } catch {
         // Cache write failed — the briefing is still shown.
       }
+      markDeliveredCelebrations(store, briefing, today);
       onUpdate('offline', briefing);
       return;
     }
@@ -207,6 +270,7 @@ export async function refreshBriefing(deps: RefreshDeps): Promise<void> {
     } catch {
       // Cache write failed — the briefing is still shown live.
     }
+    markDeliveredCelebrations(store, briefing, today);
     onUpdate('live', briefing);
   } catch {
     // Absolute last resort — the hook contract says never throw.
