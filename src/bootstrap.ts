@@ -21,7 +21,7 @@ export function registerDefaultArchiveWriter(): void {
 
 /**
  * Completes email magic-link sign-in. The OTP email links to
- * `nurture://...`; when the OS opens it we exchange the code (or set the
+ * `willow://...`; when the OS opens it we exchange the code (or set the
  * session from tokens) so the user lands signed in.
  */
 export function useMagicLinkHandler(): void {

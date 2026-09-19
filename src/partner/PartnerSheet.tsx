@@ -178,7 +178,7 @@ export default function PartnerSheet({ onChanged }: { onChanged: () => void }) {
     setSharing(true);
     try {
       const result = await Share.share({
-        message: `Join me on Nurture: ${invite.url}`,
+        message: `Join me on Willow: ${invite.url}`,
       });
       if (result.action === Share.sharedAction) showToast('Invite sent');
     } catch {

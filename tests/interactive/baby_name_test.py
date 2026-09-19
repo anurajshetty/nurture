@@ -4,8 +4,8 @@ Interactive browser test: the optional baby name (Anuraj, Sept 2026)
 + the Week-as-home tab structure (Sept 2026: the Home briefing screen
 was removed; Week is the landing tab).
 
-Drives the REAL Nurture web UI in real Chromium (390x844) against the fresh
-dist/ served under /nurture/ via Playwright route interception.
+Drives the REAL Willow web UI in real Chromium (390x844) against the fresh
+dist/ served under /willow/ via Playwright route interception.
 
 Flows (all real UI, no stubs):
   1. Tab structure: Week is the first tab and the default landing tab;
@@ -30,14 +30,16 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
-REPO = os.path.expanduser("~/workspace/nurture-v12")
+# The repo under test is the one this file lives in, so the suite works in
+# any workdir clone (nurture-v12, nurture-onboarding, ...).
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
-BASE = ORIGIN + "/nurture/?testhooks=1"
+BASE = ORIGIN + "/willow/?testhooks=1"
 # NOTE (pre-existing quirk, flagged separately): a fresh profile boots to the
 # tab shell instead of onboarding, so the test drives the onboarding route
 # directly. The onboarding UI itself is fully real.
-ONBOARDING_URL = ORIGIN + "/nurture/onboarding?testhooks=1"
+ONBOARDING_URL = ORIGIN + "/willow/onboarding?testhooks=1"
 KEEP_OPEN = "--keep-open" in sys.argv
 
 NAME_1 = "Wren"
@@ -56,9 +58,9 @@ def serve_dist(route):
     url = req.url
     assert url.startswith(ORIGIN), url
     path = url[len(ORIGIN):]
-    if not path.startswith("/nurture/"):
+    if not path.startswith("/willow/"):
         return route.fulfill(status=404, body="not found")
-    rel = path[len("/nurture/"):]
+    rel = path[len("/willow/"):]
     if rel == "" or rel.endswith("/"):
         rel = "index.html"
     # SPA fallback: unknown paths serve index.html
@@ -98,7 +100,11 @@ def main():
             sys.exit(1)
 
         page.get_by_test_id("onboarding-get-started").click()
-        page.get_by_test_id("onboarding-date-continue").click()  # default due date
+        # Screen 1 requires her name; the due date defaults to a valid date.
+        page.get_by_test_id("onboarding-owner-name").fill("Priya")
+        page.get_by_test_id("onboarding-profile-continue").click()
+        # Sharing screen (new): skip the invite, keep walking the flow.
+        page.get_by_test_id("onboarding-share-skip").click()
         name_field = page.get_by_test_id("onboarding-baby-name")
         name_field.wait_for(timeout=10000)
         check("onboarding step 2 has the optional name field", name_field.count() > 0)
@@ -114,7 +120,7 @@ def main():
         except Exception:
             check("onboarding finish lands on the Week tab", False)
 
-        tab_names = [t.strip() for t in page.get_by_role("tab").all_inner_texts()]
+        tab_names = [t.strip().split("\n")[-1] for t in page.get_by_role("tab").all_inner_texts()]
         check("tab order is Week, Logs, Plan, You",
               tab_names == ["Week", "Logs", "Plan", "You"])
         check("no Home tab", not any(n == "Home" for n in tab_names))
@@ -137,6 +143,7 @@ def main():
 
         # 4. Reboot proves persistence ------------------------------------
         page.goto(BASE)
+        page.wait_for_function("() => typeof window.__nurtureTest !== 'undefined'", timeout=30000)
         goto_you(page)
         check("edited name persists across reboot",
               NAME_2 in (page.get_by_test_id("baby-name-row").inner_text() or ""))

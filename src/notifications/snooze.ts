@@ -1,5 +1,5 @@
 /**
- * Snooze / pause / dismiss for Nurture reminders (Epic 6).
+ * Snooze / pause / dismiss for Willow reminders (Epic 6).
  *
  * From an appointment reminder she can, without opening the app:
  * - "Snooze" (one tap) → the reminder returns in 10 minutes;

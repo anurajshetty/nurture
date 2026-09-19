@@ -2,8 +2,8 @@
 """
 Standing interactive browser test: Epic 6 reminders.
 
-Drives the REAL Nurture web UI in real Chromium against the built dist/
-served under /nurture/ (same pattern as timeline_browser_test.py). An
+Drives the REAL Willow web UI in real Chromium against the built dist/
+served under /willow/ (same pattern as timeline_browser_test.py). An
 appointment is seeded through the app's own test hooks (?testhooks=1 ->
 window.__nurtureTest.seedEvent, backed by the real SQLite store), then:
 
@@ -39,7 +39,7 @@ from playwright.sync_api import sync_playwright
 REPO = os.path.expanduser("~/workspace/epic6-work")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
-BASE = ORIGIN + "/nurture/?testhooks=1"
+BASE = ORIGIN + "/willow/?testhooks=1"
 KEEP_OPEN = "--keep-open" in sys.argv
 CHROME = "/opt/meta-chromium/chrome"
 if not os.path.exists(CHROME):
@@ -185,9 +185,9 @@ def serve_dist(route):
     url = req.url
     assert url.startswith(ORIGIN), url
     path = url[len(ORIGIN):]
-    if not path.startswith("/nurture/"):
+    if not path.startswith("/willow/"):
         return route.fulfill(status=404, body="not found")
-    rel = path[len("/nurture/"):]
+    rel = path[len("/willow/"):]
     if "?" in rel:
         rel = rel.split("?", 1)[0]
     if rel == "" or rel.endswith("/"):
@@ -262,7 +262,7 @@ def main():
         seed = json.loads(page.evaluate(SEED_JS))
         check("flow1: hooks seeded an appointment", seed.get("status") == "seeded", str(seed))
         appt_id = seed.get("id")
-        detail_url = f"{ORIGIN}/nurture/plan?appointment={appt_id}&testhooks=1"
+        detail_url = f"{ORIGIN}/willow/plan?appointment={appt_id}&testhooks=1"
 
         # ---- Flow 2: appointment detail deep link ----
         page.goto(detail_url, timeout=60000)
@@ -354,7 +354,7 @@ def main():
               page.get_by_test_id("appointment-detail").count() == 0)
 
         # ---- Flow 8: unknown id -> gentle missing state ----
-        page.goto(f"{ORIGIN}/nurture/plan?appointment=does-not-exist&testhooks=1", timeout=60000)
+        page.goto(f"{ORIGIN}/willow/plan?appointment=does-not-exist&testhooks=1", timeout=60000)
         page.wait_for_timeout(1500)
         check("flow8: missing appointment is gentle",
               "isn’t here anymore" in page.evaluate("document.body.innerText"))

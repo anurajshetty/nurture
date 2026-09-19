@@ -1,5 +1,5 @@
 /**
- * Web SQLite layer for Nurture (sql.js — SQLite compiled to WASM).
+ * Web SQLite layer for Willow (sql.js — SQLite compiled to WASM).
  *
  * Metro picks this file instead of `db.ts` on web (`*.web.ts` platform
  * extension). It exposes the exact same public API — `getDb`, `kvGet`,
@@ -15,7 +15,7 @@
  *   in-memory for the session.
  * - The sql-wasm.wasm binary is copied into the web export output by the
  *   `export:web` npm script and resolved relative to the page URL, so it
- *   works under the /nurture subpath on GitHub Pages.
+ *   works under the /willow subpath on GitHub Pages.
  */
 
 import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js';

@@ -68,5 +68,8 @@ tsc1 tests/week_content.test.ts src/week/content.ts src/briefing/matrix.ts src/b
 OUT=/tmp/nurture-epic9-tests
 tsc1 tests/epic9.test.ts src/support/aftermath.ts src/support/gentleReads.ts src/support/afterwardsCopy.ts src/lib/types.ts && run "epic9" node $OUT/tests/epic9.test.js
 
+OUT=/tmp/nurture-onboarding-profile-tests
+tsc1 tests/onboarding_profile.test.ts src/onboarding/dates.ts src/onboarding/shareInvite.ts src/lib/schema.ts && run "onboarding_profile" node $OUT/tests/onboarding_profile.test.js
+
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

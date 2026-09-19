@@ -2,8 +2,8 @@
 """
 Standing interactive browser test: Epic 3 timeline (3.1 list, 3.2 filters, 3.3 look-back).
 
-Drives the REAL Nurture web UI in real Chromium against the built dist/
-served under /nurture/ (same pattern as voice_browser_test.py). Events are
+Drives the REAL Willow web UI in real Chromium against the built dist/
+served under /willow/ (same pattern as voice_browser_test.py). Events are
 seeded through the app's own test hooks (?testhooks=1 ->
 window.__nurtureTest.seedEvent, backed by the real SQLite store), so every
 assertion below exercises the real grouping, filtering, and look-back code.
@@ -30,7 +30,7 @@ from playwright.sync_api import sync_playwright
 REPO = os.path.expanduser("~/workspace/app-ideas/pregnancy-tracker/nurture-app")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
-BASE = ORIGIN + "/nurture/?testhooks=1"
+BASE = ORIGIN + "/willow/?testhooks=1"
 KEEP_OPEN = "--keep-open" in sys.argv
 
 SEED_JS = r"""
@@ -66,16 +66,16 @@ def serve_dist(route):
     url = req.url
     assert url.startswith(ORIGIN), url
     path = url[len(ORIGIN):]
-    if not path.startswith("/nurture/"):
+    if not path.startswith("/willow/"):
         return route.fulfill(status=404, body="not found")
-    rel = path[len("/nurture/"):]
+    rel = path[len("/willow/"):]
     if "?" in rel:
         rel = rel.split("?", 1)[0]
     if rel == "" or rel.endswith("/"):
         rel = "index.html"
     fpath = os.path.join(DIST, rel)
     if not os.path.isfile(fpath):
-        # SPA fallback: expo-router tab routes (e.g. /nurture/logs) have no
+        # SPA fallback: expo-router tab routes (e.g. /willow/logs) have no
         # static file; serve index.html so the router resolves client-side.
         # (Same pattern as epic4_journal_test.py.)
         fpath = os.path.join(DIST, "index.html")

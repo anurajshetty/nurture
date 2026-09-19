@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deploy the Nurture web export (dist/) to the gh-pages branch via the
+"""Deploy the Willow web export (dist/) to the gh-pages branch via the
 GitHub git-data API. Replaces the whole branch tree with dist/ contents,
 regenerates 404.html from index.html (SPA fallback), and keeps .nojekyll.
 
@@ -15,7 +15,7 @@ import urllib.request
 sys.path.insert(0, "/opt/hatch/skills/skill-creator/bin")
 from dynamic_credentials import add_surrogate_to_request, read_json_response
 
-REPO = "anurajshetty/nurture"
+REPO = "anurajshetty/willow"
 BRANCH = "gh-pages"
 DIST = os.path.expanduser("~/workspace/nurture-v12/dist")
 API = "https://api.github.com"
@@ -77,7 +77,7 @@ def main():
     new_tree = api("POST", f"/repos/{REPO}/git/trees",
                    {"base_tree": tree, "tree": tree_entries})["sha"]
     commit = api("POST", f"/repos/{REPO}/git/commits",
-                 {"message": "Deploy Nurture web (Epic 3 timeline)",
+                 {"message": "Deploy Willow web",
                   "tree": new_tree, "parents": [remote_sha]})
     new_sha = commit["sha"]
     print(f"created commit {new_sha}")

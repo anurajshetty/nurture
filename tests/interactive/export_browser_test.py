@@ -2,8 +2,8 @@
 """
 Interactive browser test: Epic 8 OB-visit export.
 
-Drives the REAL Nurture web UI in real Chromium against the built dist/
-served under /nurture/ (same pattern as timeline_browser_test.py). Events
+Drives the REAL Willow web UI in real Chromium against the built dist/
+served under /willow/ (same pattern as timeline_browser_test.py). Events
 are seeded through the app's own test hooks (?testhooks=1 ->
 window.__nurtureTest.seedEvent, backed by the real SQLite store), so every
 assertion below exercises the real range resolution, entry filtering,
@@ -37,7 +37,7 @@ from playwright.sync_api import sync_playwright
 REPO = os.path.expanduser("~/workspace/epic8-work")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
-BASE = ORIGIN + "/nurture/?testhooks=1"
+BASE = ORIGIN + "/willow/?testhooks=1"
 KEEP_OPEN = "--keep-open" in sys.argv
 
 SEED_JS = r"""
@@ -90,16 +90,16 @@ def serve_dist(route):
     url = req.url
     assert url.startswith(ORIGIN), url
     path = url[len(ORIGIN):]
-    if not path.startswith("/nurture/"):
+    if not path.startswith("/willow/"):
         return route.fulfill(status=404, body="not found")
-    rel = path[len("/nurture/"):]
+    rel = path[len("/willow/"):]
     if "?" in rel:
         rel = rel.split("?", 1)[0]
     if rel == "" or rel.endswith("/"):
         rel = "index.html"
     fpath = os.path.join(DIST, rel)
     if not os.path.isfile(fpath):
-        # SPA fallback: expo-router tab routes (e.g. /nurture/you) have no
+        # SPA fallback: expo-router tab routes (e.g. /willow/you) have no
         # static file; serve index.html so the router resolves client-side.
         fpath = os.path.join(DIST, "index.html")
     ctype, _ = mimetypes.guess_type(fpath)

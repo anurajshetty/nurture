@@ -36,6 +36,8 @@ interface PregnancyRow {
   user_id: string | null;
   due_date: string | null;
   lmp_date: string | null;
+  owner_name: string | null;
+  dob: string | null;
   pregnancy_type: string;
   parity: string;
   status: string;
@@ -256,6 +258,8 @@ function rowToPregnancy(row: PregnancyRow): Pregnancy {
     userId: row.user_id,
     dueDate: row.due_date,
     lmpDate: row.lmp_date,
+    ownerName: row.owner_name,
+    dob: row.dob,
     pregnancyType: (row.pregnancy_type as Pregnancy['pregnancyType']) ?? 'singleton',
     parity: (row.parity as Pregnancy['parity']) ?? 'first',
     status: (row.status as Pregnancy['status']) ?? 'active',
@@ -269,6 +273,10 @@ export interface PregnancyInput {
   userId?: string | null;
   dueDate?: string | null; // YYYY-MM-DD
   lmpDate?: string | null; // YYYY-MM-DD
+  /** Her name. undefined = keep existing; null = clear. */
+  ownerName?: string | null;
+  /** Her birthday, YYYY-MM-DD. undefined = keep existing; null = clear. */
+  dob?: string | null;
   pregnancyType?: Pregnancy['pregnancyType'];
   parity?: Pregnancy['parity'];
 }
@@ -310,6 +318,8 @@ export function savePregnancy(input: PregnancyInput): Pregnancy {
     userId: input.userId !== undefined ? input.userId : (existing?.userId ?? null),
     dueDate: input.dueDate !== undefined ? input.dueDate : (existing?.dueDate ?? null),
     lmpDate: input.lmpDate !== undefined ? input.lmpDate : (existing?.lmpDate ?? null),
+    ownerName: input.ownerName !== undefined ? input.ownerName : (existing?.ownerName ?? null),
+    dob: input.dob !== undefined ? input.dob : (existing?.dob ?? null),
     pregnancyType: input.pregnancyType ?? existing?.pregnancyType ?? 'singleton',
     parity: input.parity ?? existing?.parity ?? 'first',
     status: 'active',
@@ -318,12 +328,14 @@ export function savePregnancy(input: PregnancyInput): Pregnancy {
   };
   db.withTransactionSync(() => {
     db.runSync(
-      `INSERT INTO pregnancies (id, user_id, due_date, lmp_date, pregnancy_type, parity, status, updated_at, dirty)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, 1)
+      `INSERT INTO pregnancies (id, user_id, due_date, lmp_date, owner_name, dob, pregnancy_type, parity, status, updated_at, dirty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, 1)
        ON CONFLICT(id) DO UPDATE SET
          user_id = excluded.user_id,
          due_date = excluded.due_date,
          lmp_date = excluded.lmp_date,
+         owner_name = excluded.owner_name,
+         dob = excluded.dob,
          pregnancy_type = excluded.pregnancy_type,
          parity = excluded.parity,
          status = 'active',
@@ -333,6 +345,8 @@ export function savePregnancy(input: PregnancyInput): Pregnancy {
       pregnancy.userId,
       pregnancy.dueDate,
       pregnancy.lmpDate,
+      pregnancy.ownerName,
+      pregnancy.dob,
       pregnancy.pregnancyType,
       pregnancy.parity,
       pregnancy.updatedAt,

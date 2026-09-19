@@ -2,7 +2,7 @@
  * Epic 5 — Week view content assembly (pure, no native modules).
  *
  * All content is bundled: the v1.1 matrix (curated weeks 36–42, graceful
- * fallback for the rest), SIZE_BY_WEEK (weeks 12–40), and the question
+ * fallback for the rest), SIZE_BY_WEEK (weeks 1–40), and the question
  * bank below. Nothing is fetched, so the Week tab renders fully offline.
  *
  * Content rules (non-negotiable):
@@ -41,7 +41,7 @@ export interface WeekReading {
 /** Everything the Week tab renders for one gestational week. */
 export interface WeekContent {
   week: number;
-  /** Null outside SIZE_BY_WEEK's 12–40 coverage — the UI shows a soft fallback. */
+  /** Null outside SIZE_BY_WEEK's 1–40 coverage — the UI shows a soft fallback. */
   size: SizeEntry | null;
   /** Exactly 3 highlight lines. */
   highlights: [string, string, string];

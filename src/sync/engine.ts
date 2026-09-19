@@ -316,6 +316,8 @@ interface PregnancyRow {
   user_id: string | null;
   due_date: string | null;
   lmp_date: string | null;
+  owner_name: string | null;
+  dob: string | null;
   pregnancy_type: string;
   parity: string;
   status: string;
@@ -329,6 +331,8 @@ interface ServerPregnancy {
   user_id: string | null;
   due_date: string | null;
   lmp_date: string | null;
+  owner_name: string | null;
+  dob: string | null;
   pregnancy_type: Pregnancy['pregnancyType'];
   parity: Pregnancy['parity'];
   status: Pregnancy['status'];
@@ -343,6 +347,8 @@ function rowToPregnancy(row: PregnancyRow): Pregnancy {
     userId: row.user_id,
     dueDate: row.due_date,
     lmpDate: row.lmp_date,
+    ownerName: row.owner_name,
+    dob: row.dob,
     pregnancyType: (row.pregnancy_type as Pregnancy['pregnancyType']) ?? 'singleton',
     parity: (row.parity as Pregnancy['parity']) ?? 'first',
     status: (row.status as Pregnancy['status']) ?? 'active',
@@ -358,6 +364,8 @@ function serverToPregnancy(s: ServerPregnancy): Pregnancy {
     userId: s.user_id,
     dueDate: s.due_date,
     lmpDate: s.lmp_date,
+    ownerName: s.owner_name,
+    dob: s.dob,
     pregnancyType: s.pregnancy_type ?? 'singleton',
     parity: s.parity ?? 'first',
     status: s.status ?? 'active',
@@ -396,12 +404,18 @@ async function pushPregnancyOutbox(result: SyncResult): Promise<void> {
         // the next sync after sign-in backfills and pushes. Not an error.
         continue;
       }
+      // NOTE: owner_name/dob require the remote migration
+      // supabase/migrations/20260919150000_add_profile_fields_to_pregnancies.sql
+      // to be applied before this ships — see the PRIVACY PASS comment in
+      // src/lib/schema.ts.
       const { error } = await client.from('pregnancies').upsert(
         {
           id: row.id,
           user_id: userId,
           due_date: row.due_date,
           lmp_date: row.lmp_date,
+          owner_name: row.owner_name,
+          dob: row.dob,
           pregnancy_type: row.pregnancy_type,
           parity: row.parity,
           status: row.status,
@@ -444,12 +458,14 @@ function applyServerPregnancy(s: ServerPregnancy, result: SyncResult): void {
   if (!row) {
     db.runSync(
       `INSERT OR REPLACE INTO pregnancies
-        (id, user_id, due_date, lmp_date, pregnancy_type, parity, status, updated_at, dirty)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        (id, user_id, due_date, lmp_date, owner_name, dob, pregnancy_type, parity, status, updated_at, dirty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       s.id,
       s.user_id,
       s.due_date,
       s.lmp_date,
+      s.owner_name,
+      s.dob,
       remote.pregnancyType,
       remote.parity,
       remote.status,
@@ -462,10 +478,12 @@ function applyServerPregnancy(s: ServerPregnancy, result: SyncResult): void {
   if (!local.dirty) {
     db.runSync(
       `UPDATE pregnancies SET user_id = ?, due_date = ?, lmp_date = ?,
-        pregnancy_type = ?, parity = ?, status = ?, updated_at = ?, dirty = 0 WHERE id = ?`,
+        owner_name = ?, dob = ?, pregnancy_type = ?, parity = ?, status = ?, updated_at = ?, dirty = 0 WHERE id = ?`,
       s.user_id,
       s.due_date,
       s.lmp_date,
+      s.owner_name,
+      s.dob,
       remote.pregnancyType,
       remote.parity,
       remote.status,
@@ -478,6 +496,8 @@ function applyServerPregnancy(s: ServerPregnancy, result: SyncResult): void {
   const samePayload =
     local.dueDate === remote.dueDate &&
     local.lmpDate === remote.lmpDate &&
+    local.ownerName === remote.ownerName &&
+    local.dob === remote.dob &&
     local.pregnancyType === remote.pregnancyType &&
     local.parity === remote.parity &&
     local.status === remote.status;
@@ -611,11 +631,13 @@ function resolvePregnancyConflict(
     const remote = JSON.parse(row.remote_json) as Pregnancy;
     db.runSync(
       `UPDATE pregnancies SET user_id = ?, due_date = ?, lmp_date = ?,
-        pregnancy_type = ?, parity = ?, status = ?, updated_at = ?, dirty = 0
+        owner_name = ?, dob = ?, pregnancy_type = ?, parity = ?, status = ?, updated_at = ?, dirty = 0
        WHERE id = ?`,
       remote.userId,
       remote.dueDate,
       remote.lmpDate,
+      remote.ownerName,
+      remote.dob,
       remote.pregnancyType,
       remote.parity,
       remote.status,

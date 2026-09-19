@@ -1,11 +1,11 @@
 /**
- * Authentication state for Nurture (Epic 0.1).
+ * Authentication state for Willow (Epic 0.1).
  *
  * Sign-in options:
  *  - Apple Sign-In via expo-apple-authentication (iOS only; the UI layer
  *    hides the button when `AppleAuthentication.isAvailableAsync()` is false).
  *  - Email magic link via `supabase.auth.signInWithOtp`; the link redirects
- *    to `nurture://` — the app.json `scheme` must be "nurture" and the deep-
+ *    to `willow://` — the app.json `scheme` must be "willow" and the deep-
  *    link handler must call `supabase.auth.exchangeCodeForSession(url)`.
  *
  * Session is persisted by supabase-js into SecureStore (see lib/supabase.ts).
@@ -31,7 +31,7 @@ function magicLinkRedirectTo(): string {
   if (Platform.OS === 'web') {
     return window.location.href.split(/[?#]/)[0];
   }
-  return 'nurture://';
+  return 'willow://';
 }
 
 export interface AuthContextValue {
@@ -42,7 +42,7 @@ export interface AuthContextValue {
   isConfigured: boolean;
   /** Apple Sign-In; throws on unconfigured backend, unavailable device, or missing token. */
   signInWithApple: () => Promise<void>;
-  /** Sends an email magic link (redirects to `nurture://`); the code is sent, not the session. */
+  /** Sends an email magic link (redirects to `willow://`); the code is sent, not the session. */
   signInWithEmail: (email: string) => Promise<void>;
   /** Clears the session only; local journal data is untouched. */
   signOut: () => Promise<void>;

@@ -1,5 +1,5 @@
 /**
- * Privacy controls for Nurture (Epic 0.3).
+ * Privacy controls for Willow (Epic 0.3).
  *
  * - `exportArchive()` builds a JSON archive of all local data and hands it
  *   to an injectable file writer. expo-file-system is NOT installed in this
@@ -155,7 +155,7 @@ export async function exportArchive(): Promise<string> {
   }
   const payload = await buildArchivePayload();
   const date = payload.exportedAt.slice(0, 10);
-  const filename = `nurture-export-${date}.json`;
+  const filename = `willow-export-${date}.json`;
   return archiveWriter.writeArchive(filename, JSON.stringify(payload, null, 2));
 }
 
@@ -227,7 +227,7 @@ export async function unlockWithBiometrics(): Promise<boolean> {
     ]);
     if (!hasHardware || !enrolled) return false;
     const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Unlock Nurture',
+      promptMessage: 'Unlock Willow',
       cancelLabel: 'Cancel',
     });
     return result.success;

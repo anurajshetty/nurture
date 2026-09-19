@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Epic 5 browser test: Week tab in real Chromium against the production
-web export served under /nurture/ (with ?testhooks=1).
+web export served under /willow/ (with ?testhooks=1).
 
 Verifies:
   1. Week tab renders: size hero, highlights, readings, questions, footer
@@ -21,9 +21,9 @@ import os
 import sys
 import time
 
-DIST = os.path.expanduser("~/workspace/epic5-work/dist")
+DIST = os.path.expanduser("~/workspace/nurture-v12/dist")
 PORT = 8907
-BASE = f"http://localhost:{PORT}/nurture/?testhooks=1"
+BASE = f"http://localhost:{PORT}/willow/?testhooks=1"
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -33,8 +33,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # Strip the /nurture subpath; SPA fallback to index.html
         path = self.path.split("?")[0]
         query = self.path[len(path):]
-        if path.startswith("/nurture/"):
-            rel = path[len("/nurture/"):]
+        if path.startswith("/willow/"):
+            rel = path[len("/willow/"):]
             if not rel or not os.path.isfile(os.path.join(DIST, rel)):
                 rel = "index.html"
             self.path = "/" + rel + query
@@ -72,6 +72,8 @@ def main():
         print("Loading app...")
         page.goto(BASE, wait_until="networkidle")
         page.wait_for_timeout(3000)
+        # The bundle grew (size art); wait for the test hooks, not just the load.
+        page.wait_for_function("() => typeof window.__nurtureTest !== 'undefined'", timeout=30000)
 
         # Seed a pregnancy (due 2026-10-08 → week 37 on 2026-09-19)
         page.evaluate("""() => {
@@ -82,7 +84,7 @@ def main():
 
         # Navigate to Week tab
         print("Navigating to Week tab...")
-        page.goto(f"http://localhost:{PORT}/nurture/week?testhooks=1", wait_until="networkidle")
+        page.goto(f"http://localhost:{PORT}/willow/week?testhooks=1", wait_until="networkidle")
         page.wait_for_timeout(3000)
 
         # 1. Week screen renders
@@ -169,7 +171,7 @@ def main():
         # 5. Stopped state
         print("Testing stopped state...")
         page.evaluate("() => window.__nurtureTest.stopPregnancy()")
-        page.goto(f"http://localhost:{PORT}/nurture/week?testhooks=1",
+        page.goto(f"http://localhost:{PORT}/willow/week?testhooks=1",
                   wait_until="networkidle")
         page.wait_for_timeout(3000)
         check(page.get_by_text("Your week view is resting").count() > 0,

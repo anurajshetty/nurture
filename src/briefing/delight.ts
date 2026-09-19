@@ -104,9 +104,9 @@ const TILES: Record<DelightKind, { tint: string; glyph: string; glyphColor: stri
 };
 
 // ---------------------------------------------------------------------------
-// Size bank — one entry per gestational week (12–40).
+// Size bank — one entry per gestational week (1–40).
 // Measurements are the standard approximate figures ("about"); the
-// comparison object is the delight. Weeks outside 12–40 clamp.
+// comparison object is the delight. Weeks outside 1–40 clamp.
 // ---------------------------------------------------------------------------
 
 interface SizeEntry {
@@ -119,9 +119,20 @@ interface SizeEntry {
 }
 
 export const SIZE_BY_WEEK: Record<number, SizeEntry> = {
+  1: { staple: 'a glowing seed', delight: 'a single glowing seed, right at the very beginning', length: 'too tiny to measure', weight: 'too tiny to weigh' },
+  2: { staple: 'a seed with a sprout tip', delight: 'a seed with the tiniest sprout tip', length: 'too tiny to measure', weight: 'too tiny to weigh' },
+  3: { staple: 'a cell cluster', delight: 'a tiny cluster of cells, smaller than a pinhead', length: 'a fraction of a millimeter', weight: 'too tiny to weigh' },
+  4: { staple: 'a poppy seed', delight: 'a poppy seed', length: 'about 2 mm', weight: 'too tiny to weigh' },
+  5: { staple: 'a sesame seed', delight: 'a sesame seed', length: 'about 3 mm', weight: 'too tiny to weigh' },
+  6: { staple: 'a lentil', delight: 'a lentil', length: 'about 6 mm', weight: 'too tiny to weigh' },
+  7: { staple: 'a blueberry', delight: 'a blueberry', length: 'about 0.5 inches', weight: 'about 0.04 oz' },
+  8: { staple: 'a raspberry', delight: 'a raspberry', length: 'about 0.6 inches', weight: 'about 0.07 oz' },
+  9: { staple: 'a cherry', delight: 'a cherry', length: 'about 0.9 inches', weight: 'about 0.07 oz' },
+  10: { staple: 'a kumquat', delight: 'a kumquat', length: 'about 1.2 inches', weight: 'about 0.14 oz' },
+  11: { staple: 'a fig', delight: 'a fig', length: 'about 1.6 inches', weight: 'about 0.25 oz' },
   12: { staple: 'a lime', delight: 'a lime, stem to tip', length: 'about 2 inches', weight: 'about ½ oz' },
-  13: { staple: 'a lemon', delight: 'a lemon', length: 'about 2.9 inches', weight: 'about 0.8 oz' },
-  14: { staple: 'a peach', delight: 'a peach', length: 'about 3.4 inches', weight: 'about 1.5 oz' },
+  13: { staple: 'a pea pod', delight: 'a pea pod', length: 'about 2.9 inches', weight: 'about 0.8 oz' },
+  14: { staple: 'a lemon', delight: 'a lemon', length: 'about 3.4 inches', weight: 'about 1.5 oz' },
   15: { staple: 'an apple', delight: 'an apple', length: 'about 4 inches', weight: 'about 2.5 oz' },
   16: { staple: 'an avocado', delight: 'an avocado', length: 'about 4.6 inches', weight: 'about 3.5 oz' },
   17: { staple: 'a pear', delight: 'a pear', length: 'about 5.1 inches', weight: 'about 5 oz' },
@@ -133,24 +144,24 @@ export const SIZE_BY_WEEK: Record<number, SizeEntry> = {
   23: { staple: 'a grapefruit', delight: 'a grapefruit', length: 'about 11.4 inches', weight: 'about 1.1 lb' },
   24: { staple: 'an ear of corn', delight: 'an ear of corn, husk and all', length: 'about 11.8 inches', weight: 'about 1.3 lb' },
   25: { staple: 'a rutabaga', delight: 'a rutabaga', length: 'about 13.6 inches', weight: 'about 1.5 lb' },
-  26: { staple: 'a bunch of scallions', delight: 'a bundle of scallions from the market', length: 'about 14 inches', weight: 'about 1.7 lb' },
+  26: { staple: 'a head of lettuce', delight: 'a head of lettuce', length: 'about 14 inches', weight: 'about 1.7 lb' },
   27: { staple: 'a cauliflower', delight: 'a cauliflower head, florets and all', length: 'about 14.4 inches', weight: 'about 2 lb' },
-  28: { staple: 'an eggplant', delight: 'a regulation bowling pin', length: 'about 14.8 inches', weight: 'about 2.2 lb' },
+  28: { staple: 'an eggplant', delight: 'an eggplant', length: 'about 14.8 inches', weight: 'about 2.2 lb' },
   29: { staple: 'a butternut squash', delight: 'a butternut squash', length: 'about 15.2 inches', weight: 'about 2.5 lb' },
-  30: { staple: 'a large cucumber', delight: 'a large cucumber', length: 'about 15.7 inches', weight: 'about 2.9 lb' },
+  30: { staple: 'a head of cabbage', delight: 'a head of cabbage', length: 'about 15.7 inches', weight: 'about 2.9 lb' },
   31: { staple: 'a coconut', delight: 'a coconut, husk off', length: 'about 16.2 inches', weight: 'about 3.3 lb' },
   32: { staple: 'a jicama', delight: 'a jicama', length: 'about 16.7 inches', weight: 'about 3.75 lb' },
   33: { staple: 'a pineapple', delight: 'a pineapple, crown included', length: 'about 17.2 inches', weight: 'about 4.2 lb' },
   34: { staple: 'a cantaloupe', delight: 'a cantaloupe, perfectly round', length: 'about 17.7 inches', weight: 'about 4.7 lb' },
   35: { staple: 'a honeydew melon', delight: 'a honeydew melon', length: 'about 18.2 inches', weight: 'about 5.25 lb' },
-  36: { staple: 'a romaine heart', delight: 'a romaine heart', length: 'about 18.7 inches', weight: 'about 5.75 lb' },
-  37: { staple: 'a bundle of leeks', delight: 'a bundle of leeks from the market', length: 'about 19.1 inches', weight: 'about 6.3 lb' },
-  38: { staple: 'a mini watermelon', delight: 'a mini watermelon', length: 'about 19.6 inches', weight: 'about 6.8 lb' },
-  39: { staple: 'a small pumpkin', delight: 'a small pumpkin', length: 'about 20 inches', weight: 'about 7.3 lb' },
-  40: { staple: 'a small watermelon', delight: 'a small watermelon', length: 'about 20.2 inches', weight: 'about 7.6 lb' },
+  36: { staple: 'a romaine lettuce', delight: 'a romaine lettuce', length: 'about 18.7 inches', weight: 'about 5.75 lb' },
+  37: { staple: 'a swiss chard', delight: 'a swiss chard', length: 'about 19.1 inches', weight: 'about 6.3 lb' },
+  38: { staple: 'a leek', delight: 'a leek', length: 'about 19.6 inches', weight: 'about 6.8 lb' },
+  39: { staple: 'a small watermelon', delight: 'a small watermelon', length: 'about 20 inches', weight: 'about 7.3 lb' },
+  40: { staple: 'a large watermelon', delight: 'a large watermelon', length: 'about 20.2 inches', weight: 'about 7.6 lb' },
 };
 
-export const MIN_SIZE_WEEK = 12;
+export const MIN_SIZE_WEEK = 1;
 export const MAX_SIZE_WEEK = 40;
 
 // ---------------------------------------------------------------------------
@@ -739,7 +750,7 @@ function pickFact(week: number, today: string, factIds?: string[]): DelightCard 
   };
 }
 
-/** Pick the size card: fixed per-week mapping, clamped to 12–40. */
+/** Pick the size card: fixed per-week mapping, clamped to 1–40. */
 function pickSize(week: number): DelightCard {
   const w = clampWeek(week);
   const entry = SIZE_BY_WEEK[w];

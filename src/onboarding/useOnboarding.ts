@@ -20,10 +20,14 @@ import type { Pregnancy } from '../lib/types';
 export const ONBOARDING_COMPLETED_KEY = 'onboarding.completed';
 const DEVICE_TIMEZONE_KEY = 'device.timezone';
 
-/** The answers onboarding collects (all optional — skipping is first-class). */
+/** The answers onboarding collects. Name + due date are required on Screen 1; the rest is optional. */
 export interface OnboardingDraft {
   dueDate: string | null; // YYYY-MM-DD
   lmpDate: string | null; // YYYY-MM-DD
+  /** Her name (Screen 1, required). Synced with the pregnancy record. */
+  ownerName: string | null;
+  /** Her birthday, YYYY-MM-DD (Screen 1, optional). New PII — see the privacy note in src/lib/schema.ts. */
+  dob: string | null;
   pregnancyType: Pregnancy['pregnancyType'];
   parity: Pregnancy['parity'];
   /** Optional baby name — local-only, never synced. */
@@ -78,6 +82,8 @@ export function useOnboarding(): OnboardingValue {
         userId: user?.id ?? null,
         dueDate: draft.dueDate,
         lmpDate: draft.lmpDate,
+        ownerName: draft.ownerName,
+        dob: draft.dob,
         pregnancyType: draft.pregnancyType,
         parity: draft.parity,
       };

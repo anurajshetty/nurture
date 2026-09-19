@@ -1,10 +1,10 @@
-# Nurture
+# Willow
 
 Warm pregnancy journal + timeline (Expo, iOS-first). Web testing build deploys to GitHub Pages.
 
 ## Versioning
 
-Nurture uses `major.minor` (e.g. `1.0`, `1.1`, `2.0`) — no patch component.
+Willow uses `major.minor` (e.g. `1.0`, `1.1`, `2.0`) — no patch component.
 
 - **Major** — major improvements
 - **Minor** — important changes and bug fixes
@@ -20,7 +20,7 @@ production build — do not bump it by hand.
 Before every release build:
 
 - `npx tsc --noEmit` clean; `bash tests/run_unit.sh` all green
-- `npx expo export --platform ios` green; web export + boot test under `/nurture/`
+- `npx expo export --platform ios` green; web export + boot test under `/willow/`
 - **Bump `BRIEFING_CACHE_KEY` (`src/briefing/cache.ts`) whenever briefing
   copy or its tokens change** — a stale cached briefing is served all day
   when the device-local day + pregnancy week still match, so pre-change copy

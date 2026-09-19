@@ -3,8 +3,8 @@
 Interactive browser test: the upcoming-appointment priority card on the
 Week screen (Anuraj, Sept 2026).
 
-Drives the REAL Nurture web UI in real Chromium (390x844) against dist/
-served under /nurture/ via Playwright route interception.
+Drives the REAL Willow web UI in real Chromium (390x844) against dist/
+served under /willow/ via Playwright route interception.
 
 Flows (all real UI, no stubs):
   1. Seed an appointment inside the window (tomorrow 10:30 local) ->
@@ -37,8 +37,8 @@ from playwright.sync_api import sync_playwright
 REPO = os.path.expanduser("~/workspace/nurture-v12")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
-BASE = ORIGIN + "/nurture/?testhooks=1"
-WEEK_URL = ORIGIN + "/nurture/week?testhooks=1"
+BASE = ORIGIN + "/willow/?testhooks=1"
+WEEK_URL = ORIGIN + "/willow/week?testhooks=1"
 KEEP_OPEN = "--keep-open" in sys.argv
 
 results = []
@@ -54,9 +54,9 @@ def serve_dist(route):
     url = req.url
     assert url.startswith(ORIGIN), url
     path = url[len(ORIGIN):]
-    if not path.startswith("/nurture/"):
+    if not path.startswith("/willow/"):
         return route.fulfill(status=404, body="not found")
-    rel = path[len("/nurture/"):]
+    rel = path[len("/willow/"):]
     if rel == "" or rel.endswith("/"):
         rel = "index.html"
     # SPA fallback: unknown paths serve index.html

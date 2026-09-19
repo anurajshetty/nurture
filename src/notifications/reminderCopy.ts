@@ -1,5 +1,5 @@
 /**
- * Neutral lock-screen copy for Nurture reminders (Epic 6).
+ * Neutral lock-screen copy for Willow reminders (Epic 6).
  *
  * The product rule (mockup 11 §6.1, settings note in the You tab):
  * lock-screen previews are neutral BY DEFAULT — they NEVER show symptoms,

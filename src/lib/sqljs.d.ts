@@ -1,5 +1,5 @@
 /**
- * Minimal TypeScript declarations for the parts of sql.js that Nurture's
+ * Minimal TypeScript declarations for the parts of sql.js that Willow's
  * web database adapter uses. Kept intentionally small — not a full binding.
  */
 declare module 'sql.js' {

@@ -2,7 +2,7 @@
 """
 Standing interactive browser test: voice dictation stop behavior.
 
-Drives the REAL Nurture web UI in real Chromium: real expo-speech-recognition
+Drives the REAL Willow web UI in real Chromium: real expo-speech-recognition
 web module, real voice.ts session manager, real Composer button wiring. The
 only fake is the browser speech backend itself (an in-page
 webkitSpeechRecognition faithful to Chrome semantics: stop() -> final result
@@ -29,7 +29,7 @@ from playwright.sync_api import sync_playwright
 REPO = os.path.expanduser("~/workspace/app-ideas/pregnancy-tracker/nurture-app")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
-BASE = ORIGIN + "/nurture/"
+BASE = ORIGIN + "/willow/"
 KEEP_OPEN = "--keep-open" in sys.argv
 
 FAKE_SR_JS = r"""
@@ -137,16 +137,16 @@ def serve_dist(route):
     url = req.url
     assert url.startswith(ORIGIN), url
     path = url[len(ORIGIN):]
-    # Map /nurture/* -> dist/*
-    if not path.startswith("/nurture/"):
+    # Map /willow/* -> dist/*
+    if not path.startswith("/willow/"):
         return route.fulfill(status=404, body="not found")
-    rel = path[len("/nurture/"):]
+    rel = path[len("/willow/"):]
     if rel == "" or rel.endswith("/"):
         rel = "index.html"
     fpath = os.path.join(DIST, rel)
     if not os.path.isfile(fpath):
         # SPA fallback (see timeline_browser_test.py): tab routes like
-        # /nurture/logs have no static file; serve index.html so
+        # /willow/logs have no static file; serve index.html so
         # expo-router resolves them client-side.
         fpath = os.path.join(DIST, "index.html")
     ctype, _ = mimetypes.guess_type(fpath)

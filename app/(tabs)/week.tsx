@@ -14,6 +14,7 @@
 
 import { useCallback, useState } from 'react';
 import {
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -38,6 +39,7 @@ import {
   saveEvent,
 } from '../../src/sync/store';
 import { addDaysISO, todayISO } from '../../src/onboarding/dates';
+import { sizeArtForWeek } from '../../src/week/sizeArt';
 import type { Pregnancy } from '../../src/lib/types';
 import {
   MAX_WEEK,
@@ -202,6 +204,7 @@ export default function WeekScreen() {
   );
   const isCurrent = week === currentWeek;
   const greeting = weekGreeting(week, babyName);
+  const sizeArt = sizeArtForWeek(week);
 
   const goWeek = (d: -1 | 1) => {
     setViewWeek((v) => {
@@ -281,10 +284,19 @@ export default function WeekScreen() {
 
       {/* Size hero */}
       <View style={styles.sizeHero} testID="week-size-hero">
-        <View
-          style={[styles.orb, { backgroundColor: orbTone(week) }]}
-          accessibilityElementsHidden
-        />
+        {sizeArt ? (
+          <Image
+            source={sizeArt}
+            style={styles.sizeArt}
+            testID="week-size-art"
+            accessibilityLabel={`Illustration: your baby is the size of ${content.size?.staple ?? 'a growing baby'}`}
+          />
+        ) : (
+          <View
+            style={[styles.orb, { backgroundColor: orbTone(week) }]}
+            accessibilityElementsHidden
+          />
+        )}
         {content.size ? (
           <>
             <Text style={styles.sizeKicker}>Your baby is the size of</Text>
@@ -299,9 +311,7 @@ export default function WeekScreen() {
           <>
             <Text style={styles.sizeKicker}>Your baby is</Text>
             <Text style={styles.sizeName}>growing every day</Text>
-            <Text style={styles.sizeSpec}>
-              Size comparisons begin in week 12
-            </Text>
+            <Text style={styles.sizeSpec}>Any day now</Text>
           </>
         )}
       </View>
@@ -571,6 +581,13 @@ const styles = StyleSheet.create({
     ...shadow.card,
   },
   orb: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    marginVertical: spacing.sm,
+    ...shadow.card,
+  },
+  sizeArt: {
     width: 120,
     height: 120,
     borderRadius: 60,

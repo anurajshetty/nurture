@@ -1,5 +1,5 @@
 /**
- * Nurture design tokens — single source of truth.
+ * Willow design tokens — single source of truth.
  * Source: ~/workspace/app-ideas/pregnancy-tracker/design/DESIGN_NOTES.md
  * Rule: every control shares this component language. If a control can't be
  * expressed in these tokens, it doesn't ship until it can.

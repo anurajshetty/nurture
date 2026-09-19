@@ -2,7 +2,7 @@
  * Interactive web test harness hooks (Epic 3).
  *
  * ONLY activates when the page URL query includes `testhooks=1`
- * (e.g. https://…/nurture/?testhooks=1). Production is never touched:
+ * (e.g. https://…/willow/?testhooks=1). Production is never touched:
  * without the query param this module does nothing at all.
  *
  * Exposes `(window as any).__nurtureTest`:
@@ -33,9 +33,24 @@ export function installTestHooks(): void {
         userId: input.userId ?? null,
         dueDate: input.dueDate ?? null,
         lmpDate: input.lmpDate ?? null,
+        ownerName: input.ownerName ?? null,
+        dob: input.dob ?? null,
         pregnancyType: input.pregnancyType ?? 'singleton',
         parity: input.parity ?? 'first',
       }),
+    /** Last invite share target recorded by onboarding Screen 2 (kind + target). */
+    lastInviteShare: null as { kind: string; target: string } | null,
+    /**
+     * Records the share target Screen 2 chose ('share-sheet' | 'mailto' |
+     * 'sms' | 'web-link') so the interactive suite can assert the exact
+     * handoff boundary. Reset by assigning lastInviteShare = null.
+     */
+    noteInviteShare: (kind: string, target: string) => {
+      const api = (window as unknown as Record<string, unknown>).__nurtureTest as {
+        lastInviteShare: { kind: string; target: string } | null;
+      };
+      api.lastInviteShare = { kind, target };
+    },
     /** Marks all active pregnancies stopped (Epic 9 stop-state simulation). */
     stopPregnancy: () => {
       getDb().runSync(

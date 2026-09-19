@@ -1,24 +1,32 @@
 /**
- * Onboarding (Epic 1.1 + 1.2).
+ * Onboarding (Epic 1.1 + 1.2, revised Sept 2026).
  *
- * Five gentle steps, faithful to design/01-onboarding.html:
- *   0. Welcome — what Nurture is, in three bullets.
- *   1. Due date — date picker, or last period with Naegele's rule shown
- *      back for confirmation. Kind validation; "I'll do this later" skips
- *      ahead without ever blocking entry.
- *   2. A couple of quick things — singleton/multiples + first/subsequent
+ * Six gentle steps:
+ *   0. Welcome — what Willow is, in three bullets. (unchanged)
+ *   1. A little about you — her name (required), due date or last period
+ *      with Naegele's rule shown back for confirmation (required), her
+ *      birthday (optional). Continue stays disabled until her name is
+ *      non-empty and the date is valid, with a gentle hint near the
+ *      button saying what is still needed.
+ *   2. Share the journey (NEW) — optional partner/family invite through
+ *      the existing Epic 7 system. One field takes an email or a phone
+ *      number (auto-detected); Skip moves on with no invite. The invite
+ *      link goes out through the iOS share sheet, a pre-filled mail
+ *      compose, or a pre-filled SMS — on web the link is shown with a
+ *      copy button instead.
+ *   3. A couple of quick things — singleton/multiples + first/subsequent
  *      chips (drives week-content personalization), smart defaults set,
- *      plus an optional baby-name field (skippable, local-only).
- *   3. Notifications — plain-language pre-prompt, one system permission
- *      request, and per-type toggles wired to notification_prefs.
- *   4. Done — week pill + due date, or a quiet no-date variant.
+ *      plus an optional baby-name field (skippable, local-only). (unchanged)
+ *   4. Notifications — plain-language pre-prompt, one system permission
+ *      request, and per-type toggles wired to notification_prefs. (unchanged)
+ *   5. Done — week pill + due date, or a quiet no-date variant. (unchanged)
  *
  * No check-in time is set here (end-of-day nudge default 8:30 PM lives in
  * Settings). No celebration is forced, no fetal nicknames, no guilt copy.
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Platform, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import {
   Button,
@@ -39,10 +47,20 @@ import {
   parseISODate,
   toISODate,
   todayISO,
+  validateDob,
   validateDueDate,
   validateLmp,
   weekOf,
 } from '../src/onboarding/dates';
+import {
+  buildInviteMessage,
+  buildInviteSubject,
+  buildMailtoUrl,
+  buildSmsUrl,
+  detectContactKind,
+  noteInviteShareTarget,
+} from '../src/onboarding/shareInvite';
+import { createInvite, InviteError, type PartnerInvite } from '../src/partner/invite';
 import {
   getPrefs,
   requestNotificationPermissions,
@@ -51,7 +69,7 @@ import {
 } from '../src/notifications/prefs';
 import type { Pregnancy } from '../src/lib/types';
 
-const STEP_COUNT = 5;
+const STEP_COUNT = 6;
 
 /** Default due date lands on week 24, like the approved mockup. */
 function defaultDueISO(): string {
@@ -63,8 +81,34 @@ function defaultLmpISO(): string {
   return addDaysISO(todayISO(), -168) ?? todayISO();
 }
 
+/** Neutral starting point when she opts into the birthday picker: 30 years back. */
+function defaultDobISO(): string {
+  return addDaysISO(todayISO(), -30 * 365) ?? todayISO();
+}
+
+/** Birthday bounds: up to a century back, never in the future. */
+function dobMinDate(): Date {
+  return dateOrToday(addDaysISO(todayISO(), -100 * 365) ?? todayISO());
+}
+
 function dateOrToday(iso: string): Date {
   return parseISODate(iso) ?? new Date();
+}
+
+/** Best-effort clipboard copy (web). Never throws. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    const nav = (
+      globalThis as { navigator?: { clipboard?: { writeText(t: string): Promise<void> } } }
+    ).navigator;
+    if (nav?.clipboard?.writeText) {
+      await nav.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through — the link stays visible for manual copy.
+  }
+  return false;
 }
 
 const BULLETS: { bold: string; rest: string }[] = [
@@ -77,12 +121,23 @@ export default function OnboardingScreen() {
   const { complete } = useOnboarding();
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState<'due' | 'lmp'>('due');
+  const [ownerName, setOwnerName] = useState('');
   const [dueISO, setDueISO] = useState(defaultDueISO);
   const [lmpISO, setLmpISO] = useState(defaultLmpISO);
+  const [dobISO, setDobISO] = useState<string | null>(null);
+  const [dobOpen, setDobOpen] = useState(false);
   const [pregnancyType, setPregnancyType] = useState<Pregnancy['pregnancyType']>('singleton');
   const [parity, setParity] = useState<Pregnancy['parity']>('first');
-  const [skippedDate, setSkippedDate] = useState(false);
+  // The no-date Done variant below is kept as designed; Screen 1 now
+  // requires a date, so this stays false — the setter is gone on purpose.
+  const [skippedDate] = useState(false);
   const [babyName, setBabyName] = useState('');
+  // Screen 2 — sharing.
+  const [contact, setContact] = useState('');
+  const [invite, setInvite] = useState<PartnerInvite | null>(null);
+  const [sending, setSending] = useState(false);
+  const [shareNote, setShareNote] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [permNote, setPermNote] = useState<string | null>(null);
@@ -98,6 +153,24 @@ export default function OnboardingScreen() {
   const estimatedDue = mode === 'lmp' ? naegele(lmpISO) : dueISO;
   const week = estimatedDue && !problem ? weekOf(estimatedDue) : null;
 
+  // Screen 1 gating: her name + a valid date are required. The hint near
+  // the button says what is still needed — never an error shout.
+  const nameOk = ownerName.trim().length > 0;
+  const continueHint = !nameOk && problem
+    ? 'Almost there. Your name and a date are all we need to continue.'
+    : !nameOk
+      ? 'Almost there. Just your name above and we can continue.'
+      : problem
+        ? 'Almost there. Pick a date above to continue.'
+        : null;
+
+  const dobProblem = dobISO ? validateDob(dobISO) : null;
+  const dobValue = dobISO ? dateOrToday(dobISO) : dateOrToday(defaultDobISO());
+
+  // Screen 2 — contact auto-detect.
+  const contactKind = detectContactKind(contact);
+  const contactInvalid = contact.trim().length > 0 && contactKind === null;
+
   const minDate = dateOrToday(mode === 'due' ? todayISO() : (addDaysISO(todayISO(), -310) ?? todayISO()));
   const maxDate = dateOrToday(mode === 'due' ? (addDaysISO(todayISO(), 294) ?? todayISO()) : todayISO());
 
@@ -109,6 +182,70 @@ export default function OnboardingScreen() {
     },
     [mode],
   );
+
+  const handleDobChange = useCallback((selected: Date) => {
+    setDobISO(toISODate(selected));
+  }, []);
+
+  const handleCopyLink = useCallback(async () => {
+    if (!invite) return;
+    const ok = await copyText(invite.url);
+    setShareCopied(ok);
+    setShareNote(ok ? 'Copied. Send it however you like.' : 'Copy the link above to send it yourself.');
+  }, [invite]);
+
+  /**
+   * Screen 2 submit: creates the invite through the existing Epic 7
+   * system, then hands the warm message + link to the share sheet, a
+   * pre-filled mail compose, or a pre-filled SMS. On web there is no
+   * share sheet, so the link stays on screen with a copy button.
+   */
+  const handleShareSubmit = useCallback(async () => {
+    if (sending) return;
+    setSending(true);
+    setShareNote(null);
+    try {
+      const created = createInvite();
+      setInvite(created);
+      const url = created.url;
+      const name = ownerName.trim() || null;
+      const message = buildInviteMessage(name, url);
+      const kind = detectContactKind(contact);
+      if (Platform.OS === 'web') {
+        noteInviteShareTarget('web-link', url);
+        setShareNote('Here is the invite link. Copy it and send it however you like.');
+      } else if (kind === 'email') {
+        const target = buildMailtoUrl(contact, buildInviteSubject(name), message);
+        noteInviteShareTarget('mailto', target);
+        await Linking.openURL(target);
+      } else if (kind === 'phone') {
+        const target = buildSmsUrl(contact, message, Platform.OS);
+        noteInviteShareTarget('sms', target);
+        await Linking.openURL(target);
+      } else {
+        noteInviteShareTarget('share-sheet', message);
+        try {
+          await Share.share({ message });
+        } catch {
+          // No share sheet here — the link stays on screen to copy.
+          setInvite(created);
+          setShareNote('Sharing is not available here, so here is the invite link to copy.');
+          setSending(false);
+          return;
+        }
+      }
+    } catch (e) {
+      setShareNote(
+        e instanceof InviteError
+          ? e.message
+          : 'That didn’t go through. You can invite them later from the You tab.',
+      );
+      setSending(false);
+      return;
+    }
+    setSending(false);
+    if (Platform.OS !== 'web') setStep(3);
+  }, [sending, contact, ownerName]);
 
   const patchPrefs = useCallback(
     async (patch: Partial<Prefs>) => {
@@ -148,18 +285,22 @@ export default function OnboardingScreen() {
     setFinishing(true);
     const trimmedName = babyName.trim() || null;
     const draft: OnboardingDraft = skippedDate
-      ? { dueDate: null, lmpDate: null, pregnancyType, parity, babyName: trimmedName }
+      ? { dueDate: null, lmpDate: null, ownerName: ownerName.trim() || null, dob: dobISO, pregnancyType, parity, babyName: trimmedName }
       : {
           dueDate: estimatedDue,
           lmpDate: mode === 'lmp' ? lmpISO : null,
+          ownerName: ownerName.trim() || null,
+          dob: dobISO,
           pregnancyType,
           parity,
           babyName: trimmedName,
         };
     await complete(draft);
     setFinishing(false);
-    router.replace('/(tabs)');
-  }, [finishing, skippedDate, estimatedDue, lmpISO, mode, pregnancyType, parity, babyName, complete]);
+    // Group paths ('/(tabs)') don't resolve in the static web export —
+    // redirect to the Week tab leaf instead (Week job finding, Sept 2026).
+    router.replace('/week');
+  }, [finishing, skippedDate, estimatedDue, lmpISO, mode, pregnancyType, parity, babyName, ownerName, dobISO, complete]);
 
   return (
     <Screen>
@@ -175,7 +316,7 @@ export default function OnboardingScreen() {
             <Text style={styles.markGlyph}>✿</Text>
           </View>
           <Text style={styles.h2} accessibilityRole="header">
-            Welcome to Nurture
+            Welcome to Willow
           </Text>
           <Text style={styles.lede}>Your pregnancy, remembered gently.</Text>
           <View style={styles.bullets}>
@@ -199,9 +340,24 @@ export default function OnboardingScreen() {
       {step === 1 && (
         <View style={styles.step}>
           <Text style={styles.h2} accessibilityRole="header">
-            When are you{'\n'}due?
+            A little{'\n'}about you
           </Text>
-          <Text style={styles.lede}>This sets your week. You can change it later.</Text>
+          <Text style={styles.lede}>Just the basics. This is what makes your weeks feel like yours.</Text>
+
+          <Text style={styles.fieldLabel}>Your first name</Text>
+          <TextInput
+            value={ownerName}
+            onChangeText={setOwnerName}
+            placeholder="Your first name"
+            placeholderTextColor={colors.muted}
+            autoCapitalize="words"
+            autoCorrect={false}
+            returnKeyType="next"
+            maxLength={40}
+            style={styles.nameInput}
+            accessibilityLabel="Your first name"
+            testID="onboarding-owner-name"
+          />
 
           <Text style={styles.fieldLabel}>I know my…</Text>
           <Segmented
@@ -244,28 +400,150 @@ export default function OnboardingScreen() {
             </Text>
           )}
 
+          <Text style={styles.fieldLabel}>Your birthday</Text>
+          <Text style={styles.qsub}>Optional. It helps make your weekly reading feel a little more personal.</Text>
+          {dobOpen || dobISO ? (
+            <View>
+              <Card style={styles.pickerCard}>
+                <DatePickerField
+                  value={dobValue}
+                  minimumDate={dobMinDate()}
+                  maximumDate={dateOrToday(todayISO())}
+                  onChange={handleDobChange}
+                  accessibilityLabel="Choose your birthday"
+                  testID="onboarding-dob-picker"
+                />
+              </Card>
+              {dobProblem && (
+                <Text style={styles.problem} accessibilityRole="text">
+                  {dobProblem.message}
+                </Text>
+              )}
+              {dobISO ? (
+                <Button
+                  title="Remove birthday"
+                  variant="ghost"
+                  onPress={() => {
+                    setDobISO(null);
+                    setDobOpen(false);
+                  }}
+                  style={styles.ghostButton}
+                  textStyle={styles.ghostText}
+                  testID="onboarding-dob-clear"
+                />
+              ) : null}
+            </View>
+          ) : (
+            <Button
+              title="Add your birthday (optional)"
+              variant="ghost"
+              onPress={() => {
+                setDobISO(defaultDobISO());
+                setDobOpen(true);
+              }}
+              style={styles.ghostButton}
+              textStyle={styles.ghostText}
+              testID="onboarding-dob-add"
+            />
+          )}
+
           <View style={styles.spacer} />
+          {continueHint && (
+            <Text style={styles.hint} testID="onboarding-continue-hint">
+              {continueHint}
+            </Text>
+          )}
           <Button
             title="Continue"
             onPress={() => setStep(2)}
-            disabled={!!problem}
-            testID="onboarding-date-continue"
-          />
-          <Button
-            title="I'll do this later"
-            variant="ghost"
-            onPress={() => {
-              setSkippedDate(true);
-              setStep(3);
-            }}
-            style={styles.ghostButton}
-            textStyle={styles.ghostText}
-            testID="onboarding-date-skip"
+            disabled={!!continueHint}
+            testID="onboarding-profile-continue"
           />
         </View>
       )}
 
       {step === 2 && (
+        <View style={styles.step}>
+          <Text style={styles.h2} accessibilityRole="header">
+            Want to share this{'\n'}journey with your{'\n'}partner and family?
+          </Text>
+          <Text style={styles.lede}>
+            Send them an invite and they can follow along. They will only ever see what you choose to share.
+          </Text>
+
+          <Text style={styles.fieldLabel}>Email or phone number</Text>
+          <Text style={styles.qsub}>Optional. We will address the invite to them.</Text>
+          <TextInput
+            value={contact}
+            onChangeText={setContact}
+            placeholder="Email or phone number"
+            placeholderTextColor={colors.muted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            returnKeyType="done"
+            maxLength={80}
+            style={styles.nameInput}
+            accessibilityLabel="Email or phone number (optional)"
+            testID="onboarding-share-contact"
+          />
+          {contactKind && !contactInvalid && (
+            <Text style={styles.detected} testID="onboarding-share-detected">
+              {contactKind === 'email' ? 'Email' : 'Phone number'}
+            </Text>
+          )}
+          {contactInvalid && (
+            <Text style={styles.problem} accessibilityRole="text">
+              That doesn’t look like an email or a phone number. Want to check it?
+            </Text>
+          )}
+
+          {Platform.OS === 'web' && invite && (
+            <Card style={styles.linkCard} testID="onboarding-share-link">
+              <Text style={styles.linkLabel}>Your invite link</Text>
+              <Text style={styles.linkUrl} selectable>
+                {invite.url}
+              </Text>
+              <Button
+                title={shareCopied ? 'Copied' : 'Copy link'}
+                variant="ghost"
+                onPress={handleCopyLink}
+                testID="onboarding-share-copy"
+              />
+            </Card>
+          )}
+
+          <View style={styles.spacer} />
+          {shareNote && (
+            <Text style={styles.hint} testID="onboarding-share-note">
+              {shareNote}
+            </Text>
+          )}
+          {Platform.OS === 'web' && invite ? (
+            <Button title="Continue" onPress={() => setStep(3)} testID="onboarding-share-continue" />
+          ) : (
+            <View>
+              <Button
+                title="Send the invite"
+                onPress={handleShareSubmit}
+                disabled={contactInvalid || sending}
+                loading={sending}
+                testID="onboarding-share-send"
+              />
+              <Button
+                title="Skip"
+                variant="ghost"
+                onPress={() => setStep(3)}
+                style={styles.ghostButton}
+                textStyle={styles.ghostText}
+                testID="onboarding-share-skip"
+              />
+            </View>
+          )}
+        </View>
+      )}
+
+      {step === 3 && (
         <View style={styles.step}>
           <Text style={styles.h2} accessibilityRole="header">
             A couple of{'\n'}quick things
@@ -322,17 +600,17 @@ export default function OnboardingScreen() {
           />
 
           <View style={styles.spacer} />
-          <Button title="Continue" onPress={() => setStep(3)} testID="onboarding-chips-continue" />
+          <Button title="Continue" onPress={() => setStep(4)} testID="onboarding-chips-continue" />
         </View>
       )}
 
-      {step === 3 && (
+      {step === 4 && (
         <View style={styles.step}>
           <Text style={styles.h2} accessibilityRole="header">
             A gentle{'\n'}heads-up
           </Text>
           <Text style={styles.lede}>
-            Nurture can send soft reminders — a nudge before each appointment, and one quiet
+            Willow can send soft reminders — a nudge before each appointment, and one quiet
             evening note, only on days you haven’t saved anything. You choose what reaches
             you, and you can change it anytime in the You tab.
           </Text>
@@ -372,14 +650,14 @@ export default function OnboardingScreen() {
             title="Enable notifications"
             onPress={async () => {
               await ensurePermission();
-              setStep(4);
+              setStep(5);
             }}
             testID="onboarding-enable-notifications"
           />
           <Button
             title="Not now"
             variant="ghost"
-            onPress={() => setStep(4)}
+            onPress={() => setStep(5)}
             style={styles.ghostButton}
             textStyle={styles.ghostText}
             testID="onboarding-notifications-skip"
@@ -387,7 +665,7 @@ export default function OnboardingScreen() {
         </View>
       )}
 
-      {step === 4 && (
+      {step === 5 && (
         <View style={styles.step}>
           <View style={styles.spacer} />
           <Card style={styles.doneCard}>
@@ -550,6 +828,38 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: spacing.md,
     lineHeight: 23,
+  },
+  hint: {
+    ...typeScale.subhead,
+    color: colors.muted,
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  detected: {
+    ...typeScale.subhead,
+    color: colors.sageDeep,
+    fontWeight: '600',
+    marginTop: spacing.xs,
+  },
+  linkCard: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    marginTop: spacing.lg,
+    gap: spacing.sm,
+  },
+  linkLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: colors.muted,
+  },
+  linkUrl: {
+    ...typeScale.body,
+    color: colors.ink,
+    lineHeight: 22,
   },
   ghostButton: {
     marginTop: spacing.sm,

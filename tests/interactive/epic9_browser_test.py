@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Epic 9 browser test: changed-outcome mode in real Chromium against the
-production web export served under /nurture/ (with ?testhooks=1).
+production web export served under /willow/ (with ?testhooks=1).
 
 Verifies:
   1. Stop flow end-to-end (You tab): sheet -> "Stop tracking" -> "It's done."
@@ -39,7 +39,7 @@ def free_port():
 
 
 PORT = free_port()
-BASE = f"http://localhost:{PORT}/nurture/?testhooks=1"
+BASE = f"http://localhost:{PORT}/willow/?testhooks=1"
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -50,8 +50,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # Strip the /nurture subpath; SPA fallback to index.html
         path = self.path.split("?")[0]
         query = self.path[len(path):]
-        if path.startswith("/nurture/"):
-            rel = path[len("/nurture/"):]
+        if path.startswith("/willow/"):
+            rel = path[len("/willow/"):]
             if not rel or not os.path.isfile(os.path.join(DIST, rel)):
                 rel = "index.html"
             self.path = "/" + rel + query
@@ -111,7 +111,7 @@ def main():
 
         # ---- 1. Stop flow end-to-end (You tab) ----
         print("Stop flow...")
-        page.goto(f"http://localhost:{PORT}/nurture/you?testhooks=1", wait_until="networkidle")
+        page.goto(f"http://localhost:{PORT}/willow/you?testhooks=1", wait_until="networkidle")
         page.wait_for_timeout(2500)
 
         page.get_by_text("Stop pregnancy tracking").first.click()
@@ -217,7 +217,7 @@ def main():
 
         # ---- 7. Week tab quiet state ----
         print("Week tab...")
-        page.goto(f"http://localhost:{PORT}/nurture/week?testhooks=1", wait_until="networkidle")
+        page.goto(f"http://localhost:{PORT}/willow/week?testhooks=1", wait_until="networkidle")
         page.wait_for_timeout(3000)
         check(page.get_by_text("Your week view is resting").count() > 0,
               "Week tab quiet stopped state")
@@ -225,7 +225,7 @@ def main():
 
         # ---- 8. Delete confirm (destructive — last) ----
         print("Delete confirm...")
-        page.goto(f"http://localhost:{PORT}/nurture/you?testhooks=1", wait_until="networkidle")
+        page.goto(f"http://localhost:{PORT}/willow/you?testhooks=1", wait_until="networkidle")
         page.wait_for_timeout(2500)
         page.get_by_text("Stop pregnancy tracking").first.click()
         page.wait_for_timeout(1200)

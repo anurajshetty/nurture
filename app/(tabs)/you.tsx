@@ -7,7 +7,7 @@ import {
   updatePrefs,
 } from '../../src/notifications/prefs';
 import { exportArchive, requestAccountDeletion } from '../../src/privacy/privacy';
-import { getActivePregnancy } from '../../src/sync/store';
+import { getActivePregnancy, updatePregnancy } from '../../src/sync/store';
 import {
   countSharedMoments,
   getDataDecisions,
@@ -47,11 +47,21 @@ import {
   setBabyName,
 } from '../../src/briefing/context';
 import { clearBriefing } from '../../src/briefing/cache';
-import { formatLong, weekOf } from '../../src/onboarding/dates';
+import {
+  addDaysISO,
+  formatLong,
+  parseISODate,
+  todayISO,
+  toISODate,
+  validateDob,
+  validateDueDate,
+  weekOf,
+} from '../../src/onboarding/dates';
 import {
   BottomSheet,
   Button,
   Card,
+  DatePickerField,
   Screen,
   SectionHeader,
   SettingsRow,
@@ -119,6 +129,11 @@ function toClock(totalMinutes: number): string {
 function clockToMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
+}
+
+/** Parses YYYY-MM-DD strictly; today when the string is not a real date. */
+function dateOrToday(iso: string): Date {
+  return parseISODate(iso) ?? new Date();
 }
 
 /** Small − / value / + stepper used for lead time and nudge time. */
@@ -290,6 +305,20 @@ export default function YouScreen() {
   const [nameOpen, setNameOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
 
+  // Account (onboarding profile, Sept 2026): her name, due date, and
+  // birthday live on the pregnancy record and sync like the rest of it.
+  // The baby name above stays local-only. Anyone who onboarded with
+  // missing or wrong details can fix them here.
+  const [ownerName, setOwnerNameState] = useState<string | null>(null);
+  const [ownerNameOpen, setOwnerNameOpen] = useState(false);
+  const [ownerNameDraft, setOwnerNameDraft] = useState('');
+  const [dueDate, setDueDateState] = useState<string | null>(null);
+  const [dueOpen, setDueOpen] = useState(false);
+  const [dueDraft, setDueDraft] = useState<string | null>(null);
+  const [dob, setDobState] = useState<string | null>(null);
+  const [dobSheetOpen, setDobSheetOpen] = useState(false);
+  const [dobDraft, setDobDraft] = useState<string | null>(null);
+
   // Partner sharing (Epic 7): the settings row opens the partner sheet;
   // the subtitle always reflects the live link state.
   const [partnerOpen, setPartnerOpen] = useState(false);
@@ -322,7 +351,9 @@ export default function YouScreen() {
 
   // Real pregnancy line from onboarding (replaces the mockup's sample copy).
   const [pregnancyLine, setPregnancyLine] = useState('Your journal is just beginning');
-  useEffect(() => {
+
+  /** Re-reads the pregnancy record: week line + the editable account rows. */
+  const refreshPregnancy = useCallback(() => {
     try {
       const p = getActivePregnancy();
       if (p?.dueDate) {
@@ -333,10 +364,17 @@ export default function YouScreen() {
       } else if (p) {
         setPregnancyLine('Due date not set yet');
       }
+      setOwnerNameState(p?.ownerName ?? null);
+      setDueDateState(p?.dueDate ?? null);
+      setDobState(p?.dob ?? null);
     } catch {
       // Keep the gentle fallback.
     }
   }, []);
+
+  useEffect(() => {
+    refreshPregnancy();
+  }, [refreshPregnancy]);
 
   const showToast = useCallback((message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -505,6 +543,78 @@ export default function YouScreen() {
   );
 
   const babyNameLabel = babyName ?? 'Not set';
+
+  // Account edits (Sept 2026): her name, due date, and birthday live on
+  // the pregnancy record, so they save through updatePregnancy() and sync
+  // like the rest of the profile. The cached briefing is cleared so
+  // name-aware and week-aware copy recomputes on the next read — the same
+  // treatment the baby-name edit already gets.
+  const saveOwnerName = useCallback(
+    (name: string | null) => {
+      const trimmed = name?.trim() || null;
+      try {
+        const updated = updatePregnancy({ ownerName: trimmed });
+        if (!updated) throw new Error('no active pregnancy');
+        clearBriefing();
+      } catch {
+        showToast('That didn’t go through — nothing changed.');
+        return;
+      }
+      setOwnerNameState(trimmed);
+      setOwnerNameOpen(false);
+      showToast(trimmed ? 'Saved.' : 'Cleared.');
+    },
+    [showToast],
+  );
+
+  const saveDueDate = useCallback(
+    (iso: string | null) => {
+      if (iso && validateDueDate(iso)) {
+        showToast('That date doesn’t look right — want to check it?');
+        return;
+      }
+      try {
+        const updated = updatePregnancy({ dueDate: iso });
+        if (!updated) throw new Error('no active pregnancy');
+        // Week-derived state (the line above, the Week tab, the briefing)
+        // all re-read the record, so clearing the cached briefing is the
+        // only invalidation a due-date edit needs.
+        clearBriefing();
+      } catch {
+        showToast('That didn’t go through — nothing changed.');
+        return;
+      }
+      setDueOpen(false);
+      refreshPregnancy();
+      showToast(iso ? 'Saved — your weeks will follow the new date.' : 'Cleared.');
+    },
+    [showToast, refreshPregnancy],
+  );
+
+  const saveDob = useCallback(
+    (iso: string | null) => {
+      if (iso && validateDob(iso)) {
+        showToast('That date doesn’t look right — want to check it?');
+        return;
+      }
+      try {
+        const updated = updatePregnancy({ dob: iso });
+        if (!updated) throw new Error('no active pregnancy');
+        clearBriefing();
+      } catch {
+        showToast('That didn’t go through — nothing changed.');
+        return;
+      }
+      setDobState(iso);
+      setDobSheetOpen(false);
+      showToast(iso ? 'Saved.' : 'Cleared.');
+    },
+    [showToast],
+  );
+
+  const ownerNameLabel = ownerName ?? 'Not set';
+  const dueDateLabel = dueDate ? formatLong(dueDate) : 'Not set';
+  const dobLabel = dob ? formatLong(dob) : 'Not set';
 
   const confirmStop = useCallback(async () => {
     if (stopping) return;
@@ -743,6 +853,44 @@ export default function YouScreen() {
           <Text style={styles.profileName}>Your account</Text>
           <Text style={styles.profileSub}>{pregnancyLine}</Text>
         </View>
+      </View>
+
+      <SectionHeader title="Account" />
+
+      <View style={styles.rows}>
+        <SettingsRow
+          icon="◉"
+          title="Your name"
+          subtitle="Used when you share your journey."
+          value={ownerNameLabel}
+          onPress={() => {
+            setOwnerNameDraft(ownerName ?? '');
+            setOwnerNameOpen(true);
+          }}
+          testID="account-name-row"
+        />
+        <SettingsRow
+          icon="◍"
+          title="Due date"
+          subtitle="Sets your week. Your weekly reading follows it."
+          value={dueDateLabel}
+          onPress={() => {
+            setDueDraft(dueDate);
+            setDueOpen(true);
+          }}
+          testID="account-due-date-row"
+        />
+        <SettingsRow
+          icon="✿"
+          title="Birthday"
+          subtitle="Optional. Makes your weekly reading a little more personal."
+          value={dobLabel}
+          onPress={() => {
+            setDobDraft(dob);
+            setDobSheetOpen(true);
+          }}
+          testID="account-dob-row"
+        />
       </View>
 
       <SectionHeader title="Notifications" />
@@ -1086,6 +1234,131 @@ export default function YouScreen() {
       </BottomSheet>
 
       <BottomSheet
+        visible={ownerNameOpen}
+        onClose={() => setOwnerNameOpen(false)}
+        accessibilityLabel="Your name"
+        testID="account-name-sheet"
+      >
+        <Text style={styles.sheetTitle} accessibilityRole="header">
+          Your name
+        </Text>
+        <Text style={styles.sheetLede}>
+          What should we call you? It is used when you share your journey.
+        </Text>
+        <TextInput
+          value={ownerNameDraft}
+          onChangeText={setOwnerNameDraft}
+          placeholder="Your first name"
+          placeholderTextColor={colors.muted}
+          autoCapitalize="words"
+          autoCorrect={false}
+          returnKeyType="done"
+          maxLength={40}
+          style={styles.nameInput}
+          accessibilityLabel="Your first name"
+          testID="account-name-input"
+        />
+        <Button
+          title="Save"
+          onPress={() => saveOwnerName(ownerNameDraft)}
+          testID="account-name-save"
+        />
+        {ownerName ? (
+          <Pressable
+            onPress={() => saveOwnerName(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Clear name"
+            style={({ pressed }) => [styles.later, pressed && styles.quietPressed]}
+            testID="account-name-clear"
+          >
+            <Text style={styles.laterText}>Clear name</Text>
+          </Pressable>
+        ) : null}
+      </BottomSheet>
+
+      <BottomSheet
+        visible={dueOpen}
+        onClose={() => setDueOpen(false)}
+        accessibilityLabel="Due date"
+        testID="account-due-date-sheet"
+      >
+        <Text style={styles.sheetTitle} accessibilityRole="header">
+          Due date
+        </Text>
+        <Text style={styles.sheetLede}>
+          This sets your week. Your weekly reading will follow the new date.
+        </Text>
+        <Card style={styles.pickerCard}>
+          <DatePickerField
+            value={dueDraft ? dateOrToday(dueDraft) : dateOrToday(todayISO())}
+            minimumDate={dateOrToday(todayISO())}
+            maximumDate={dateOrToday(addDaysISO(todayISO(), 294) ?? todayISO())}
+            onChange={(d) => setDueDraft(toISODate(d))}
+            accessibilityLabel="Choose your due date"
+            testID="account-due-date-picker"
+          />
+        </Card>
+        <View style={styles.sheetGap} />
+        <Button
+          title="Save"
+          onPress={() => saveDueDate(dueDraft)}
+          testID="account-due-date-save"
+        />
+        {dueDate ? (
+          <Pressable
+            onPress={() => saveDueDate(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Clear due date"
+            style={({ pressed }) => [styles.later, pressed && styles.quietPressed]}
+            testID="account-due-date-clear"
+          >
+            <Text style={styles.laterText}>Clear date</Text>
+          </Pressable>
+        ) : null}
+      </BottomSheet>
+
+      <BottomSheet
+        visible={dobSheetOpen}
+        onClose={() => setDobSheetOpen(false)}
+        accessibilityLabel="Birthday"
+        testID="account-dob-sheet"
+      >
+        <Text style={styles.sheetTitle} accessibilityRole="header">
+          Birthday
+        </Text>
+        <Text style={styles.sheetLede}>
+          Optional. It helps make your weekly reading feel a little more personal.
+        </Text>
+        <Card style={styles.pickerCard}>
+          <DatePickerField
+            value={dobDraft ? dateOrToday(dobDraft) : dateOrToday(addDaysISO(todayISO(), -30 * 365) ?? todayISO())}
+            minimumDate={dateOrToday(addDaysISO(todayISO(), -100 * 365) ?? todayISO())}
+            maximumDate={dateOrToday(todayISO())}
+            onChange={(d) => setDobDraft(toISODate(d))}
+            accessibilityLabel="Choose your birthday"
+            testID="account-dob-picker"
+          />
+        </Card>
+        <View style={styles.sheetGap} />
+        <Button
+          title="Save"
+          onPress={() => saveDob(dobDraft)}
+          testID="account-dob-save"
+        />
+        {dob ? (
+          <Pressable
+            onPress={() => saveDob(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Clear birthday"
+            style={({ pressed }) => [styles.later, pressed && styles.quietPressed]}
+            testID="account-dob-clear"
+          >
+            <Text style={styles.laterText}>Clear birthday</Text>
+          </Pressable>
+        ) : null}
+      </BottomSheet>
+
+      <BottomSheet
         visible={partnerOpen}
         onClose={() => {
           setPartnerOpen(false);
@@ -1271,6 +1544,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.ink,
     marginBottom: spacing.md,
+  },
+  pickerCard: {
+    padding: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  sheetGap: {
+    height: spacing.md,
   },
   disp: {
     flexDirection: 'row',

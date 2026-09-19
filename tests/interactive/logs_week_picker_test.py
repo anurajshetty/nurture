@@ -19,7 +19,7 @@ import os
 import sys
 import time
 
-DIST = os.path.expanduser("~/workspace/epic5-work/dist")
+DIST = os.path.expanduser("~/workspace/nurture-v12/dist")
 PORT = 8913
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -29,8 +29,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         query = self.path[len(path):]
-        if path.startswith("/nurture/"):
-            rel = path[len("/nurture/"):]
+        if path.startswith("/willow/"):
+            rel = path[len("/willow/"):]
             if not rel or not os.path.isfile(os.path.join(DIST, rel)):
                 rel = "index.html"
             self.path = "/" + rel + query

@@ -1,22 +1,23 @@
 {
   "expo": {
-    "name": "Nurture",
-    "slug": "nurture",
-    "scheme": "nurture",
+    "name": "Willow",
+    "slug": "willow",
+    "scheme": "willow",
     "version": "1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "bundleIdentifier": "com.anuraj.nurture",
+      "bundleIdentifier": "com.anuraj.willow",
       "buildNumber": "1",
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Nurture uses the camera only when you tap the camera button, to take bump and scan photos you choose to save.",
-        "NSPhotoLibraryUsageDescription": "Nurture accesses your photo library only when you choose a photo to attach to your story."
+        "NSCameraUsageDescription": "Willow uses the camera only when you tap the camera button, to take bump and scan photos you choose to save.",
+        "NSPhotoLibraryUsageDescription": "Willow accesses your photo library only when you choose a photo to attach to your story."
       }
     },
     "android": {
+      "package": "com.anuraj.willow",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -36,8 +37,8 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Nurture uses the microphone only when you tap the mic button, to turn your words into a draft you review before saving.",
-          "speechRecognitionPermission": "Nurture turns your dictated words into a draft you review before saving. Audio stays on this device when the device supports it."
+          "microphonePermission": "Willow uses the microphone only when you tap the mic button, to turn your words into a draft you review before saving.",
+          "speechRecognitionPermission": "Willow turns your dictated words into a draft you review before saving. Audio stays on this device when the device supports it."
         }
       ]
     ]

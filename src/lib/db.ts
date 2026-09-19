@@ -1,5 +1,5 @@
 /**
- * Local SQLite layer (expo-sqlite, synchronous API) for Nurture.
+ * Local SQLite layer (expo-sqlite, synchronous API) for Willow.
  *
  * Owns the offline-first stores: events, the sync outbox, unresolved
  * conflicts, pregnancies, and a generic key/value table (prefs, sync

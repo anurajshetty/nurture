@@ -70,7 +70,7 @@ eq(getWeekNumber(DUE, '2026-10-29'), null, 'three weeks past due (43) → null')
 const c37 = getWeekContent(37, DUE, TODAY);
 eq(c37.week, 37, 'content week');
 ok(c37.size !== null, 'week 37 has a size entry');
-eq(c37.size?.staple, 'a bundle of leeks', 'week 37 size staple');
+eq(c37.size?.staple, 'a swiss chard', 'week 37 size staple');
 eq(c37.highlights.length, 3, 'exactly 3 highlights');
 ok(
   c37.highlights.every((h) => h.length > 0),
@@ -115,7 +115,8 @@ eq(c20.questions.length, 2, 'fallback: 2 questions');
 // --- getWeekContent: size coverage edges --------------------------------
 
 const c4 = getWeekContent(4, '2027-06-01', '2026-09-19');
-eq(c4.size, null, 'week 4: no size entry (starts at 12)');
+ok(c4.size !== null, 'week 4: size entry present (starts at 1)');
+eq(c4.size?.staple, 'a poppy seed', 'week 4 size staple');
 const c41 = getWeekContent(41, DUE, '2026-10-22');
 eq(c41.size, null, 'week 41: no size entry (ends at 40)');
 ok(c41.highlights.length === 3, 'week 41 curated highlights present');

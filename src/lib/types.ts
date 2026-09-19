@@ -1,5 +1,5 @@
 /**
- * Shared domain types for Nurture's data/auth/sync/privacy layer.
+ * Shared domain types for Willow's data/auth/sync/privacy layer.
  *
  * These types describe the offline-first journal model: events are the
  * timeline source of truth, stored locally in SQLite and mirrored to
@@ -89,6 +89,10 @@ export interface Pregnancy {
   userId: string | null;
   dueDate: string | null; // YYYY-MM-DD
   lmpDate: string | null; // YYYY-MM-DD
+  /** Her name, as entered during onboarding. Optional; editable in the You tab. */
+  ownerName: string | null;
+  /** Her birthday, YYYY-MM-DD. Optional; editable in the You tab. New PII — see the privacy note in src/lib/schema.ts. */
+  dob: string | null;
   pregnancyType: 'singleton' | 'multiples';
   parity: 'first' | 'subsequent';
   status: 'active' | 'stopped';

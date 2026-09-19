@@ -1,5 +1,5 @@
 /**
- * Web bootstrap for Nurture (Metro picks this over `bootstrap.ts` on web).
+ * Web bootstrap for Willow (Metro picks this over `bootstrap.ts` on web).
  *
  * - Archive export downloads the JSON via a Blob URL — no file system on
  *   web, so "export" means "save this file" in the browser.

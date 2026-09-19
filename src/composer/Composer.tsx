@@ -1,5 +1,5 @@
 /**
- * The universal composer (Epic 2.1): the Muse-style heart of Nurture.
+ * The universal composer (Epic 2.1): the Muse-style heart of Willow.
  *
  * [+] attachment button · text field · one circular action (mic when
  * empty, send arrow when there's text). Text, voice, photo, and file

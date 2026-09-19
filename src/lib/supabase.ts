@@ -1,5 +1,5 @@
 /**
- * Supabase client singleton for Nurture.
+ * Supabase client singleton for Willow.
  *
  * The app MUST boot with or without backend credentials. When
  * EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY are missing or
@@ -17,7 +17,7 @@ import * as SecureStore from 'expo-secure-store';
 
 /** Error message thrown by auth methods when the backend is not configured. */
 export const AUTH_NOT_CONFIGURED_MESSAGE =
-  'Nurture is not connected to a backend yet. ' +
+  'Willow is not connected to a backend yet. ' +
   'Copy .env.example to .env and add your Supabase URL and anon key, then restart the app.';
 
 /** Storage adapter so supabase-js persists the session in the OS keychain/keystore. */

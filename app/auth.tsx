@@ -33,7 +33,9 @@ export default function AuthScreen() {
   }, []);
 
   useEffect(() => {
-    if (!loading && session) router.replace('/(tabs)');
+    // Group paths ('/(tabs)') don't resolve in the static web export —
+    // redirect to the Week tab leaf instead (Week job finding, Sept 2026).
+    if (!loading && session) router.replace('/week');
   }, [loading, session]);
 
   const handleApple = async () => {
@@ -79,7 +81,7 @@ export default function AuthScreen() {
             <Text style={styles.medallionGlyph}>♥</Text>
           </View>
           <Text style={styles.title} accessibilityRole="header">
-            Welcome to Nurture
+            Welcome to Willow
           </Text>
           <Text style={styles.sub}>
             A quiet place for your pregnancy — your notes, photos, and milestones,

@@ -2,8 +2,8 @@
 """
 Standing interactive browser test: Epic 7 partner sharing.
 
-Drives the REAL Nurture web UI in real Chromium against the built dist/
-served under /nurture/. Covers the approved 07-partner mockup flows:
+Drives the REAL Willow web UI in real Chromium against the built dist/
+served under /willow/. Covers the approved 07-partner mockup flows:
 
   1. journal sheet -> visibility picker (Private/Shared/+Export) with the
      plain-language note updating per state (via the journal-test route)
@@ -29,8 +29,8 @@ from playwright.sync_api import sync_playwright
 REPO = os.path.expanduser("~/workspace/epic7-work")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
-BASE = ORIGIN + "/nurture/?testhooks=1"
-JOURNAL_TEST = ORIGIN + "/nurture/journal-test?testhooks=1"
+BASE = ORIGIN + "/willow/?testhooks=1"
+JOURNAL_TEST = ORIGIN + "/willow/journal-test?testhooks=1"
 KEEP_OPEN = "--keep-open" in sys.argv
 
 SEED_JS = r"""
@@ -58,9 +58,9 @@ def serve_dist(route):
     url = req.url
     assert url.startswith(ORIGIN), url
     path = url[len(ORIGIN):]
-    if not path.startswith("/nurture/"):
+    if not path.startswith("/willow/"):
         return route.fulfill(status=404, body="not found")
-    rel = path[len("/nurture/"):]
+    rel = path[len("/willow/"):]
     if "?" in rel:
         rel = rel.split("?", 1)[0]
     if rel == "" or rel.endswith("/"):

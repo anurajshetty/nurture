@@ -223,7 +223,7 @@ export async function phrasePlan(
   if (!configured) {
     throw new BriefingError(
       'not_configured',
-      'Nurture is not connected to a backend yet — the phraser is unavailable in local-only mode.',
+      'Willow is not connected to a backend yet — the phraser is unavailable in local-only mode.',
     );
   }
 

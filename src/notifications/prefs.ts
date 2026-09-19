@@ -1,5 +1,5 @@
 /**
- * Notification preferences for Nurture.
+ * Notification preferences for Willow.
  *
  * Stored locally in SQLite (survives offline and reinstalls of the backend
  * config) and mirrored to the server's `notification_prefs` table when a

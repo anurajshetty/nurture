@@ -112,12 +112,12 @@ function bodyText(body: DelightBody): string {
 // --- size mapping + clamping --------------------------------------------------
 {
   const size28 = buildDelightCards(28, memStore(), '2026-09-18')[1];
-  checkTrue('week 28 size is the bowling pin', size28.preview.includes('bowling pin'), size28.preview);
-  const sizeLow = buildDelightCards(8, memStore(), '2026-09-18')[1];
-  check('week 8 clamps to week 12', sizeLow.preview, buildDelightCards(12, memStore(), '2026-09-18')[1].preview);
+  checkTrue('week 28 size is the eggplant', size28.preview.includes('eggplant'), size28.preview);
+  const sizeLow = buildDelightCards(0, memStore(), '2026-09-18')[1];
+  check('week 0 clamps to week 1', sizeLow.preview, buildDelightCards(1, memStore(), '2026-09-18')[1].preview);
   const sizeHigh = buildDelightCards(44, memStore(), '2026-09-18')[1];
   check('week 44 clamps to week 40', sizeHigh.preview, buildDelightCards(40, memStore(), '2026-09-18')[1].preview);
-  checkTrue('every size week 12-40 has an entry', Object.keys(SIZE_BY_WEEK).length === 29, String(Object.keys(SIZE_BY_WEEK).length));
+  checkTrue('every size week 1-40 has an entry', Object.keys(SIZE_BY_WEEK).length === 40, String(Object.keys(SIZE_BY_WEEK).length));
 }
 
 // --- rotation: without a name, the 4 non-name kinds take turns ---------------

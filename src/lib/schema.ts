@@ -1,5 +1,5 @@
 /**
- * Shared SQLite schema for Nurture (used by the native expo-sqlite store
+ * Shared SQLite schema for Willow (used by the native expo-sqlite store
  * and the web sql.js store alike).
  *
  * `SyncDbHandle` is the structural subset of expo-sqlite's SQLiteDatabase
@@ -16,7 +16,7 @@ export interface SyncDbHandle {
 }
 
 export const DB_NAME = 'nurture.db';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS pregnancies (
   user_id TEXT,
   due_date TEXT,
   lmp_date TEXT,
+  -- PRIVACY PASS (Sept 2026, onboarding): owner_name and dob are new PII
+  -- collected during onboarding. They travel the same owner-only RLS path
+  -- as the rest of the pregnancy record (never sent to the briefing edge
+  -- function — see src/briefing/context.ts NEVER list), but no
+  -- privacy-policy/disclosures file exists in this repo yet. Before this
+  -- ships to the App Store, add both fields to the privacy disclosures.
+  -- The matching remote migration is
+  -- supabase/migrations/20260919150000_add_profile_fields_to_pregnancies.sql
+  -- (dob is YYYY-MM-DD, same calendar-date convention as due_date.)
+  owner_name TEXT,
+  dob TEXT,
   pregnancy_type TEXT NOT NULL DEFAULT 'singleton',
   parity TEXT NOT NULL DEFAULT 'first',
   status TEXT NOT NULL DEFAULT 'active',
@@ -119,6 +130,20 @@ function runMigrations(handle: SyncDbHandle): void {
     // The CREATE TABLE IF NOT EXISTS in SCHEMA_SQL already ran above, so
     // this only bumps the version marker for pre-2.3 databases.
     handle.runSync("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '3')");
+  }
+  if (current < 4) {
+    // v4 (onboarding, Sept 2026): pregnancies gains owner_name (her name)
+    // and dob (her birthday, YYYY-MM-DD). Both nullable; existing rows
+    // keep working untouched. See the PRIVACY PASS comment on the
+    // pregnancies table above before shipping.
+    const cols = handle.getAllSync<{ name: string }>('PRAGMA table_info(pregnancies)');
+    if (!cols.some((c) => c.name === 'owner_name')) {
+      handle.execSync('ALTER TABLE pregnancies ADD COLUMN owner_name TEXT');
+    }
+    if (!cols.some((c) => c.name === 'dob')) {
+      handle.execSync('ALTER TABLE pregnancies ADD COLUMN dob TEXT');
+    }
+    handle.runSync("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '4')");
   }
 }
 

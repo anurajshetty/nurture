@@ -127,6 +127,30 @@ export function validateDueDate(iso: string | null, asOfISO: string = todayISO()
 }
 
 /**
+ * Validates a birthday: must be a real date, not in the future, and not
+ * implausibly far back. Birthdays are optional everywhere they appear —
+ * this only runs when she actually picked one.
+ */
+export function validateDob(iso: string | null, asOfISO: string = todayISO()): DateProblem | null {
+  // Birthdays are optional everywhere — null/blank means "not set", not a problem.
+  if (!iso || iso.trim().length === 0) return null;
+  if (!parseISODate(iso)) {
+    return { message: 'Hmm — that date didn’t come through. Try picking it again?' };
+  }
+  const daysAgo = daysBetween(iso, asOfISO);
+  if (daysAgo === null) {
+    return { message: 'Hmm — that date didn’t come through. Try picking it again?' };
+  }
+  if (daysAgo < 0) {
+    return { message: 'That date is still ahead of us — mind picking your birthday again?' };
+  }
+  if (daysAgo > 100 * 365) {
+    return { message: 'That was quite a while ago — mind double-checking the date?' };
+  }
+  return null;
+}
+
+/**
  * Validates a last-period date: must be a real date, not in the future,
  * and not implausibly long ago.
  */
