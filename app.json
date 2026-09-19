@@ -8,6 +8,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
+      "bundleIdentifier": "com.anuraj.nurture",
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Nurture uses the camera only when you tap the camera button, to take bump and scan photos you choose to save.",

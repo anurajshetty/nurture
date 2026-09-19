@@ -1,0 +1,19 @@
+{
+    "build": {
+        "development": {
+            "developmentClient": true,
+            "distribution": "internal"
+        },
+        "preview": {
+            "distribution": "internal"
+        },
+        "production": {
+            "ios": {
+                "resourceClass": "m1-medium"
+            }
+        }
+    },
+    "cli": {
+        "version": ">= 16.0.0"
+    }
+}
