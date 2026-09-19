@@ -314,7 +314,7 @@ export default function LogsScreen() {
 
   return (
     <Screen scroll={false} testID="logs-screen" style={styles.root}>
-      <View style={styles.header}>
+      <View style={styles.header} testID="logs-header">
         <Text style={styles.title}>Your story</Text>
         {headerWeek !== null && (
           <Pressable
@@ -365,13 +365,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
+    // Compact header (Anuraj Sept 2026): the title + week pill + filter
+    // chips were eating ~40% of the viewport. Mockup 13-logs-add values —
+    // 24px title, tight pill, ~90px header block total.
+    paddingTop: 4,
+    paddingBottom: 2,
   },
   title: {
     fontFamily: fontDisplay,
-    fontSize: 32,
-    lineHeight: 38,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: '600',
     color: colors.ink,
   },
@@ -380,7 +383,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.card,
     borderRadius: 999,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 13,
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
@@ -389,7 +392,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   jumpText: {
-    fontSize: 13.5,
+    fontSize: 13,
     lineHeight: 18,
     fontWeight: '700',
     color: colors.coralDeep,

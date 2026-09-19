@@ -112,6 +112,7 @@ export default function TimelineFilters({ value, onChange, testID }: TimelineFil
             label={chip.label}
             selected={value === chip.value}
             onPress={() => onChange(chip.value)}
+            compact
             testID={`filter-chip-${chip.value}`}
           />
         ))}
@@ -125,6 +126,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    // Tight filter row per the approved 13-logs-add mockup
+    // (.filters{padding:2px 2px 6px}); horizontal stays aligned with the
+    // 24px title above.
+    paddingTop: 2,
+    paddingBottom: 6,
   },
 });
