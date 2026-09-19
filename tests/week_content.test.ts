@@ -22,6 +22,8 @@ import {
   shouldShowWeekContent,
 } from '../src/week/content';
 
+declare const process: { exit(code: number): void };
+
 let passed = 0;
 let failed = 0;
 

@@ -62,6 +62,12 @@ export default function LogsScreen() {
   const [lookBack, setLookBack] = useState<LookBack | null>(null);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  /**
+   * A week picked from the week picker that has no logged events.
+   * When set, the timeline is replaced by a "nothing logged for that
+   * week" empty state instead of silently doing nothing.
+   */
+  const [pickedWeek, setPickedWeek] = useState<number | null>(null);
 
   const sectionListRef = useRef<SectionList<LocalEvent, TimelineSection> | null>(null);
   const loadingMore = useRef(false);
@@ -124,6 +130,13 @@ export default function LogsScreen() {
 
   const onSaved = useCallback((event: LocalEvent) => {
     setEvents((prev) => [event, ...prev.filter((e) => e.id !== event.id)]);
+    // A new entry may belong to the picked week; re-evaluate.
+    setPickedWeek(null);
+  }, []);
+
+  const onFilterChange = useCallback((f: FilterValue) => {
+    setFilter(f);
+    setPickedWeek(null);
   }, []);
 
   const onUnsaved = useCallback((id: string) => {
@@ -202,7 +215,7 @@ export default function LogsScreen() {
     return list;
   }, [week, dueDate]);
 
-  /** Week-picker jump: loads until the band exists, then scrolls to it. */
+  /** Week-picker jump: scrolls to the band, or shows the empty-week state. */
   const onPickWeek = useCallback(
     (picked: number) => {
       setPickerVisible(false);
@@ -224,7 +237,13 @@ export default function LogsScreen() {
         sectionIndex = targetSections.findIndex((s) => s.key === targetKey);
       }
       setEvents(loaded);
-      if (sectionIndex < 0) return;
+      if (sectionIndex < 0) {
+        // That week has no logged events: show the empty-week state
+        // instead of leaving the list where it was.
+        setPickedWeek(picked);
+        return;
+      }
+      setPickedWeek(null);
       const at = sectionIndex;
       requestAnimationFrame(() => {
         try {
@@ -240,6 +259,9 @@ export default function LogsScreen() {
     },
     [events, filter, dueDate],
   );
+
+  /** Clears the picked-week empty state and returns to the full timeline. */
+  const clearPickedWeek = useCallback(() => setPickedWeek(null), []);
 
   const listEmpty = useMemo(() => {
     if (events.length === 0) {
@@ -263,35 +285,64 @@ export default function LogsScreen() {
     );
   }, [events]);
 
+  /** Empty state for a picked week with no logged events. */
+  const pickedWeekEmpty = useMemo(() => {
+    if (pickedWeek === null || !dueDate) return null;
+    const range = pregnancyWeekRange(pickedWeek, dueDate);
+    return (
+      <View style={styles.empty} testID="week-empty-state">
+        <Text style={styles.emptyTitle}>Nothing logged for Week {pickedWeek}</Text>
+        <Text style={styles.emptyBody}>
+          {range ? formatWeekRange(range.startISO, range.endISO) : ''}
+          {'\n'}Your story grows one small moment at a time — save one below.
+        </Text>
+        <Pressable
+          testID="week-empty-back"
+          accessibilityRole="button"
+          accessibilityLabel="Back to all weeks"
+          onPress={clearPickedWeek}
+          style={({ pressed }) => [styles.emptyBack, pressed && styles.jumpPressed]}
+        >
+          <Text style={styles.emptyBackText}>Back to all weeks</Text>
+        </Pressable>
+      </View>
+    );
+  }, [pickedWeek, dueDate, clearPickedWeek]);
+
+  /** Header week label: the picked empty week, else the current week. */
+  const headerWeek = pickedWeek ?? week?.week ?? null;
+
   return (
     <Screen scroll={false} testID="logs-screen" style={styles.root}>
       <View style={styles.header}>
         <Text style={styles.title}>Your story</Text>
-        {week && (
+        {headerWeek !== null && (
           <Pressable
             testID="week-jump-button"
             accessibilityRole="button"
-            accessibilityLabel={`Jump to a week, currently week ${week.week}`}
+            accessibilityLabel={`Jump to a week, currently week ${headerWeek}`}
             onPress={() => setPickerVisible(true)}
             style={({ pressed }) => [styles.jump, pressed && styles.jumpPressed]}
           >
-            <Text style={styles.jumpText}>Week {week.week} ▾</Text>
+            <Text style={styles.jumpText}>Week {headerWeek} ▾</Text>
           </Pressable>
         )}
       </View>
-      <TimelineFilters value={filter} onChange={setFilter} testID="timeline-filters" />
+      <TimelineFilters value={filter} onChange={onFilterChange} testID="timeline-filters" />
       <View style={styles.stream}>
-        <TimelineList
-          sections={sections}
-          lookBack={filter === 'all' ? lookBack : null}
-          onDismissLookBack={dismissLookBack}
-          onRevisitLookBack={scrollToEvent}
-          onEndReached={loadMore}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          listEmpty={listEmpty}
-          sectionListRef={sectionListRef}
-        />
+        {pickedWeekEmpty ?? (
+          <TimelineList
+            sections={sections}
+            lookBack={filter === 'all' ? lookBack : null}
+            onDismissLookBack={dismissLookBack}
+            onRevisitLookBack={scrollToEvent}
+            onEndReached={loadMore}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            listEmpty={listEmpty}
+            sectionListRef={sectionListRef}
+          />
+        )}
       </View>
       <View style={styles.composerWrap}>
         <Composer onSaved={onSaved} onUnsaved={onUnsaved} />
@@ -367,6 +418,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.sm,
     lineHeight: 24,
+  },
+  emptyBack: {
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+    backgroundColor: colors.card,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  emptyBackText: {
+    ...typeScale.body,
+    fontWeight: '600',
+    color: colors.ink,
+    textAlign: 'center',
   },
   composerWrap: {
     paddingHorizontal: spacing.lg,
