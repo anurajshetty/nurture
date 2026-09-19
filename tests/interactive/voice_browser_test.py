@@ -29,7 +29,8 @@ from playwright.sync_api import sync_playwright
 REPO = os.path.expanduser("~/workspace/nurture-v12")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
-BASE = ORIGIN + "/willow/"
+BASE = ORIGIN + "/willow/?testhooks=1"
+LOGS = ORIGIN + "/willow/logs?testhooks=1"
 KEEP_OPEN = "--keep-open" in sys.argv
 
 FAKE_SR_JS = r"""
@@ -181,10 +182,42 @@ def main():
         page = ctx.new_page()
         page.on("pageerror", lambda e: print("PAGEERROR:", str(e)[:200]))
         page.goto(BASE, timeout=30000)
-        page.get_by_test_id("week-screen").wait_for(timeout=30000)
-        # Composer lives on the Logs tab.
-        page.get_by_role("tab", name="Logs").click()
-        page.get_by_test_id("logs-screen").wait_for(timeout=10000)
+        try:
+            page.wait_for_function(
+                "() => window.__nurtureTest !== undefined", timeout=30000)
+        except Exception:
+            check("test hooks installed", False, "window.__nurtureTest never appeared")
+            browser.close()
+            sys.exit(1)
+        check("test hooks installed", True)
+        # Fresh profile boots to onboarding (Week-as-home change) — complete
+        # it via the hooks, then go DIRECTLY to the Logs tab (expo-router
+        # drops the query on in-app tab navigation).
+        page.evaluate(
+            "() => { const t = window.__nurtureTest; "
+            "t.completeOnboarding(); "
+            "t.seedPregnancy({ dueDate: '2026-10-08', parity: 'first' }); }"
+        )
+        page.goto(LOGS, timeout=30000)
+        try:
+            page.get_by_test_id("logs-screen").wait_for(timeout=15000)
+        except Exception:
+            check("logs screen boots", False, "logs-screen never appeared")
+            browser.close()
+            sys.exit(1)
+        check("logs screen boots", True)
+        # The composer now lives behind the Logs-tab Add button (Sept 2026):
+        # + -> Log entry floats the real composer above a light scrim.
+        page.get_by_test_id("logs-add-button").click()
+        page.get_by_test_id("add-menu").wait_for(timeout=5000)
+        page.get_by_test_id("add-menu-pill-log").click()
+        try:
+            page.get_by_test_id("floating-composer").wait_for(timeout=5000)
+        except Exception:
+            check("log entry floats the composer", False)
+            browser.close()
+            sys.exit(1)
+        check("log entry floats the composer", True)
         mic = page.get_by_role("button", name="Dictate a moment")
         try:
             mic.wait_for(timeout=30000)

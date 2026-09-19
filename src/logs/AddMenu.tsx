@@ -1,0 +1,175 @@
+/**
+ * AddMenu — the Logs-tab Add button (Anuraj-approved Sept 2026).
+ *
+ * One centered circular + button floating above the Logs tab bar. It
+ * REPLACES the old "Save a moment…" composer bar. Tap: a light scrim and
+ * three pills (Appointment / Add report / Log entry). Tap ×, the scrim,
+ * or any pill to fold the menu away; a pill opens its sheet.
+ *
+ * Rendered as a direct child of the Logs Screen: the button bar is
+ * in-flow at the bottom (where the composer used to sit) while the menu
+ * overlay is absolutely positioned over the whole screen, painted above
+ * the timeline but below the button.
+ */
+import { useCallback, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { colors, radii, spacing, shadow, type as typeScale } from '../theme/tokens';
+import type { LocalEvent } from '../lib/types';
+import AppointmentSheet from './AppointmentSheet';
+import ReportSheet from './ReportSheet';
+import FloatingComposer from './FloatingComposer';
+
+type SheetKind = 'appointment' | 'report' | 'log' | null;
+
+function MenuPill({
+  label,
+  testID,
+  onPress,
+}: {
+  label: string;
+  testID: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      testID={testID}
+      style={({ pressed }) => [styles.pill, pressed && styles.pillPressed]}>
+      <Text style={styles.pillText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+export interface AddMenuProps {
+  /** Prepends a saved event to the timeline (optimistic). */
+  onSaved: (event: LocalEvent) => void;
+  /** Removes the event from the timeline after Undo. */
+  onUnsaved: (id: string) => void;
+}
+
+export default function AddMenu({ onSaved, onUnsaved }: AddMenuProps) {
+  const [open, setOpen] = useState(false);
+  const [sheet, setSheet] = useState<SheetKind>(null);
+
+  const closeMenu = useCallback(() => setOpen(false), []);
+  const pick = useCallback((kind: Exclude<SheetKind, null>) => {
+    setOpen(false);
+    setSheet(kind);
+  }, []);
+  const closeSheet = useCallback(() => setSheet(null), []);
+
+  return (
+    <>
+      {open ? (
+        <View style={styles.menuOverlay} testID="add-menu" pointerEvents="box-none">
+          <Pressable
+            style={styles.scrim}
+            onPress={closeMenu}
+            accessibilityRole="button"
+            accessibilityLabel="Close add menu"
+            testID="add-menu-scrim"
+          />
+          <View style={styles.pills} pointerEvents="box-none">
+            <MenuPill label="Appointment" testID="add-menu-pill-appointment" onPress={() => pick('appointment')} />
+            <MenuPill label="Add report" testID="add-menu-pill-report" onPress={() => pick('report')} />
+            <MenuPill label="Log entry" testID="add-menu-pill-log" onPress={() => pick('log')} />
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.bar}>
+        <Pressable
+          onPress={() => setOpen((o) => !o)}
+          accessibilityRole="button"
+          accessibilityLabel={open ? 'Close add menu' : 'Add'}
+          testID="logs-add-button"
+          style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}>
+          <Feather name={open ? 'x' : 'plus'} size={38} color="#fff" />
+        </Pressable>
+      </View>
+
+      <AppointmentSheet visible={sheet === 'appointment'} onClose={closeSheet} onSaved={onSaved} />
+      <ReportSheet visible={sheet === 'report'} onClose={closeSheet} onSaved={onSaved} />
+      <FloatingComposer
+        visible={sheet === 'log'}
+        onClose={closeSheet}
+        onSaved={onSaved}
+        onUnsaved={onUnsaved}
+      />
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  /** Screen-level overlay: above the timeline, below the + button. */
+  menuOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    zIndex: 10,
+  },
+  scrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.55)',
+  },
+  pills: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 136,
+    alignItems: 'center',
+    gap: 12,
+  },
+  pill: {
+    backgroundColor: '#fff',
+    borderRadius: radii.chip,
+    paddingVertical: 16,
+    paddingHorizontal: 30,
+    minHeight: 58,
+    minWidth: 210,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.line,
+    ...shadow.card,
+  },
+  pillPressed: {
+    backgroundColor: colors.bg,
+  },
+  pillText: {
+    ...typeScale.headline,
+    fontWeight: '700',
+    color: colors.ink,
+  },
+  /** In-flow bar where the old composer sat: one centered button. */
+  bar: {
+    // Above the menu scrim (zIndex 10): the + / x stays tappable while
+    // the menu is open. position:relative so z-index applies on web too.
+    position: 'relative',
+    zIndex: 11,
+    alignItems: 'center',
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.md,
+  },
+  addButton: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: colors.coral,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.card,
+  },
+  addButtonPressed: {
+    backgroundColor: colors.coralDeep,
+  },
+});

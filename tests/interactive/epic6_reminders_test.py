@@ -249,7 +249,19 @@ def main():
                 if m.type == "error" else None)
 
         # ---- Flow 1: boot ----
+        # Fresh profile boots to onboarding (Week-as-home change): run the
+        # seed first (it completes onboarding), then the week tab renders.
         page.goto(BASE, timeout=60000)
+        try:
+            page.wait_for_function(
+                "() => window.__nurtureTest !== undefined", timeout=30000)
+        except Exception:
+            check("flow1: test hooks installed", False)
+            browser.close()
+            sys.exit(1)
+        seed = json.loads(page.evaluate(SEED_JS))
+        check("flow1: hooks seeded an appointment", seed.get("status") == "seeded", str(seed))
+        page.goto(ORIGIN + "/willow/week?testhooks=1", timeout=60000)
         try:
             page.get_by_test_id("week-screen").wait_for(timeout=45000)
         except Exception:
@@ -258,9 +270,6 @@ def main():
             browser.close()
             sys.exit(1)
         check("flow1: app boots to Week", True)
-
-        seed = json.loads(page.evaluate(SEED_JS))
-        check("flow1: hooks seeded an appointment", seed.get("status") == "seeded", str(seed))
         appt_id = seed.get("id")
         detail_url = f"{ORIGIN}/willow/plan?appointment={appt_id}&testhooks=1"
 

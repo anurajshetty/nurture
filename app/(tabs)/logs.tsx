@@ -31,7 +31,7 @@ import { kvGet, kvSet } from '../../src/lib/db';
 import type { LocalEvent } from '../../src/lib/types';
 import { useOnboarding } from '../../src/onboarding/useOnboarding';
 import { weekOf } from '../../src/onboarding/dates';
-import Composer from '../../src/composer/Composer';
+import AddMenu from '../../src/logs/AddMenu';
 import { refreshEndOfDayNudge } from '../../src/notifications/endOfDay';
 import { useSync } from '../../src/sync/SyncContext';
 import TimelineFilters, {
@@ -269,7 +269,7 @@ export default function LogsScreen() {
         <View style={styles.empty}>
           <Text style={styles.emptyTitle}>Your story starts here</Text>
           <Text style={styles.emptyBody}>
-            Save a moment below — a thought, a photo, how you're feeling. It takes seconds.
+            Tap + below to save a moment — a thought, a photo, a report. It takes seconds.
           </Text>
         </View>
       );
@@ -344,9 +344,7 @@ export default function LogsScreen() {
           />
         )}
       </View>
-      <View style={styles.composerWrap}>
-        <Composer onSaved={onSaved} onUnsaved={onUnsaved} />
-      </View>
+      <AddMenu onSaved={onSaved} onUnsaved={onUnsaved} />
       <WeekPicker
         visible={pickerVisible}
         onClose={() => setPickerVisible(false)}
@@ -433,9 +431,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.ink,
     textAlign: 'center',
-  },
-  composerWrap: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
   },
 });

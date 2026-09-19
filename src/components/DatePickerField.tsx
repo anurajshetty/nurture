@@ -20,6 +20,12 @@ export interface DatePickerFieldProps {
   onChange: (date: Date) => void;
   accessibilityLabel: string;
   testID?: string;
+  /**
+   * iOS only: render the compact tappable field instead of the inline
+   * calendar (for tight sheets like the appointment intake). Android and
+   * web are unchanged.
+   */
+  compact?: boolean;
 }
 
 export function DatePickerField({
@@ -29,6 +35,7 @@ export function DatePickerField({
   onChange,
   accessibilityLabel,
   testID,
+  compact = false,
 }: DatePickerFieldProps) {
   const [showAndroidPicker, setShowAndroidPicker] = useState(false);
 
@@ -44,7 +51,7 @@ export function DatePickerField({
       <DateTimePicker
         value={value}
         mode="date"
-        display="inline"
+        display={compact ? 'compact' : 'inline'}
         minimumDate={minimumDate}
         maximumDate={maximumDate}
         accentColor={colors.coral}

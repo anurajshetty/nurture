@@ -52,6 +52,33 @@ export interface ComposerProps {
   onSaved: (event: LocalEvent) => void;
   /** Removes the event from the home stream after Undo. */
   onUnsaved: (id: string) => void;
+  /**
+   * Floating "Log entry" mode (Logs-tab Add button): hide the
+   * "How are you feeling?" mood pill. The pill logic stays intact — it
+   * is only not rendered, so it can return later in one line.
+   */
+  hideMoodPill?: boolean;
+  /**
+   * Floating "Log entry" mode: the [+] sheet offers photos only
+   * (Take a photo / Photo library) — files live in Add report.
+   */
+  photosOnly?: boolean;
+  /**
+   * Floating "Log entry" mode: vertically center the [+] and action
+   * buttons in the bar instead of pinning them to the bottom edge.
+   */
+  centerActions?: boolean;
+  /**
+   * Floating "Log entry" mode: don't show the Composer's own "Saved —
+   * Undo" toast after a send; the floating wrapper shows its own
+   * "Saved to your story" toast instead.
+   */
+  suppressSaveToast?: boolean;
+  /**
+   * Called after a successful send (after `onSaved`). The floating
+   * wrapper uses it to toast "Saved to your story" and settle away.
+   */
+  onSaveComplete?: (event: LocalEvent) => void;
 }
 
 interface Toast {
@@ -87,7 +114,15 @@ function attachmentPayload(a: PendingAttachment): EventAttachment {
   };
 }
 
-export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
+export default function Composer({
+  onSaved,
+  onUnsaved,
+  hideMoodPill = false,
+  photosOnly = false,
+  centerActions = false,
+  suppressSaveToast = false,
+  onSaveComplete,
+}: ComposerProps) {
   const { syncNow } = useSync();
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -215,14 +250,15 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
   const afterSave = useCallback(
     (event: LocalEvent, message: string) => {
       onSaved(event);
-      showToast(message, event.id);
+      if (!suppressSaveToast) showToast(message, event.id);
+      onSaveComplete?.(event);
       void refreshEndOfDayNudge();
       void syncNow().catch(() => {});
       // Media backup runs on its own queue — text never waits for it.
       // On web this is the eager upload (blob: URIs die with the tab).
       void drainMediaOutbox().catch(() => {});
     },
-    [onSaved, showToast, syncNow],
+    [onSaved, showToast, syncNow, suppressSaveToast, onSaveComplete],
   );
 
   const send = useCallback(() => {
@@ -359,7 +395,7 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
 
   return (
     <View style={styles.zone}>
-      {pillVisible && !moodOpen ? (
+      {!hideMoodPill && pillVisible && !moodOpen ? (
         <Pressable
           style={styles.moodPill}
           onPress={openMood}
@@ -445,12 +481,17 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
         </View>
       ) : null}
 
-      <View style={[styles.composer, listening && styles.composerListening]}>
+      <View
+        style={[
+          styles.composer,
+          centerActions && styles.composerCentered,
+          listening && styles.composerListening,
+        ]}>
         <Pressable
           style={styles.circleBtn}
           onPress={() => setSheetOpen(true)}
           accessibilityRole="button"
-          accessibilityLabel="Add photo or file">
+          accessibilityLabel={photosOnly ? 'Add photo' : 'Add photo or file'}>
           <Feather name="plus" size={22} color={colors.ink} />
         </Pressable>
         <TextInput
@@ -523,8 +564,8 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
       <BottomSheet
         visible={sheetOpen}
         onClose={() => setSheetOpen(false)}
-        accessibilityLabel="Add to this moment">
-        <Text style={styles.sheetTitle}>Add to this moment</Text>
+        accessibilityLabel={photosOnly ? 'Add a photo' : 'Add to this moment'}>
+        <Text style={styles.sheetTitle}>{photosOnly ? 'Add a photo' : 'Add to this moment'}</Text>
         <Text style={styles.sheetSub}>Private by default — only ever shared if you say so.</Text>
         <AttachOption
           icon="camera"
@@ -538,12 +579,14 @@ export default function Composer({ onSaved, onUnsaved }: ComposerProps) {
           subtitle="Ultrasound pics, bump photos, memories"
           onPress={() => void addAttachments(() => pickFromLibrary())}
         />
-        <AttachOption
-          icon="file-text"
-          title="Add files"
-          subtitle="Scan reports, PDFs, notes from your visit"
-          onPress={() => void addAttachments(pickDocument)}
-        />
+        {photosOnly ? null : (
+          <AttachOption
+            icon="file-text"
+            title="Add files"
+            subtitle="Scan reports, PDFs, notes from your visit"
+            onPress={() => void addAttachments(pickDocument)}
+          />
+        )}
       </BottomSheet>
 
       {toast ? (
@@ -727,6 +770,11 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     gap: spacing.sm,
     ...shadow.card,
+  },
+  // Floating "Log entry" mode: [+] and the action button sit on the
+  // field's vertical center instead of the bottom edge.
+  composerCentered: {
+    alignItems: 'center',
   },
   composerListening: {
     borderColor: colors.coral,
