@@ -8,6 +8,7 @@ import { SyncProvider } from '../src/sync/SyncContext';
 import { useOnboarding } from '../src/onboarding/useOnboarding';
 import { registerDefaultArchiveWriter, useMagicLinkHandler } from '../src/bootstrap';
 import { ensureDbReady } from '../src/lib/db';
+import { installTestHooks } from '../src/testhooks';
 import { refreshEndOfDayNudge } from '../src/notifications/endOfDay';
 import { colors } from '../src/theme/tokens';
 
@@ -79,6 +80,8 @@ export default function RootLayout() {
       })
       .finally(() => {
         if (!cancelled) {
+          // Web-only test harness; self-guards on ?testhooks=1, no-op otherwise.
+          installTestHooks();
           registerDefaultArchiveWriter();
           // Re-evaluate the end-of-day nudge at every boot: entry logged
           // today → no nudge; nothing logged → 8:30 PM trigger armed.

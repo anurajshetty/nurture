@@ -174,6 +174,61 @@ export function listEvents(limit = 200): LocalEvent[] {
     .map(rowToEvent);
 }
 
+/**
+ * Lists one page of local (non-deleted) events, newest first — the
+ * pagination primitive behind the virtualized timeline.
+ */
+export function listEventsPage(limit: number, offset: number): LocalEvent[] {
+  return getDb()
+    .getAllSync<EventRow>(
+      'SELECT * FROM events WHERE deleted_at IS NULL ORDER BY occurred_at DESC LIMIT ? OFFSET ?',
+      limit,
+      offset,
+    )
+    .map(rowToEvent);
+}
+
+/** Counts local (non-deleted) events — drives timeline pagination. */
+export function countEvents(): number {
+  const row = getDb().getFirstSync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM events WHERE deleted_at IS NULL',
+  );
+  return row?.n ?? 0;
+}
+
+/**
+ * Lists local (non-deleted) events whose calendar day falls in
+ * [startISO, endISO), newest first. The day is matched on the YYYY-MM-DD
+ * date part of `occurred_at`, so look-back windows line up with the device's
+ * calendar — the same day buckets the timeline's week bands use.
+ */
+export function listEventsInRange(startISO: string, endISO: string, limit = 50): LocalEvent[] {
+  return getDb()
+    .getAllSync<EventRow>(
+      `SELECT * FROM events
+       WHERE deleted_at IS NULL
+         AND substr(occurred_at, 1, 10) >= ?
+         AND substr(occurred_at, 1, 10) < ?
+       ORDER BY occurred_at DESC LIMIT ?`,
+      startISO,
+      endISO,
+      limit,
+    )
+    .map(rowToEvent);
+}
+
+/**
+ * Test-only: deletes every event row and its outbox ops. Used by the
+ * interactive web test harness to reset the timeline between runs.
+ * Never called from production paths.
+ */
+export function clearAllEvents(): void {
+  getDb().withTransactionSync(() => {
+    getDb().runSync('DELETE FROM outbox');
+    getDb().runSync('DELETE FROM events');
+  });
+}
+
 /** Lists every local event including tombstones (used by export). */
 export function listAllEventsIncludingDeleted(): LocalEvent[] {
   return getDb()

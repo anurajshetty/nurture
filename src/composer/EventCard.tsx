@@ -60,15 +60,6 @@ function formatTime(iso: string): string {
   return `${date} · ${time}`;
 }
 
-interface AttachmentRef {
-  kind?: string;
-  uri?: string;
-  name?: string;
-  local_uri?: string;
-  upload?: string;
-  storage_path?: string;
-}
-
 function attachmentsOf(data: Record<string, unknown>): EventAttachment[] {
   const raw = data.attachments;
   if (!Array.isArray(raw)) return [];
