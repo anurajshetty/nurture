@@ -75,7 +75,10 @@ def serve_dist(route):
         rel = "index.html"
     fpath = os.path.join(DIST, rel)
     if not os.path.isfile(fpath):
-        return route.fulfill(status=404, body="not found: " + rel)
+        # SPA fallback: expo-router tab routes (e.g. /nurture/logs) have no
+        # static file; serve index.html so the router resolves client-side.
+        # (Same pattern as epic4_journal_test.py.)
+        fpath = os.path.join(DIST, "index.html")
     ctype, _ = mimetypes.guess_type(fpath)
     if fpath.endswith(".wasm"):
         ctype = "application/wasm"
@@ -108,13 +111,16 @@ def main():
             print("body text:", page.evaluate("document.body.innerText.slice(0, 300)"))
             browser.close()
             sys.exit(1)
-        check("app boots to home timeline", True)
+        check("app boots to Home briefing", True)
 
         # Seed through the real store, then reload so the timeline reads them.
         seed_status = page.evaluate(SEED_JS)
         check("test hooks active and seeded", seed_status == "seeded", f"status={seed_status}")
         page.reload()
         home.wait_for(timeout=30000)
+        # Timeline now lives on the Logs tab (new Home = briefing).
+        page.get_by_role("tab", name="Logs").click()
+        page.get_by_test_id("logs-screen").wait_for(timeout=10000)
         cards = page.locator('[data-testid^="event-card-"]')
         try:
             page.wait_for_function(
@@ -181,7 +187,8 @@ def main():
         check("flow3: dismiss removes the card",
               page.get_by_test_id("lookback-card").count() == 0)
         page.reload()
-        home.wait_for(timeout=30000)
+        # Reload restores the Logs route (expo-router web keeps the tab in the URL).
+        page.get_by_test_id("logs-screen").wait_for(timeout=30000)
         page.wait_for_timeout(1500)
         check("flow3: dismissal persists after reload",
               page.get_by_test_id("lookback-card").count() == 0)

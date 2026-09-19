@@ -4,6 +4,7 @@ import { colors, spacing } from '../../src/theme/tokens';
 
 const TAB_GLYPHS = {
   index: '⌂',
+  logs: '☰',
   week: '◍',
   plan: '▤',
   you: '☺',
@@ -21,8 +22,9 @@ function TabGlyph({ glyph, focused }: { glyph: string; focused: boolean }) {
 }
 
 /**
- * Tab shell: Home · Week · Plan · You. Warm tab bar, coral-deep active
+ * Tab shell: Home · Logs · Week · Plan · You. Warm tab bar, coral-deep active
  * tint, every target ≥48pt, no headers (each screen owns its title).
+ * Home is the index route, so it stays the default landing tab.
  */
 export default function TabsLayout() {
   return (
@@ -42,6 +44,15 @@ export default function TabsLayout() {
           title: 'Home',
           tabBarIcon: ({ focused }) => (
             <TabGlyph glyph={TAB_GLYPHS.index} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="logs"
+        options={{
+          title: 'Logs',
+          tabBarIcon: ({ focused }) => (
+            <TabGlyph glyph={TAB_GLYPHS.logs} focused={focused} />
           ),
         }}
       />

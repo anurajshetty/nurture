@@ -2,5 +2,9 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  }
+  },
+  // Supabase Edge Functions run on Deno (not in the Expo bundle); their
+  // types/globals are not available to tsc. They are unit-tested separately
+  // (see tests/week_briefing.test.ts) and deployed with the Supabase CLI.
+  "exclude": ["supabase"]
 }

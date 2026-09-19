@@ -145,7 +145,10 @@ def serve_dist(route):
         rel = "index.html"
     fpath = os.path.join(DIST, rel)
     if not os.path.isfile(fpath):
-        return route.fulfill(status=404, body="not found: " + rel)
+        # SPA fallback (see timeline_browser_test.py): tab routes like
+        # /nurture/logs have no static file; serve index.html so
+        # expo-router resolves them client-side.
+        fpath = os.path.join(DIST, "index.html")
     ctype, _ = mimetypes.guess_type(fpath)
     if fpath.endswith(".wasm"):
         ctype = "application/wasm"
@@ -178,6 +181,10 @@ def main():
         page = ctx.new_page()
         page.on("pageerror", lambda e: print("PAGEERROR:", str(e)[:200]))
         page.goto(BASE, timeout=30000)
+        page.get_by_test_id("home-screen").wait_for(timeout=30000)
+        # Composer now lives on the Logs tab (new Home = briefing).
+        page.get_by_role("tab", name="Logs").click()
+        page.get_by_test_id("logs-screen").wait_for(timeout=10000)
         mic = page.get_by_role("button", name="Dictate a moment")
         try:
             mic.wait_for(timeout=30000)

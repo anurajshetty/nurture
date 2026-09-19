@@ -7,6 +7,12 @@ import {
 } from '../../src/notifications/prefs';
 import { exportArchive, requestAccountDeletion } from '../../src/privacy/privacy';
 import { getActivePregnancy } from '../../src/sync/store';
+import {
+  AGE_BAND_OPTIONS,
+  getAgeBand,
+  setAgeBand,
+  type AgeBandValue,
+} from '../../src/briefing/context';
 import { formatLong, weekOf } from '../../src/onboarding/dates';
 import {
   BottomSheet,
@@ -139,6 +145,10 @@ export default function YouScreen() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Weekly-briefing age band (track 3): optional, local-only.
+  const [ageBand, setAgeBandState] = useState<AgeBandValue | null>(null);
+  const [bandOpen, setBandOpen] = useState(false);
+
   const paused = globalPauseUntil !== null;
 
   // Real pregnancy line from onboarding (replaces the mockup's sample copy).
@@ -189,6 +199,15 @@ export default function YouScreen() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  // Load the optional briefing age band (track 3) — local-only, never synced.
+  useEffect(() => {
+    try {
+      setAgeBandState(getAgeBand());
+    } catch {
+      // kv unreadable — the row just reads "Not set".
+    }
   }, []);
 
   const ensurePermission = useCallback(async () => {
@@ -271,6 +290,25 @@ export default function YouScreen() {
     setDisposition('keep');
     setStopOpen(true);
   }, []);
+
+  // Weekly-briefing age band (track 3): saved immediately on tap, local-only.
+  const chooseAgeBand = useCallback(
+    (band: AgeBandValue | null) => {
+      try {
+        setAgeBand(band);
+      } catch {
+        showToast('That didn’t go through — nothing changed.');
+        return;
+      }
+      setAgeBandState(band);
+      setBandOpen(false);
+      showToast(band ? 'Saved — your weekly briefing will use it.' : 'Cleared.');
+    },
+    [showToast],
+  );
+
+  const ageBandLabel =
+    AGE_BAND_OPTIONS.find((o) => o.value === ageBand)?.label ?? 'Not set';
 
   const confirmStop = useCallback(async () => {
     if (stopping) return;
@@ -452,6 +490,19 @@ export default function YouScreen() {
         />
       </View>
 
+      <SectionHeader title="Weekly briefing" />
+
+      <View style={styles.rows}>
+        <SettingsRow
+          icon="◎"
+          title="Age band (optional)"
+          subtitle="Makes your weekly briefing a little more relevant."
+          value={ageBandLabel}
+          onPress={() => setBandOpen(true)}
+          testID="age-band-row"
+        />
+      </View>
+
       <SectionHeader title="If things change" />
 
       <Pressable
@@ -542,6 +593,46 @@ export default function YouScreen() {
               testID="stop-done-close"
             />
           </View>
+        )}
+      </BottomSheet>
+
+      <BottomSheet
+        visible={bandOpen}
+        onClose={() => setBandOpen(false)}
+        accessibilityLabel="Choose your age band"
+        testID="age-band-sheet"
+      >
+        <Text style={styles.sheetTitle} accessibilityRole="header">
+          Age band
+        </Text>
+        <Text style={styles.sheetLede}>
+          Optional. It stays on this device and is only ever sent as an
+          anonymous band like “30–34” — never your birth date.
+        </Text>
+        {[{ value: null as AgeBandValue | null, label: 'Not set' }, ...AGE_BAND_OPTIONS].map(
+          (o) => {
+            const selected = ageBand === o.value;
+            return (
+              <Pressable
+                key={o.label}
+                onPress={() => chooseAgeBand(o.value)}
+                accessibilityRole="radio"
+                accessibilityLabel={o.label}
+                accessibilityState={{ selected }}
+                style={[styles.disp, selected && styles.dispSelected]}
+              >
+                <View
+                  style={[styles.radio, selected && styles.radioSelected]}
+                  accessibilityElementsHidden
+                >
+                  {selected ? <View style={styles.radioDot} /> : null}
+                </View>
+                <View style={styles.dispText}>
+                  <Text style={styles.dispTitle}>{o.label}</Text>
+                </View>
+              </Pressable>
+            );
+          },
         )}
       </BottomSheet>
 
