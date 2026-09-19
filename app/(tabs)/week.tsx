@@ -1,14 +1,716 @@
-import { EmptyState, Screen } from '../../src/components';
+/**
+ * Epic 5 — Week tab ("what to expect").
+ *
+ * Her gentle weekly briefing: size comparison, development highlights,
+ * the week's reading, and questions for her care team. All content is
+ * bundled (src/week/content.ts) — the tab renders fully offline.
+ *
+ * States:
+ * - no pregnancy → warm empty state (onboarding not done)
+ * - stopped      → quiet compassionate state, zero developmental content
+ * - out of range → gentle note (week < 4 or > 42)
+ * - normal       → the week view, paged 4..currentWeek ("never ahead")
+ */
 
-/** Week (Epic 0): warm empty state until the week view lands. */
+import { useCallback, useState } from 'react';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { Button, Card, EmptyState, Screen } from '../../src/components';
+import {
+  colors,
+  minTouch,
+  radii,
+  shadow,
+  spacing,
+  type as typeScale,
+} from '../../src/theme/tokens';
+import {
+  getActivePregnancy,
+  listEventsInRange,
+  listPregnancies,
+  saveEvent,
+} from '../../src/sync/store';
+import { addDaysISO, todayISO } from '../../src/onboarding/dates';
+import type { Pregnancy } from '../../src/lib/types';
+import {
+  MAX_WEEK,
+  MIN_WEEK,
+  getWeekContent,
+  getWeekNumber,
+  shouldShowWeekContent,
+  type WeekContent,
+} from '../../src/week/content';
+
+/** Warm orb tones, cycled gently by week for subtle variety. */
+const ORB_TONES = ['#E8A94E', '#D98E3B', '#E5B25E', '#DDA44A', '#E9B558'];
+
+function orbTone(week: number): string {
+  return ORB_TONES[week % ORB_TONES.length];
+}
+
+type LoadState =
+  | { kind: 'loading' }
+  | { kind: 'empty' }
+  | { kind: 'stopped' }
+  | { kind: 'ready'; pregnancy: Pregnancy; currentWeek: number };
+
+function load(): LoadState {
+  try {
+    const pregnancy = getActivePregnancy();
+    if (!pregnancy || !shouldShowWeekContent(pregnancy)) {
+      const anyStopped = listPregnancies().some((p) => p.status === 'stopped');
+      if (anyStopped) return { kind: 'stopped' };
+      return { kind: 'empty' };
+    }
+    const week = getWeekNumber(pregnancy.dueDate, todayISO());
+    if (week === null) return { kind: 'empty' };
+    return { kind: 'ready', pregnancy, currentWeek: week };
+  } catch {
+    return { kind: 'empty' };
+  }
+}
+
+function countWeekMoments(): number {
+  try {
+    const today = todayISO();
+    const weekStart = addDaysISO(today, -6);
+    const end = addDaysISO(today, 1);
+    if (!weekStart || !end) return 0;
+    return listEventsInRange(weekStart, end, 200).length;
+  } catch {
+    return 0;
+  }
+}
+
+function Kicker({ children }: { children: string }) {
+  return <Text style={styles.kicker}>{children}</Text>;
+}
+
 export default function WeekScreen() {
+  const router = useRouter();
+  const [state, setState] = useState<LoadState>({ kind: 'loading' });
+  const [viewWeek, setViewWeek] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [savedTick, setSavedTick] = useState(0);
+  const [moments, setMoments] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      const s = load();
+      setState(s);
+      if (s.kind === 'ready') {
+        setViewWeek((v) =>
+          v === null ? s.currentWeek : Math.min(v, s.currentWeek),
+        );
+        setMoments(countWeekMoments());
+      }
+    }, []),
+  );
+
+  const saveQuestion = useCallback(() => {
+    const text = draft.trim();
+    if (!text) return;
+    try {
+      saveEvent({ type: 'question', data: { text } });
+    } catch {
+      // The question stays in the draft; never lose her words.
+      return;
+    }
+    setDraft('');
+    setAdding(false);
+    setSavedTick((t) => t + 1);
+  }, [draft]);
+
+  if (state.kind === 'loading') {
+    return (
+      <Screen>
+        <View style={styles.center}>
+          <Text style={styles.loading}>Gathering your week…</Text>
+        </View>
+      </Screen>
+    );
+  }
+
+  if (state.kind === 'empty') {
+    return (
+      <Screen bottomPadding={120}>
+        <EmptyState
+          glyph="◍"
+          title="Your week, unfolding"
+          copy="Week by week, you'll find gentle size comparisons, highlights, and reading here — written for exactly where you are, never ahead of you."
+        />
+      </Screen>
+    );
+  }
+
+  if (state.kind === 'stopped') {
+    return (
+      <Screen bottomPadding={120}>
+        <EmptyState
+          glyph="◍"
+          title="Your week view is resting"
+          copy="Pregnancy updates are off. Your story is still here whenever you'd like to revisit it — nothing has been lost."
+        >
+          <Button
+            title="View your story"
+            variant="ghost"
+            onPress={() => router.push('/logs')}
+            testID="week-stopped-story"
+          />
+        </EmptyState>
+      </Screen>
+    );
+  }
+
+  const { pregnancy, currentWeek } = state;
+  const week = viewWeek ?? currentWeek;
+  const content: WeekContent = getWeekContent(
+    week,
+    pregnancy.dueDate ?? '',
+    todayISO(),
+  );
+  const isCurrent = week === currentWeek;
+
+  const goWeek = (d: -1 | 1) => {
+    setViewWeek((v) => {
+      const base = v ?? currentWeek;
+      const next = base + d;
+      if (next < MIN_WEEK || next > currentWeek) return base;
+      setExpanded(null);
+      return next;
+    });
+  };
+
   return (
-    <Screen bottomPadding={120}>
-      <EmptyState
-        glyph="◍"
-        title="Your week, unfolding"
-        copy="Week by week, you'll find gentle size comparisons, highlights, and reading here — written for exactly where you are, never ahead of you."
-      />
+    <Screen bottomPadding={120} testID="week-screen">
+      {/* Week navigation */}
+      <View style={styles.topbar}>
+        <Pressable
+          testID="week-prev"
+          onPress={() => goWeek(-1)}
+          disabled={week <= MIN_WEEK}
+          accessibilityRole="button"
+          accessibilityLabel="Previous week"
+          style={({ pressed }) => [
+            styles.wnav,
+            pressed && styles.wnavPressed,
+            week <= MIN_WEEK && styles.wnavDisabled,
+          ]}
+        >
+          <Text style={styles.wnavGlyph}>‹</Text>
+        </Pressable>
+        <Text style={styles.weekTitle} accessibilityRole="header">
+          Week {week}
+        </Text>
+        <Pressable
+          testID="week-next"
+          onPress={() => goWeek(1)}
+          disabled={week >= currentWeek}
+          accessibilityRole="button"
+          accessibilityLabel="Next week"
+          style={({ pressed }) => [
+            styles.wnav,
+            pressed && styles.wnavPressed,
+            week >= currentWeek && styles.wnavDisabled,
+          ]}
+        >
+          <Text style={styles.wnavGlyph}>›</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.range} testID="week-range">
+        {content.weekRange ?? ''}
+        {content.weekRange ? ' · ' : ''}
+        {content.weeksToGo === 0
+          ? 'any day now'
+          : `${content.weeksToGo} week${content.weeksToGo === 1 ? '' : 's'} to go`}
+      </Text>
+      {!isCurrent ? (
+        <Pressable
+          testID="week-back-current"
+          onPress={() => {
+            setViewWeek(currentWeek);
+            setExpanded(null);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`Back to week ${currentWeek}`}
+          style={({ pressed }) => [
+            styles.backPill,
+            pressed && styles.backPillPressed,
+          ]}
+        >
+          <Text style={styles.backPillText}>← Back to week {currentWeek}</Text>
+        </Pressable>
+      ) : null}
+
+      {/* Size hero */}
+      <View style={styles.sizeHero} testID="week-size-hero">
+        <View
+          style={[styles.orb, { backgroundColor: orbTone(week) }]}
+          accessibilityElementsHidden
+        />
+        {content.size ? (
+          <>
+            <Text style={styles.sizeKicker}>Your baby is the size of</Text>
+            <Text style={styles.sizeName} testID="week-size-name">
+              {content.size.staple}
+            </Text>
+            <Text style={styles.sizeSpec} testID="week-size-spec">
+              {content.size.length} · {content.size.weight}
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.sizeKicker}>Your baby is</Text>
+            <Text style={styles.sizeName}>growing every day</Text>
+            <Text style={styles.sizeSpec}>
+              Size comparisons begin in week 12
+            </Text>
+          </>
+        )}
+      </View>
+
+      {/* Highlights */}
+      <Kicker>Highlights this week</Kicker>
+      <Card testID="week-highlights">
+        {content.highlights.map((h, i) => (
+          <View
+            key={i}
+            style={[styles.hl, i < content.highlights.length - 1 && styles.hlGap]}
+          >
+            <View style={styles.hlNum}>
+              <Text style={styles.hlNumText}>{i + 1}</Text>
+            </View>
+            <Text style={styles.hlText}>{h}</Text>
+          </View>
+        ))}
+      </Card>
+
+      {/* Reading */}
+      <Kicker>This week&apos;s reading</Kicker>
+      {content.readings.map((r) => {
+        const open = expanded === r.id;
+        return (
+          <View key={r.id} style={styles.readWrap}>
+            <Pressable
+              testID={`week-reading-${r.id}`}
+              onPress={() => setExpanded(open ? null : r.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`${r.title}${open ? ', expanded' : ''}`}
+              accessibilityState={{ expanded: open }}
+              style={({ pressed }) => [
+                styles.readRow,
+                pressed && styles.readRowPressed,
+              ]}
+            >
+              <View style={styles.readIcon}>
+                <Text style={styles.readIconGlyph}>✎</Text>
+              </View>
+              <View style={styles.readText}>
+                <Text style={styles.readTitle}>{r.title}</Text>
+                <Text style={styles.readSub}>{r.subtitle}</Text>
+              </View>
+              <Text style={styles.chev}>{open ? '▾' : '›'}</Text>
+            </Pressable>
+            {open ? (
+              <View style={styles.readBody} testID={`week-reading-${r.id}-body`}>
+                {r.body.map((p, i) => (
+                  <Text key={i} style={styles.readPara}>
+                    {p}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
+
+      {/* Care-team questions */}
+      <Kicker>To discuss with your care team</Kicker>
+      <Card testID="week-questions">
+        {content.questions.map((q, i) => (
+          <View key={`${i}-${savedTick}`} style={styles.qrow}>
+            <View style={styles.qicon}>
+              <Text style={styles.qiconGlyph}>?</Text>
+            </View>
+            <Text style={styles.qtext}>{q}</Text>
+          </View>
+        ))}
+        {adding ? (
+          <View style={styles.qaddBox}>
+            <TextInput
+              testID="week-question-input"
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Write your question…"
+              placeholderTextColor={colors.muted}
+              multiline
+              style={styles.qinput}
+              accessibilityLabel="Your question for your care team"
+            />
+            <View style={styles.qaddRow}>
+              <Button
+                title="Cancel"
+                variant="ghost"
+                onPress={() => {
+                  setAdding(false);
+                  setDraft('');
+                }}
+                style={styles.qaddBtn}
+                testID="week-question-cancel"
+              />
+              <Button
+                title="Save question"
+                onPress={saveQuestion}
+                disabled={!draft.trim()}
+                style={styles.qaddBtn}
+                testID="week-question-save"
+              />
+            </View>
+          </View>
+        ) : (
+          <Pressable
+            testID="week-question-add"
+            onPress={() => setAdding(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Add your own question"
+            style={({ pressed }) => [
+              styles.qaddDashed,
+              pressed && styles.qaddDashedPressed,
+            ]}
+          >
+            <Text style={styles.qaddDashedText}>+ Add your own question</Text>
+          </Pressable>
+        )}
+      </Card>
+
+      {/* Story */}
+      <Kicker>Your week in your story</Kicker>
+      <Card
+        onPress={() => router.push('/logs')}
+        accessibilityLabel="View your story in Logs"
+        testID="week-story"
+      >
+        <Text style={styles.storyTitle}>
+          {moments === 0
+            ? 'A fresh page'
+            : `${moments} moment${moments === 1 ? '' : 's'} saved`}
+        </Text>
+        <Text style={styles.storyCopy}>
+          {moments === 0
+            ? 'Nothing saved this week yet — your story is waiting whenever you are.'
+            : 'Your story is filling in beautifully.'}
+        </Text>
+      </Card>
+
+      <Text style={styles.footer} testID="week-footer">
+        General information only — not medical advice.{'\n'}Content updated
+        Sep 2026
+      </Text>
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xxxl,
+  },
+  loading: {
+    ...typeScale.body,
+    color: colors.muted,
+  },
+  topbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  wnav: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wnavPressed: {
+    backgroundColor: colors.blush,
+  },
+  wnavDisabled: {
+    opacity: 0.35,
+  },
+  wnavGlyph: {
+    fontSize: 26,
+    lineHeight: 30,
+    color: colors.coralDeep,
+    fontWeight: '700',
+  },
+  weekTitle: {
+    ...typeScale.display,
+    fontSize: 30,
+    color: colors.ink,
+    marginHorizontal: spacing.md,
+    minWidth: 140,
+    textAlign: 'center',
+  },
+  range: {
+    fontSize: 13,
+    color: colors.muted,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  backPill: {
+    alignSelf: 'center',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.chip,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
+    minHeight: minTouch,
+    justifyContent: 'center',
+  },
+  backPillPressed: {
+    backgroundColor: colors.blush,
+  },
+  backPillText: {
+    ...typeScale.subhead,
+    color: colors.coralDeep,
+    fontWeight: '700',
+  },
+  kicker: {
+    fontSize: 12,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: colors.coralDeep,
+    fontWeight: '700',
+    marginTop: spacing.xl,
+    marginBottom: spacing.sm,
+  },
+  sizeHero: {
+    backgroundColor: colors.blush,
+    borderRadius: radii.cardLarge,
+    padding: spacing.xl,
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+    ...shadow.card,
+  },
+  orb: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    marginVertical: spacing.sm,
+    ...shadow.card,
+  },
+  sizeKicker: {
+    fontFamily: 'Georgia',
+    fontSize: 15,
+    color: colors.muted,
+  },
+  sizeName: {
+    fontFamily: 'Georgia',
+    fontSize: 26,
+    fontWeight: '600',
+    color: colors.ink,
+    marginVertical: spacing.xs,
+    textAlign: 'center',
+  },
+  sizeSpec: {
+    fontSize: 13.5,
+    color: colors.muted,
+    textAlign: 'center',
+  },
+  hl: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  hlGap: {
+    marginBottom: spacing.md,
+  },
+  hlNum: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.sageTint,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  hlNumText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.sageDeep,
+  },
+  hlText: {
+    ...typeScale.body,
+    fontSize: 14.5,
+    color: '#5C554D',
+    flex: 1,
+    lineHeight: 21,
+  },
+  readWrap: {
+    marginBottom: spacing.sm,
+  },
+  readRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    padding: spacing.md,
+    minHeight: 76,
+    ...shadow.card,
+  },
+  readRowPressed: {
+    opacity: 0.96,
+  },
+  readIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: colors.sageTint,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  readIconGlyph: {
+    fontSize: 22,
+    color: colors.sageDeep,
+  },
+  readText: {
+    flex: 1,
+  },
+  readTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.ink,
+  },
+  readSub: {
+    fontSize: 13,
+    color: colors.muted,
+    marginTop: 2,
+  },
+  chev: {
+    fontSize: 20,
+    color: colors.muted,
+    fontWeight: '600',
+    marginLeft: spacing.sm,
+  },
+  readBody: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    padding: spacing.lg,
+    marginTop: spacing.xs,
+  },
+  readPara: {
+    ...typeScale.body,
+    fontSize: 15,
+    color: '#5C554D',
+    lineHeight: 22,
+    marginBottom: spacing.sm,
+  },
+  qrow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 16,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  qicon: {
+    width: 26,
+    height: 26,
+    borderRadius: 9,
+    backgroundColor: colors.blueTint,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  qiconGlyph: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4E7FA3',
+  },
+  qtext: {
+    fontSize: 14,
+    color: '#5C554D',
+    lineHeight: 20,
+    flex: 1,
+  },
+  qaddDashed: {
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: colors.line,
+    borderRadius: 16,
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.xs,
+  },
+  qaddDashedPressed: {
+    backgroundColor: colors.blush,
+  },
+  qaddDashedText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.coralDeep,
+  },
+  qaddBox: {
+    marginTop: spacing.xs,
+  },
+  qinput: {
+    borderWidth: 1.5,
+    borderColor: colors.line,
+    borderRadius: 16,
+    backgroundColor: colors.card,
+    padding: spacing.md,
+    fontSize: 15,
+    color: colors.ink,
+    minHeight: 88,
+    textAlignVertical: 'top',
+  },
+  qaddRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  qaddBtn: {
+    flex: 1,
+  },
+  storyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.ink,
+    marginBottom: spacing.xs,
+  },
+  storyCopy: {
+    fontSize: 14.5,
+    color: '#5C554D',
+    lineHeight: 21,
+  },
+  footer: {
+    fontSize: 12.5,
+    color: colors.muted,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: spacing.xl,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingTop: spacing.md,
+  },
+});

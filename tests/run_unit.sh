@@ -50,5 +50,8 @@ tsc1 tests/epic4_media.test.ts src/logging/bumpPhotos.ts src/lib/types.ts && run
 OUT=/tmp/nurture-delight-tests
 tsc1 tests/delight.test.ts src/briefing/delight.ts src/theme/tokens.ts && run "delight" node $OUT/tests/delight.test.js
 
+OUT=/tmp/nurture-tests-week
+tsc1 tests/week_content.test.ts src/week/content.ts src/briefing/matrix.ts src/briefing/delight.ts src/briefing/context.ts src/briefing/types.ts src/theme/tokens.ts src/lib/types.ts src/onboarding/dates.ts && run "week_content" node $OUT/tests/week_content.test.js
+
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

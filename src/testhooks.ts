@@ -15,7 +15,7 @@
  */
 
 import { clearAllEvents, saveEvent, savePregnancy } from './sync/store';
-import { kvSet } from './lib/db';
+import { getDb, kvSet } from './lib/db';
 import { ONBOARDING_COMPLETED_KEY } from './onboarding/useOnboarding';
 import type { EventInput, Pregnancy } from './lib/types';
 
@@ -36,5 +36,12 @@ export function installTestHooks(): void {
         pregnancyType: input.pregnancyType ?? 'singleton',
         parity: input.parity ?? 'first',
       }),
+    /** Marks all active pregnancies stopped (Epic 9 stop-state simulation). */
+    stopPregnancy: () => {
+      getDb().runSync(
+        `UPDATE pregnancies SET status = 'stopped', updated_at = ? WHERE status = 'active'`,
+        new Date().toISOString(),
+      );
+    },
   };
 }
