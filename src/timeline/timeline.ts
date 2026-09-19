@@ -10,7 +10,7 @@
  * The mockup wins: sections are week bands only.
  */
 
-import { addDaysISO, daysBetween } from '../onboarding/dates';
+import { addDaysISO, daysBetween, gestationalDays, todayISO } from '../onboarding/dates';
 import type { LocalEvent } from '../lib/types';
 
 export interface TimelineSection {
@@ -48,6 +48,20 @@ export function pregnancyWeekForEvent(dueDate: string, occurredAt: string): numb
   const days = lmp ? daysBetween(lmp, day) : null;
   if (days === null) return null;
   return Math.max(1, Math.min(42, Math.floor(days / 7) + 1));
+}
+
+/**
+ * The 1-based pregnancy week "she's in" for a due date — the SAME week
+ * number the timeline dividers use (pregnancyWeekForEvent for an event
+ * that occurred today). The Logs header/picker must use this, not
+ * weekOf's 0-based completed-weeks: mixing them was the Week-37-pill vs
+ * Week-38-divider bug. Null when dates don't parse or the pregnancy
+ * hasn't begun.
+ */
+export function currentPregnancyWeek(dueDate: string, asOfISO: string = todayISO()): number | null {
+  const g = gestationalDays(dueDate, asOfISO);
+  if (g === null || g < 0) return null;
+  return Math.max(1, Math.min(42, Math.floor(g / 7) + 1));
 }
 
 const MONTHS = [

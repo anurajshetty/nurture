@@ -1,16 +1,18 @@
 /**
  * Logs — the keepsake timeline (Epic 3), now the Logs tab.
  *
- * "Your story" header with the Week N ▾ jump button (week picker in a
- * bottom sheet), the filter chip row (track 2), and the virtualized
- * timeline (week bands, newest first) with the memory look-back card
- * (track 3) pinned above it. The composer stays pinned at the bottom;
- * entries appear optimistically and Undo removes one. Look-back is
- * computed on focus, dismissible, and never a push. The end-of-day nudge
- * is re-evaluated whenever the stream changes or the screen regains focus.
+ * "Your story" header with the week filter pill (Anuraj Sept 2026: the
+ * pill is a FILTER, not a jump — a selected week shows only that week's
+ * divider + entries; "All weeks" shows everything). Below it, the filter
+ * chip row (track 2), and the virtualized timeline (week bands, newest
+ * first) with the memory look-back card (track 3) pinned above it. The
+ * composer stays pinned at the bottom; entries appear optimistically and
+ * Undo removes one. Look-back is computed on focus, dismissible, and
+ * never a push. The end-of-day nudge is re-evaluated whenever the stream
+ * changes or the screen regains focus.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   SectionList,
@@ -30,7 +32,6 @@ import { countEvents, listEventsInRange, listEventsPage } from '../../src/sync/s
 import { kvGet, kvSet } from '../../src/lib/db';
 import type { LocalEvent } from '../../src/lib/types';
 import { useOnboarding } from '../../src/onboarding/useOnboarding';
-import { weekOf } from '../../src/onboarding/dates';
 import AddMenu from '../../src/logs/AddMenu';
 import { refreshEndOfDayNudge } from '../../src/notifications/endOfDay';
 import { useSync } from '../../src/sync/SyncContext';
@@ -39,8 +40,16 @@ import TimelineFilters, {
   type FilterValue,
 } from '../../src/timeline/TimelineFilters';
 import TimelineList from '../../src/timeline/TimelineList';
-import WeekPicker, { type WeekPickerWeek } from '../../src/timeline/WeekPicker';
-import { buildSections, formatWeekRange, pregnancyWeekRange } from '../../src/timeline/timeline';
+import WeekFilterDropdown, {
+  type WeekFilterValue,
+} from '../../src/timeline/WeekFilterDropdown';
+import {
+  buildSections,
+  currentPregnancyWeek,
+  formatWeekRange,
+  pregnancyWeekForEvent,
+  pregnancyWeekRange,
+} from '../../src/timeline/timeline';
 import type { TimelineSection } from '../../src/timeline/timeline';
 import {
   chooseLookBack,
@@ -60,19 +69,41 @@ export default function LogsScreen() {
   const [events, setEvents] = useState<LocalEvent[]>([]);
   const [filter, setFilter] = useState<FilterValue>('all');
   const [lookBack, setLookBack] = useState<LookBack | null>(null);
-  const [pickerVisible, setPickerVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   /**
-   * A week picked from the week picker that has no logged events.
-   * When set, the timeline is replaced by a "nothing logged for that
-   * week" empty state instead of silently doing nothing.
+   * Week filter (Anuraj Sept 2026): the week pill is a FILTER, not a
+   * jump. A selected week shows only that week's divider + entries;
+   * 'all' shows everything. Defaults to the current week per the
+   * approved mockup 13-logs-add. The selected week always matches the
+   * visible feed — the pill and the dividers share currentPregnancyWeek
+   * / pregnancyWeekForEvent (the Week-37-vs-38 bug was two calculations).
    */
-  const [pickedWeek, setPickedWeek] = useState<number | null>(null);
+  const [weekFilter, setWeekFilter] = useState<WeekFilterValue>(() => {
+    const w = dueDate ? currentPregnancyWeek(dueDate) : null;
+    return w ?? 'all';
+  });
+  /**
+   * True once she picks a week filter herself (or a save resets it).
+   * Until then the current-week default below applies — the screen can
+   * mount before the due date is known, so the initializer alone isn't
+   * enough.
+   */
+  const [weekFilterTouched, setWeekFilterTouched] = useState(false);
+  const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
 
   const sectionListRef = useRef<SectionList<LocalEvent, TimelineSection> | null>(null);
   const loadingMore = useRef(false);
 
-  const week = dueDate ? weekOf(dueDate) : null;
+  /** 1-based current week — the same number the dividers use. */
+  const currentWeek = dueDate ? currentPregnancyWeek(dueDate) : null;
+
+  // Default to the current week once the due date is known, until she
+  // picks a filter herself.
+  useEffect(() => {
+    if (!weekFilterTouched && currentWeek !== null) {
+      setWeekFilter(currentWeek);
+    }
+  }, [weekFilterTouched, currentWeek]);
 
   const reload = useCallback(() => {
     try {
@@ -130,13 +161,14 @@ export default function LogsScreen() {
 
   const onSaved = useCallback((event: LocalEvent) => {
     setEvents((prev) => [event, ...prev.filter((e) => e.id !== event.id)]);
-    // A new entry may belong to the picked week; re-evaluate.
-    setPickedWeek(null);
+    // A new entry belongs to the current week, which may be filtered out;
+    // return to the full story so she sees what she just saved.
+    setWeekFilterTouched(true);
+    setWeekFilter('all');
   }, []);
 
   const onFilterChange = useCallback((f: FilterValue) => {
     setFilter(f);
-    setPickedWeek(null);
   }, []);
 
   const onUnsaved = useCallback((id: string) => {
@@ -152,9 +184,25 @@ export default function LogsScreen() {
     setLookBack(null);
   }, []);
 
+  /**
+   * Both filters applied in one place: the type chip, then the week
+   * filter. A selected week keeps only events whose divider week (the
+   * SAME calculation the dividers use) equals it.
+   */
+  const applyFilters = useCallback(
+    (list: LocalEvent[]) => {
+      let out = list.filter((e) => matchesFilter(e, filter));
+      if (dueDate && weekFilter !== 'all') {
+        out = out.filter((e) => pregnancyWeekForEvent(dueDate, e.occurredAt) === weekFilter);
+      }
+      return out;
+    },
+    [filter, weekFilter, dueDate],
+  );
+
   const sections = useMemo(
-    () => buildSections(events.filter((e) => matchesFilter(e, filter)), dueDate),
-    [events, filter, dueDate],
+    () => buildSections(applyFilters(events), dueDate),
+    [applyFilters, events, dueDate],
   );
 
   /**
@@ -174,10 +222,9 @@ export default function LogsScreen() {
         loaded = [...loaded, ...next];
       }
       setEvents(loaded);
-      const targetSections = buildSections(
-        loaded.filter((e) => matchesFilter(e, filter)),
-        dueDate,
-      );
+      // Look-back only renders when both filters are 'all', so this is
+      // the same list the timeline shows; reuse the one filter path.
+      const targetSections = buildSections(applyFilters(loaded), dueDate);
       const sectionIndex = targetSections.findIndex((s) =>
         s.data.some((e) => e.id === event.id),
       );
@@ -197,71 +244,22 @@ export default function LogsScreen() {
         }
       });
     },
-    [events, filter, dueDate],
+    [events, applyFilters, dueDate],
   );
 
-  /** Weeks 1..current for the picker, newest first. */
-  const pickerWeeks: WeekPickerWeek[] = useMemo(() => {
-    if (!week || !dueDate) return [];
-    const list: WeekPickerWeek[] = [];
-    for (let w = week.week; w >= 1; w -= 1) {
-      const range = pregnancyWeekRange(w, dueDate);
-      list.push({
-        week: w,
-        title: `Week ${w}`,
-        subtitle: range ? formatWeekRange(range.startISO, range.endISO) : '',
-      });
-    }
-    return list;
-  }, [week, dueDate]);
+  /** Week-filter select: apply the filter, close the dropdown. */
+  const onSelectWeekFilter = useCallback((v: WeekFilterValue) => {
+    setWeekFilterTouched(true);
+    setWeekFilter(v);
+    setFilterDropdownOpen(false);
+  }, []);
 
-  /** Week-picker jump: scrolls to the band, or shows the empty-week state. */
-  const onPickWeek = useCallback(
-    (picked: number) => {
-      setPickerVisible(false);
-      const targetKey = `preg-${picked}`;
-      let loaded = events;
-      let targetSections = buildSections(
-        loaded.filter((e) => matchesFilter(e, filter)),
-        dueDate,
-      );
-      let sectionIndex = targetSections.findIndex((s) => s.key === targetKey);
-      while (sectionIndex < 0 && loaded.length < countEvents()) {
-        const next = listEventsPage(PAGE_SIZE, loaded.length);
-        if (next.length === 0) break;
-        loaded = [...loaded, ...next];
-        targetSections = buildSections(
-          loaded.filter((e) => matchesFilter(e, filter)),
-          dueDate,
-        );
-        sectionIndex = targetSections.findIndex((s) => s.key === targetKey);
-      }
-      setEvents(loaded);
-      if (sectionIndex < 0) {
-        // That week has no logged events: show the empty-week state
-        // instead of leaving the list where it was.
-        setPickedWeek(picked);
-        return;
-      }
-      setPickedWeek(null);
-      const at = sectionIndex;
-      requestAnimationFrame(() => {
-        try {
-          sectionListRef.current?.scrollToLocation({
-            sectionIndex: at,
-            itemIndex: 0,
-            animated: true,
-          });
-        } catch {
-          // Best-effort jump; the band is loaded even if the scroll misses.
-        }
-      });
-    },
-    [events, filter, dueDate],
-  );
-
-  /** Clears the picked-week empty state and returns to the full timeline. */
-  const clearPickedWeek = useCallback(() => setPickedWeek(null), []);
+  /** Clears the week filter and returns to the full story. */
+  const backToAllWeeks = useCallback(() => {
+    setWeekFilterTouched(true);
+    setWeekFilter('all');
+    setFilterDropdownOpen(false);
+  }, []);
 
   const listEmpty = useMemo(() => {
     if (events.length === 0) {
@@ -285,13 +283,13 @@ export default function LogsScreen() {
     );
   }, [events]);
 
-  /** Empty state for a picked week with no logged events. */
-  const pickedWeekEmpty = useMemo(() => {
-    if (pickedWeek === null || !dueDate) return null;
-    const range = pregnancyWeekRange(pickedWeek, dueDate);
+  /** Empty state for a filtered week with no logged events. */
+  const weekFilterEmpty = useMemo(() => {
+    if (weekFilter === 'all' || !dueDate || sections.length > 0) return null;
+    const range = pregnancyWeekRange(weekFilter, dueDate);
     return (
       <View style={styles.empty} testID="week-empty-state">
-        <Text style={styles.emptyTitle}>Nothing logged for Week {pickedWeek}</Text>
+        <Text style={styles.emptyTitle}>Nothing logged for Week {weekFilter}</Text>
         <Text style={styles.emptyBody}>
           {range ? formatWeekRange(range.startISO, range.endISO) : ''}
           {'\n'}Your story grows one small moment at a time — save one below.
@@ -300,40 +298,49 @@ export default function LogsScreen() {
           testID="week-empty-back"
           accessibilityRole="button"
           accessibilityLabel="Back to all weeks"
-          onPress={clearPickedWeek}
+          onPress={backToAllWeeks}
           style={({ pressed }) => [styles.emptyBack, pressed && styles.jumpPressed]}
         >
           <Text style={styles.emptyBackText}>Back to all weeks</Text>
         </Pressable>
       </View>
     );
-  }, [pickedWeek, dueDate, clearPickedWeek]);
+  }, [weekFilter, dueDate, sections, backToAllWeeks]);
 
-  /** Header week label: the picked empty week, else the current week. */
-  const headerWeek = pickedWeek ?? week?.week ?? null;
+  /** Pill label: always the week the feed is showing ('All weeks' or Week N). */
+  const weekFilterLabel = weekFilter === 'all' ? 'All weeks' : `Week ${weekFilter}`;
 
   return (
     <Screen scroll={false} testID="logs-screen" style={styles.root}>
       <View style={styles.header} testID="logs-header">
-        <Text style={styles.title}>Your story</Text>
-        {headerWeek !== null && (
-          <Pressable
-            testID="week-jump-button"
-            accessibilityRole="button"
-            accessibilityLabel={`Jump to a week, currently week ${headerWeek}`}
-            onPress={() => setPickerVisible(true)}
-            style={({ pressed }) => [styles.jump, pressed && styles.jumpPressed]}
-          >
-            <Text style={styles.jumpText}>Week {headerWeek} ▾</Text>
-          </Pressable>
-        )}
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>Your story</Text>
+          {currentWeek !== null && (
+            <Pressable
+              testID="week-jump-button"
+              accessibilityRole="button"
+              accessibilityLabel="Filter by week"
+              accessibilityState={{ expanded: filterDropdownOpen }}
+              onPress={() => setFilterDropdownOpen((o) => !o)}
+              style={({ pressed }) => [styles.jump, pressed && styles.jumpPressed]}
+            >
+              <Text style={styles.jumpText}>{weekFilterLabel} ▾</Text>
+            </Pressable>
+          )}
+        </View>
+        <WeekFilterDropdown
+          visible={filterDropdownOpen}
+          currentWeek={currentWeek}
+          value={weekFilter}
+          onSelect={onSelectWeekFilter}
+        />
       </View>
       <TimelineFilters value={filter} onChange={onFilterChange} testID="timeline-filters" />
       <View style={styles.stream}>
-        {pickedWeekEmpty ?? (
+        {weekFilterEmpty ?? (
           <TimelineList
             sections={sections}
-            lookBack={filter === 'all' ? lookBack : null}
+            lookBack={filter === 'all' && weekFilter === 'all' ? lookBack : null}
             onDismissLookBack={dismissLookBack}
             onRevisitLookBack={scrollToEvent}
             onEndReached={loadMore}
@@ -345,13 +352,6 @@ export default function LogsScreen() {
         )}
       </View>
       <AddMenu onSaved={onSaved} onUnsaved={onUnsaved} />
-      <WeekPicker
-        visible={pickerVisible}
-        onClose={() => setPickerVisible(false)}
-        weeks={pickerWeeks}
-        currentWeek={week?.week ?? null}
-        onPick={onPickWeek}
-      />
     </Screen>
   );
 }
@@ -361,15 +361,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     // Compact header (Anuraj Sept 2026): the title + week pill + filter
     // chips were eating ~40% of the viewport. Mockup 13-logs-add values —
-    // 24px title, tight pill, ~90px header block total.
+    // 24px title, tight pill, ~90px header block total (through chips).
     paddingTop: 4,
     paddingBottom: 2,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   title: {
     fontFamily: fontDisplay,

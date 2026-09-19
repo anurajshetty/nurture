@@ -130,6 +130,17 @@ def main():
               add_btn.get_attribute("aria-label") == "Add")
         check("old composer bar is gone",
               page.get_by_role("textbox", name="Save a moment").count() == 0)
+        # + button: 72px floating over the feed (Anuraj Sept 2026 — the old
+        # ~110px button ate too much feed); no container box around it.
+        box = add_btn.bounding_box()
+        check("add button is 72px", box is not None
+              and abs(box["width"] - 72) <= 2 and abs(box["height"] - 72) <= 2)
+        bar_bg = page.evaluate(
+            "() => { const el = document.querySelector('[data-testid=\"logs-add-button\"]').parentElement;"
+            " const cs = getComputedStyle(el);"
+            " return cs.backgroundColor + '|' + cs.position; }")
+        check("add button floats (absolute, transparent wrapper)",
+              bar_bg.endswith("|absolute") and bar_bg.startswith("rgba(0, 0, 0, 0)"))
 
         # ---- A. menu open/close ----
         add_btn.click()
@@ -243,6 +254,20 @@ def main():
         page.wait_for_timeout(2000)
         check("report sheet closes after done",
               page.get_by_test_id("report-sheet").count() == 0)
+        # Entry-typing rule (Anuraj Sept 2026): Add report -> ALWAYS a
+        # Report entry, never a generic FILE chip.
+        try:
+            page.wait_for_function(
+                "() => document.querySelectorAll('[data-testid^=\"event-card-\"]').length >= 1",
+                timeout=10000)
+        except Exception:
+            check("report lands in timeline", False)
+        else:
+            check("report lands in timeline", True)
+            first_card = page.evaluate(
+                "() => document.querySelector('[data-testid^=\"event-card-\"]').innerText")
+            check("report renders as REPORT chip (not FILE)",
+                  "REPORT" in first_card and "FILE" not in first_card)
 
         # ---- D. Log entry: floating composer ----
         page.get_by_test_id("logs-add-button").click()

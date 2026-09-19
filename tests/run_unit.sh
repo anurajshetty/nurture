@@ -32,6 +32,9 @@ tsc1 tests/week_briefing.test.ts supabase/functions/week-briefing/lib.ts && run 
 OUT=/tmp/nurture-tests3
 tsc1 tests/epic3_timeline.test.ts src/timeline/timeline.ts src/onboarding/dates.ts src/lib/types.ts && run "epic3_timeline" env TZ=UTC node $OUT/tests/epic3_timeline.test.js
 
+OUT=/tmp/nurture-tests-wf
+npx tsc --ignoreConfig tests/week_filter.test.ts src/timeline/timeline.ts src/onboarding/dates.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "week_filter" env TZ=UTC node $OUT/tests/week_filter.test.js
+
 OUT=/tmp/nurture-tests-f
 npx tsc --ignoreConfig tests/epic3_filters.test.ts src/timeline/TimelineFilters.tsx --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "epic3_filters" env NODE_PATH="$PWD/node_modules" node $OUT/tests/epic3_filters.test.js
 

@@ -12,12 +12,19 @@ Run:  python3 tests/interactive/timeline_browser_test.py [--keep-open]
 Must stay green before any push that touches the timeline/composer.
 
 Flows:
+  0. week filter default -> pill reads the current week (same 1-based
+     week as the dividers, not weekOf's 37); All weeks restores
   1. boot + seed -> timeline renders seeded events grouped in week bands
-  2. filter chips -> Photos/Symptoms/Kicks narrow the stream; All restores;
+  2. filter chips -> chip order All · Reports · Appointments · Logs ·
+     Notes · Symptoms · Kicks (no Photos chip); Reports empty state when
+     nothing seeded, Appointments/Logs/Symptoms/Kicks narrow the stream;
+     All restores;
      empty filter shows the warm empty state
   3. look-back -> "N weeks ago today" card appears under All, hides under a
      filter, dismisses, and stays dismissed after reload
-  4. week picker -> jump button opens the sheet; picking a week closes it
+  4. week filter dropdown -> pill opens the inline dropdown listing All
+     weeks + every week; picking one filters the feed to that week's band
+     alone and the pill label matches
 """
 
 import mimetypes
@@ -135,6 +142,21 @@ def main():
         # Timeline now lives on the Logs tab (new Home = briefing).
         page.get_by_role("tab", name="Logs").click()
         page.get_by_test_id("logs-screen").wait_for(timeout=10000)
+
+        # ---- Flow 0: week filter defaults to the current week ----
+        # Regression for the reported bug (pill said Week 37, divider said
+        # Week 38): the pill must use the same 1-based week as the dividers.
+        pill = page.get_by_test_id("week-jump-button")
+        pill_text = pill.inner_text()
+        check("flow0: pill defaults to the current week", "Week 38" in pill_text,
+              f"pill={pill_text!r}")
+        pill.click()
+        page.get_by_test_id("week-filter-dropdown").wait_for(timeout=5000)
+        page.get_by_test_id("week-filter-option-all").click()
+        page.wait_for_timeout(600)
+        check("flow0: All weeks restores the pill label",
+              "All weeks" in page.get_by_test_id("week-jump-button").inner_text())
+
         cards = page.locator('[data-testid^="event-card-"]')
         try:
             page.wait_for_function(
@@ -158,12 +180,43 @@ def main():
               f"bands={band_text!r}")
 
         # ---- Flow 2: filter chips narrow the stream ----
-        page.get_by_test_id("filter-chip-photos").click()
+        # Chip order (Anuraj Sept 2026): All · Reports · Appointments ·
+        # Logs · Notes · Symptoms · Kicks — the Photos chip was dropped.
+        chip_order = page.evaluate(
+            "() => Array.from(document.querySelectorAll('[data-testid^=\"filter-chip-\"]'))"
+            ".map(el => el.getAttribute('data-testid'))")
+        check("flow2: chip order is All · Reports · Appointments · Logs · Notes · Symptoms · Kicks",
+              chip_order == ["filter-chip-all", "filter-chip-reports",
+                             "filter-chip-appointments", "filter-chip-logs",
+                             "filter-chip-notes", "filter-chip-symptoms",
+                             "filter-chip-kicks"],
+              f"chips={chip_order!r}")
+        check("flow2: no Photos chip",
+              page.get_by_test_id("filter-chip-photos").count() == 0)
+
+        page.get_by_test_id("filter-chip-reports").click()
         page.wait_for_timeout(600)
         n = page.locator('[data-testid^="event-card-"]').count()
-        check("flow2: Photos filter shows only the photo event", n == 1, f"cards={n}")
+        body = page.evaluate("document.body.innerText")
+        check("flow2: Reports shows no cards (none seeded)", n == 0, f"cards={n}")
+        check("flow2: Reports warm empty state",
+              "Nothing here yet" in body, "empty copy missing")
+
+        page.get_by_test_id("filter-chip-appointments").click()
+        page.wait_for_timeout(600)
+        n = page.locator('[data-testid^="event-card-"]').count()
+        body = page.evaluate("document.body.innerText")
+        check("flow2: Appointments filter shows only the appointment", n == 1, f"cards={n}")
+        check("flow2: appointment card shown", "Growth scan" in body)
         check("flow2: look-back hidden while filtering",
               page.get_by_test_id("lookback-card").count() == 0)
+
+        page.get_by_test_id("filter-chip-logs").click()
+        page.wait_for_timeout(600)
+        n = page.locator('[data-testid^="event-card-"]').count()
+        body = page.evaluate("document.body.innerText")
+        check("flow2: Logs filter shows the 4 journal entries", n == 4, f"cards={n}")
+        check("flow2: Logs excludes the appointment", "Growth scan" not in body)
 
         page.get_by_test_id("filter-chip-symptoms").click()
         page.wait_for_timeout(600)
@@ -207,24 +260,37 @@ def main():
         check("flow3: dismissal persists after reload",
               page.get_by_test_id("lookback-card").count() == 0)
 
-        # ---- Flow 4: week picker ----
+        # ---- Flow 4: week filter dropdown (replaces the old bottom-sheet picker) ----
         jump = page.get_by_test_id("week-jump-button")
         check("flow4: week-jump button present", jump.count() == 1)
         jump.click()
-        picker = page.get_by_test_id("week-picker")
+        picker = page.get_by_test_id("week-filter-dropdown")
         try:
             picker.wait_for(timeout=5000)
         except Exception:
-            check("flow4: week picker opens", False)
+            check("flow4: week filter dropdown opens", False)
         else:
-            check("flow4: week picker opens", True)
-            rows = page.locator('[data-testid^="week-row-"]')
-            check("flow4: picker lists weeks", rows.count() >= 30,
+            check("flow4: week filter dropdown opens", True)
+            rows = page.locator('[data-testid^="week-filter-option-"]')
+            check("flow4: dropdown lists All weeks + every week", rows.count() >= 30,
                   f"rows={rows.count()}")
-            rows.first.click()
+            # The seed has an appointment 8 days ago -> Week 37. Filter to
+            # it and confirm the feed shows only that week's band.
+            page.get_by_test_id("week-filter-option-37").click()
             page.wait_for_timeout(800)
-            check("flow4: picking a week closes the picker",
-                  page.get_by_test_id("week-picker").count() == 0)
+            check("flow4: picking a week closes the dropdown",
+                  page.get_by_test_id("week-filter-dropdown").count() == 0)
+            bands = page.locator('[data-testid^="week-band-"]')
+            band_text = page.evaluate(
+                "() => Array.from(document.querySelectorAll('[data-testid^=\"week-band-\"]'))"
+                ".map(b => b.textContent).join(' | ')")
+            check("flow4: filtered feed shows only Week 37",
+                  bands.count() >= 1 and "Week 37" in band_text
+                  and "Week 38" not in band_text and "Week 34" not in band_text,
+                  f"bands={band_text[:160]!r}")
+            pill = page.get_by_test_id("week-jump-button").inner_text()
+            check("flow4: pill label matches the filter", "Week 37" in pill,
+                  f"pill={pill!r}")
 
         if KEEP_OPEN:
             print("keeping browser open (--keep-open); Ctrl-C to exit")

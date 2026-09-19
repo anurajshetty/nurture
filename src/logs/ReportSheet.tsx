@@ -86,10 +86,14 @@ export default function ReportSheet({ visible, onClose, onSaved }: ReportSheetPr
         const picked = await pick();
         for (const a of picked.slice(0, MAX_FILES - rows.length)) {
           const atts = [attachmentPayload(a)];
-          const type: EventInput['type'] = a.kind === 'photo' ? 'photo' : 'file';
+          // Anuraj's entry-typing rule: Add report → ALWAYS a Report entry,
+          // whatever the attachment kind (photo of the paper or document file).
+          const type: EventInput['type'] = 'report';
           const event = saveEvent({
             type,
-            data: { text: a.name, attachments: atts },
+            // The 'report' category powers the Reports filter chip (and,
+            // in the next phase, the Report summary card on the timeline).
+            data: { text: a.name, attachments: atts, category: 'report' },
             visibility: 'private',
           });
           // Bytes upload on their own queue — the save above already returned.

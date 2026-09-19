@@ -17,6 +17,10 @@ export type EventType =
   | 'milestone'
   | 'question'
   | 'file'
+  // Anuraj's entry-typing rule (Sept 2026): the + option fixes the type —
+  // Add report always saves 'report' (never a bare 'file'/'photo'), so the
+  // entry always renders as a Report entry and carries the LLM summary later.
+  | 'report'
   | (string & {});
 
 export type Visibility = 'private' | 'shared' | 'export';
@@ -107,7 +111,7 @@ export interface Prefs {
   quietHoursStart: string; // 'HH:MM'
   quietHoursEnd: string; // 'HH:MM'
   appointmentReminders: boolean;
-  appointmentLeadMinutes: number; // minutes before an appointment, default 60
+  appointmentLeadMinutes: number; // minutes before an appointment, default 2880 (2 days)
   globalPauseUntil: string | null; // ISO 8601
 }
 

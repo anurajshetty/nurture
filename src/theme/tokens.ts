@@ -88,6 +88,7 @@ export const eventDots = {
   milestone: colors.gold,
   question: colors.blue,
   file: colors.muted,
+  report: colors.blue,
 } as const;
 
 export type EventDotKind = keyof typeof eventDots;

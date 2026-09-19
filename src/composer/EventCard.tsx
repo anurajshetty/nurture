@@ -33,6 +33,7 @@ const TYPE_META: Record<string, TypeMeta> = {
   photo: { label: 'Photo', glyph: '◉', dot: 'photo' },
   milestone: { label: 'Milestone', glyph: '✦', dot: 'milestone' },
   file: { label: 'File', glyph: '▤', dot: 'file' },
+  report: { label: 'Report', glyph: '📄', dot: 'report' },
   appointment: { label: 'Appointment', glyph: '▦', dot: 'appointment' },
   weight: { label: 'Weight', glyph: '◍', dot: 'weight' },
   kick_session: { label: 'Kicks', glyph: '✦', dot: 'kick' },

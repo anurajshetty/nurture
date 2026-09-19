@@ -67,7 +67,7 @@ function ev(type: string, data: Record<string, unknown> = {}): any {
   };
 }
 
-const ALL: string[] = ['all', 'photos', 'notes', 'appointments', 'symptoms', 'kicks'];
+const ALL: string[] = ['all', 'reports', 'appointments', 'logs', 'notes', 'symptoms', 'kicks'];
 function onlyIn(event: any, expected: string[]): void {
   for (const f of ALL) {
     check(`${event.type} [${f}]`, matchesFilter(event, f), expected.includes(f));
@@ -84,48 +84,58 @@ function onlyIn(event: any, expected: string[]): void {
 }
 
 {
-  onlyIn(ev('note', { text: 'hello' }), ['all', 'notes']);
+  onlyIn(ev('note', { text: 'hello' }), ['all', 'logs', 'notes']);
 }
 
 {
-  // mood collapses into notes
-  onlyIn(ev('mood', { mood: 'glowing' }), ['all', 'notes']);
+  // mood collapses into notes (and the Logs umbrella)
+  onlyIn(ev('mood', { mood: 'glowing' }), ['all', 'logs', 'notes']);
 }
 
 {
-  onlyIn(ev('photo', {}), ['all', 'photos']);
+  // a photo-only log entry surfaces under Logs now that the Photos chip is gone
+  onlyIn(ev('photo', {}), ['all', 'logs']);
 }
 
 {
-  // a note carrying a photo attachment surfaces under Photos too
+  // a scanned report saved as a photo carries the report category
+  onlyIn(ev('photo', { category: 'report' }), ['all', 'reports']);
+}
+
+{
+  // a note carrying a photo attachment surfaces under Logs, never Reports
   const withPhoto = ev('note', {
     text: 'bump shot',
     attachments: [{ id: 'a1', kind: 'photo', name: 'bump.jpg', upload: 'done' }],
   });
-  check('note + photo attachment → photos', matchesFilter(withPhoto, 'photos'), true);
+  check('note + photo attachment → logs', matchesFilter(withPhoto, 'logs'), true);
   check('note + photo attachment → all', matchesFilter(withPhoto, 'all'), true);
   check('note + photo attachment → notes', matchesFilter(withPhoto, 'notes'), true);
+  check('note + photo attachment → reports', matchesFilter(withPhoto, 'reports'), false);
   check('note + photo attachment → symptoms', matchesFilter(withPhoto, 'symptoms'), false);
 }
 
 {
   // defensive: attachments not an array, or entries that aren't photo kinds
   const weird = ev('note', { attachments: 'nope' as unknown });
-  check('attachments string → not photos', matchesFilter(weird, 'photos'), false);
+  check('attachments string → logs', matchesFilter(weird, 'logs'), true);
+  check('attachments string → reports', matchesFilter(weird, 'reports'), false);
 
   const mixed = ev('note', {
     attachments: [null, 42, { id: 'x', kind: 'file', name: 'lab.pdf' }],
   });
-  check('null/number/file entries → not photos', matchesFilter(mixed, 'photos'), false);
+  check('null/number/file entries → logs', matchesFilter(mixed, 'logs'), true);
+  check('null/number/file entries → reports', matchesFilter(mixed, 'reports'), false);
 
   const fileOnly = ev('file', {
     attachments: [{ id: 'x', kind: 'file', name: 'lab.pdf' }],
   });
-  check('file attachment → photos false', matchesFilter(fileOnly, 'photos'), false);
+  check('file event → reports', matchesFilter(fileOnly, 'reports'), true);
+  check('file event → logs false', matchesFilter(fileOnly, 'logs'), false);
 }
 
 {
-  onlyIn(ev('symptom', { symptoms: ['Nausea'] }), ['all', 'symptoms']);
+  onlyIn(ev('symptom', { symptoms: ['Nausea'] }), ['all', 'logs', 'symptoms']);
 }
 
 {
@@ -133,29 +143,57 @@ function onlyIn(event: any, expected: string[]): void {
 }
 
 {
-  onlyIn(ev('kick_session', { kicks: 8 }), ['all', 'kicks']);
+  onlyIn(ev('kick_session', { kicks: 8 }), ['all', 'logs', 'kicks']);
 }
 
 {
   // milestone sits under Kicks (approved mockup: "First strong kicks")
-  onlyIn(ev('milestone', { title: 'First strong kicks' }), ['all', 'kicks']);
+  onlyIn(ev('milestone', { title: 'First strong kicks' }), ['all', 'logs', 'kicks']);
   const otherMilestone = ev('milestone', { title: 'Heard the heartbeat' });
   check('any milestone → kicks', matchesFilter(otherMilestone, 'kicks'), true);
+  check('any milestone → logs', matchesFilter(otherMilestone, 'logs'), true);
   check('milestone → symptoms false', matchesFilter(otherMilestone, 'symptoms'), false);
 }
 
-// ---------- visible only under 'all' ----------
+// ---------- visible under 'all' + 'logs' ----------
 
 {
-  onlyIn(ev('weight', { value: 148, unit: 'lb' }), ['all']);
+  onlyIn(ev('weight', { value: 148, unit: 'lb' }), ['all', 'logs']);
 }
 
 {
-  onlyIn(ev('question', { text: 'Is soft cheese okay?' }), ['all']);
+  onlyIn(ev('question', { text: 'Is soft cheese okay?' }), ['all', 'logs']);
+}
+
+// ---------- reports ----------
+
+{
+  // Add report always saves type 'report' (entry-typing rule) — a Report
+  // entry with either attachment kind lands only in all + reports
+  onlyIn(
+    ev('report', {
+      text: 'glucose-results.pdf',
+      attachments: [{ id: 'a1', kind: 'file', name: 'glucose-results.pdf', upload: 'pending' }],
+      category: 'report',
+    }),
+    ['all', 'reports'],
+  );
 }
 
 {
-  onlyIn(ev('file', {}), ['all']);
+  // a scanned report (photo attachment) is still a Report entry, never a Photo
+  onlyIn(
+    ev('report', {
+      text: 'scan-sep-19.jpg',
+      attachments: [{ id: 'a1', kind: 'photo', name: 'scan-sep-19.jpg', upload: 'pending' }],
+      category: 'report',
+    }),
+    ['all', 'reports'],
+  );
+}
+
+{
+  onlyIn(ev('file', {}), ['all', 'reports']);
 }
 
 {

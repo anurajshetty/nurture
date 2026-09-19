@@ -32,6 +32,7 @@ const GLYPHS: Record<FilterKind, string> = {
   milestone: '★',
   question: '?',
   file: '≣',
+  report: '📄',
 };
 
 const DOT_COLORS: Record<FilterKind, string> = {

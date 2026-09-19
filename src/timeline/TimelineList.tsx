@@ -98,7 +98,9 @@ export default function TimelineList({
 const styles = StyleSheet.create({
   list: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
+    // Clears the floating + button (72px tall, 20px above the screen
+    // bottom): the last cards never slide underneath it.
+    paddingBottom: 112,
     flexGrow: 1,
   },
   weekband: {
@@ -109,16 +111,17 @@ const styles = StyleSheet.create({
     // FULL footprint. Backgrounds don't cover margins, so the spacing around
     // the text is padding (never margins) — otherwise cards scrolling
     // underneath show through the transparent margin zones when the header
-    // sticks (Sept 2026 overlap bug). Totals match the old margin+padding.
-    paddingTop: spacing.xl + spacing.xs,
-    paddingBottom: spacing.md + spacing.xs,
+    // sticks (Sept 2026 overlap bug). Compacted (Anuraj Sept 2026): the
+    // divider was eating feed space — tighter padding, smaller title.
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
     backgroundColor: colors.bg,
     zIndex: 1,
   },
   weekTitle: {
     fontFamily: fontDisplay,
-    fontSize: 19,
-    lineHeight: 24,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: '600',
     color: colors.ink,
   },

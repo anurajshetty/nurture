@@ -6,15 +6,17 @@
  * three pills (Appointment / Add report / Log entry). Tap ×, the scrim,
  * or any pill to fold the menu away; a pill opens its sheet.
  *
- * Rendered as a direct child of the Logs Screen: the button bar is
- * in-flow at the bottom (where the composer used to sit) while the menu
- * overlay is absolutely positioned over the whole screen, painted above
- * the timeline but below the button.
+ * Rendered as a direct child of the Logs Screen: the button floats
+ * absolutely over the feed (transparent — no box, no background, zero
+ * in-flow space; the feed gets maximum room) while the menu overlay is
+ * absolutely positioned over the whole screen, painted above the timeline
+ * but below the button. The timeline list carries bottom padding so its
+ * last cards never hide under the floating button.
  */
 import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { colors, radii, spacing, shadow, type as typeScale } from '../theme/tokens';
+import { colors, radii, type as typeScale, shadow } from '../theme/tokens';
 import type { LocalEvent } from '../lib/types';
 import AppointmentSheet from './AppointmentSheet';
 import ReportSheet from './ReportSheet';
@@ -80,14 +82,14 @@ export default function AddMenu({ onSaved, onUnsaved }: AddMenuProps) {
         </View>
       ) : null}
 
-      <View style={styles.bar}>
+      <View style={styles.bar} pointerEvents="box-none">
         <Pressable
           onPress={() => setOpen((o) => !o)}
           accessibilityRole="button"
           accessibilityLabel={open ? 'Close add menu' : 'Add'}
           testID="logs-add-button"
           style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}>
-          <Feather name={open ? 'x' : 'plus'} size={38} color="#fff" />
+          <Feather name={open ? 'x' : 'plus'} size={30} color="#fff" />
         </Pressable>
       </View>
 
@@ -125,7 +127,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 136,
+    bottom: 108,
     alignItems: 'center',
     gap: 12,
   },
@@ -150,20 +152,27 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.ink,
   },
-  /** In-flow bar where the old composer sat: one centered button. */
+  /**
+   * Floating button: absolutely positioned over the feed — transparent,
+   * no container, no background, zero in-flow space (Anuraj Sept 2026:
+   * feed gets maximum space). Above the menu scrim (zIndex 10): the + / x
+   * stays tappable while the menu is open.
+   */
   bar: {
-    // Above the menu scrim (zIndex 10): the + / x stays tappable while
-    // the menu is open. position:relative so z-index applies on web too.
-    position: 'relative',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 20,
     zIndex: 11,
     alignItems: 'center',
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.md,
   },
   addButton: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    // 72px: ~two-thirds of the old 88px (Anuraj Sept 2026 — the old
+    // button ate too much feed). Still well above the 44pt touch target.
+    // The × open-state keeps this same size.
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: colors.coral,
     alignItems: 'center',
     justifyContent: 'center',

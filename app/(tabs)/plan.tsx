@@ -33,7 +33,7 @@ import type { LocalEvent, Prefs } from '../../src/lib/types';
  * reminders. When the route carries `?appointment=<eventId>` (tapped from
  * a notification, or a cold start from one), the appointment detail renders
  * instead of the tiles: when/where up top, the question inbox with tappable
- * state chips, in-visit "Add note", and the reminder row that points at
+ * state chips, and the reminder row that points at
  * You → Notifications. The Journal tile below is untouched.
  */
 
@@ -41,6 +41,7 @@ const LEAD_LABELS: Record<number, string> = {
   15: '15 min before',
   60: '1 hour before',
   1440: '1 day before',
+  2880: '2 days before',
 };
 
 function leadLabel(minutes: number): string {
@@ -122,11 +123,9 @@ function QuestionRow({
 function AppointmentDetail({
   eventId,
   onBack,
-  onAddNote,
 }: {
   eventId: string;
   onBack: () => void;
-  onAddNote: () => void;
 }) {
   const router = useRouter();
   const [event, setEvent] = useState<LocalEvent | null>(() => {
@@ -277,17 +276,6 @@ function AppointmentDetail({
         </Pressable>
       )}
 
-      <Text style={styles.kicker}>During your visit</Text>
-      <Pressable
-        onPress={onAddNote}
-        accessibilityRole="button"
-        accessibilityLabel="Add a note"
-        testID="appointment-add-note"
-        style={({ pressed }) => [styles.btn, pressed && styles.btnPressed]}
-      >
-        <Text style={styles.btnText}>Add note</Text>
-      </Pressable>
-
       <Text style={styles.kicker}>Reminder</Text>
       <Pressable
         onPress={() => router.push('/you')}
@@ -297,7 +285,7 @@ function AppointmentDetail({
         style={({ pressed }) => [styles.setrow, pressed && styles.tilePressed]}
       >
         <View style={styles.setrowText}>
-          <Text style={styles.setrowTitle}>{prefs ? leadLabel(prefs.appointmentLeadMinutes) : '1 hour before'}</Text>
+          <Text style={styles.setrowTitle}>{prefs ? leadLabel(prefs.appointmentLeadMinutes) : '2 days before'}</Text>
           <Text style={styles.setrowSub}>Change it in You → Notifications</Text>
         </View>
         <Text style={styles.chev}>›</Text>
@@ -351,13 +339,12 @@ export default function PlanScreen() {
     router.setParams({ appointment: undefined });
   }, [router]);
 
-  const openJournal = useCallback(() => setJournalOpen(true), []);
   const closeJournal = useCallback(() => setJournalOpen(false), []);
 
   if (selectedId) {
     return (
       <Screen bottomPadding={120} testID="plan-screen">
-        <AppointmentDetail eventId={selectedId} onBack={goBack} onAddNote={openJournal} />
+        <AppointmentDetail eventId={selectedId} onBack={goBack} />
         <JournalSheet visible={journalOpen} onClose={closeJournal} />
       </Screen>
     );
@@ -604,22 +591,6 @@ const styles = StyleSheet.create({
   },
   qsaveText: {
     fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  btn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.coral,
-    borderRadius: 18,
-    minHeight: 60,
-    marginBottom: spacing.sm,
-  },
-  btnPressed: {
-    backgroundColor: colors.coralDeep,
-  },
-  btnText: {
-    fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
   },

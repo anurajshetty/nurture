@@ -27,7 +27,7 @@ export const DEFAULT_PREFS: Prefs = {
   quietHoursStart: '21:00',
   quietHoursEnd: '08:00',
   appointmentReminders: true,
-  appointmentLeadMinutes: 60,
+  appointmentLeadMinutes: 2880, // 2 days
   globalPauseUntil: null,
 };
 

@@ -176,6 +176,12 @@ def main():
         check("events seeded", seed_status == "seeded", f"status={seed_status}")
         page.goto(ORIGIN + "/willow/logs?testhooks=1", timeout=30000)
         page.get_by_test_id("logs-screen").wait_for(timeout=15000)
+        # The week pill is a filter defaulting to the current week (Anuraj
+        # Sept 2026) — show all weeks so every seeded band renders.
+        page.get_by_test_id("week-jump-button").click()
+        page.get_by_test_id("week-filter-dropdown").wait_for(timeout=5000)
+        page.get_by_test_id("week-filter-option-all").click()
+        page.wait_for_timeout(600)
         try:
             page.wait_for_function(
                 '() => document.querySelectorAll(\'[data-testid^="event-card-"]\').length >= 10',

@@ -89,6 +89,7 @@ const TYPE_LABELS: Record<string, string> = {
   symptom: 'Symptoms',
   appointment: 'Appointment',
   kick_session: 'Kicks',
+  report: 'Report',
 };
 
 function typeLabel(type: string): string {

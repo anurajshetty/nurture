@@ -2,7 +2,7 @@
  * Appointment reminders (Epic 6, §6.1).
  *
  * Schedules one local notification per upcoming appointment, firing at the
- * user's chosen lead time (`Prefs.appointmentLeadMinutes`, 60 min default).
+ * user's chosen lead time (`Prefs.appointmentLeadMinutes`, 2 days default).
  * Copy is neutral by construction (see ./reminderCopy.ts). Deep-link data
  * carries `{ kind: 'appointment', appointmentId }` so "View" lands on the
  * appointment detail in the Plan tab.

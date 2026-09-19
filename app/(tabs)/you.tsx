@@ -76,6 +76,7 @@ const LEAD_OPTIONS = [
   { minutes: 15, label: '15 min before' },
   { minutes: 60, label: '1 hour before' },
   { minutes: 1440, label: '1 day before' },
+  { minutes: 2880, label: '2 days before' },
 ] as const;
 
 const NUDGE_MIN = 17 * 60; // 5:00 PM
@@ -733,7 +734,7 @@ export default function YouScreen() {
   }, [showToast]);
 
   const leadLabel =
-    LEAD_OPTIONS.find((o) => o.minutes === leadMinutes)?.label ?? '1 hour before';
+    LEAD_OPTIONS.find((o) => o.minutes === leadMinutes)?.label ?? '2 days before';
 
   // Epic 9 — expand-to-choose data rows for the "It's done." aftermath.
   // Tapping a row reveals its concrete options; tapping an option records the
