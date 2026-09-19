@@ -8,7 +8,11 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Nurture uses the camera only when you tap the camera button, to take bump and scan photos you choose to save.",
+        "NSPhotoLibraryUsageDescription": "Nurture accesses your photo library only when you choose a photo to attach to your story."
+      }
     },
     "android": {
       "adaptiveIcon": {

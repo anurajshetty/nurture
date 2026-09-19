@@ -22,6 +22,7 @@ export const colors = {
   gold: '#C9A227', // milestone/kick icon dots
   lilac: '#8E7CC3', // appointment icon dots
   blueTint: '#E3ECF5', // video attach icon tile
+  goldTint: '#FAF3DF', // baby-tile tint (BriefingScreen delight tile)
   toggleOff: '#D9CFC0',
   segmentedBg: '#F1EAE0',
 } as const;
