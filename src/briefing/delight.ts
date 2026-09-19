@@ -153,6 +153,8 @@ export const MAX_SIZE_WEEK = 40;
 // ---------------------------------------------------------------------------
 
 interface FactEntry {
+  /** Stable id, referenced by matrix rows' delight.factIds. */
+  id: string;
   /** Inclusive week range this fact belongs to; omit for evergreen. */
   weeks?: [number, number];
   preview: string;
@@ -161,6 +163,7 @@ interface FactEntry {
 
 export const FACTS: FactEntry[] = [
   {
+    id: 'flavors-amniotic',
     weeks: [12, 40],
     preview: 'Flavors from your lunch drift into the amniotic fluid…',
     body: [
@@ -171,6 +174,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'voice-recognition',
     weeks: [28, 40],
     preview: 'She already knows your voice from a stranger’s…',
     body: [
@@ -181,6 +185,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'eyes-open-close',
     weeks: [26, 40],
     preview: 'Her eyes can open and close now…',
     body: [
@@ -191,6 +196,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'sleep-cycles',
     weeks: [28, 40],
     preview: 'Sleep is settling into cycles…',
     body: [
@@ -201,6 +207,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'hiccups',
     weeks: [12, 40],
     preview: 'Those tiny rhythmic jerks? Usually hiccups…',
     body: [
@@ -211,6 +218,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'fingerprints',
     weeks: [20, 40],
     preview: 'Her fingerprints are already one of a kind…',
     body: [
@@ -221,6 +229,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'heartbeat-fast',
     weeks: [12, 40],
     preview: 'Her heart beats about twice as fast as yours…',
     body: [
@@ -231,6 +240,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'swallowing-practice',
     weeks: [12, 40],
     preview: 'She swallows a little of her world every day…',
     body: [
@@ -241,6 +251,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'vernix',
     weeks: [12, 40],
     preview: 'She arrives with her own protective coating…',
     body: [
@@ -251,6 +262,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'brain-folds',
     weeks: [24, 40],
     preview: 'Her brain is folding itself into shape…',
     body: [
@@ -261,6 +273,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'light-turn',
     weeks: [32, 40],
     preview: 'She may turn toward bright light…',
     body: [
@@ -271,6 +284,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'startle-reflex',
     weeks: [12, 40],
     preview: 'Loud sounds can make her startle…',
     body: [
@@ -281,6 +295,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'rem-sleep',
     weeks: [20, 40],
     preview: 'Scans have caught what looks like REM sleep…',
     body: [
@@ -291,6 +306,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'cord-slack',
     weeks: [12, 40],
     preview: 'Her cord has plenty of slack for somersaults…',
     body: [
@@ -301,6 +317,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'amniotic-pool',
     weeks: [12, 40],
     preview: 'She floats in her own private pool…',
     body: [
@@ -311,6 +328,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'crying-practice',
     weeks: [12, 40],
     preview: 'Ultrasound has caught her practicing crying faces…',
     body: [
@@ -321,6 +339,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'skull-soft',
     weeks: [12, 40],
     preview: 'Her skull stays soft on purpose…',
     body: [
@@ -331,6 +350,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'surfactant',
     weeks: [34, 40],
     preview: 'Her lungs are making something soapy…',
     body: [
@@ -341,6 +361,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'placenta',
     weeks: [12, 40],
     preview: 'The placenta grew right alongside her…',
     body: [
@@ -351,6 +372,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'lanugo',
     weeks: [12, 24],
     preview: 'She’s wearing a fine downy coat…',
     body: [
@@ -361,6 +383,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'head-down',
     weeks: [36, 40],
     preview: 'Most babies settle into launch position…',
     body: [
@@ -371,6 +394,7 @@ export const FACTS: FactEntry[] = [
     ],
   },
   {
+    id: 'blood-type-bones',
     weeks: [12, 40],
     preview: 'She already has her own blood type…',
     body: [
@@ -719,13 +743,36 @@ function clampWeek(week: number): number {
   return Math.min(MAX_SIZE_WEEK, Math.max(MIN_SIZE_WEEK, Math.round(week)));
 }
 
-/** Pick the fact card for this week: week-anchored facts first, evergreen as fallback. */
-function pickFact(week: number, today: string): DelightCard {
+/** Matrix-driven options for the delight pickers (v1.1 rules engine). */
+export interface BuildDelightOptions {
+  /**
+   * Matrix-preferred fact ids (see WeekMatrixRow.delight.factIds). When
+   * non-empty and matching, the fact is picked from these ids (rotated by
+   * day of year); otherwise the week-range bank applies.
+   */
+  factIds?: string[];
+  /**
+   * Matrix-preferred rotating kinds. When non-empty, today's rotating kind
+   * is picked from these (by day of year) instead of the default rotation.
+   */
+  rotatingBoost?: RotatingKind[];
+}
+
+/** Pick the fact card for this week: matrix ids first, then week-anchored facts, evergreen fallback. */
+function pickFact(week: number, today: string, factIds?: string[]): DelightCard {
   const w = clampWeek(week);
-  const anchored = FACTS.filter(
-    (f) => f.weeks && w >= f.weeks[0] && w <= f.weeks[1],
-  );
-  const pool = anchored.length > 0 ? anchored : FACTS;
+  let pool: FactEntry[] = [];
+  if (factIds && factIds.length > 0) {
+    pool = factIds
+      .map((id) => FACTS.find((f) => f.id === id))
+      .filter((f): f is FactEntry => !!f);
+  }
+  if (pool.length === 0) {
+    const anchored = FACTS.filter(
+      (f) => f.weeks && w >= f.weeks[0] && w <= f.weeks[1],
+    );
+    pool = anchored.length > 0 ? anchored : FACTS;
+  }
   const entry = pool[dayOfYear(today) % pool.length];
   const tile = TILES.fact;
   return {
@@ -832,8 +879,10 @@ function pickRotating(
   week: number,
   store: DelightStore | null,
   today: string,
+  boost?: RotatingKind[],
 ): DelightCard {
-  const kind = ROTATION_ORDER[dayOfYear(today) % ROTATION_ORDER.length];
+  const order = boost && boost.length > 0 ? boost : ROTATION_ORDER;
+  const kind = order[dayOfYear(today) % order.length];
   let state = loadState(store);
   if (!state || state.date !== today) {
     // New day: advance the cursor for today's kind and persist.
@@ -877,6 +926,11 @@ export function buildDelightCards(
   week: number,
   store: DelightStore | null,
   today: string,
+  opts: BuildDelightOptions = {},
 ): DelightCard[] {
-  return [pickFact(week, today), pickSize(week), pickRotating(week, store, today)];
+  return [
+    pickFact(week, today, opts.factIds),
+    pickSize(week),
+    pickRotating(week, store, today, opts.rotatingBoost),
+  ];
 }

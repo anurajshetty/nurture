@@ -14,7 +14,7 @@ import type { Briefing } from './types';
 import { todayISO } from '../onboarding/dates';
 
 /** Cache key — bump the suffix if the stored shape ever changes. */
-export const BRIEFING_CACHE_KEY = 'briefing.cache.v1';
+export const BRIEFING_CACHE_KEY = 'briefing.cache.v2';
 
 /** One cached briefing, as stored under BRIEFING_CACHE_KEY. */
 export interface BriefingCacheRecord {
@@ -63,7 +63,12 @@ export function getCachedBriefing(store: KvStore = defaultStore()): BriefingCach
     if (typeof parsed.generatedForDate !== 'string') return null;
     if (typeof parsed.week !== 'number') return null;
     const b = parsed.briefing as Partial<Briefing> | undefined;
-    if (!b || typeof b !== 'object' || !Array.isArray(b.cards)) return null;
+    if (!b || typeof b !== 'object' || !Array.isArray(b.slots)) return null;
+    // The v1 shape (cards) must never validate as v2: the key bump handles
+    // the migration, this is defense in depth.
+    if (!b.slots.every((s) => typeof s === 'object' && s !== null && typeof (s as { slotId?: unknown }).slotId === 'string')) {
+      return null;
+    }
     return parsed as BriefingCacheRecord;
   } catch {
     return null;

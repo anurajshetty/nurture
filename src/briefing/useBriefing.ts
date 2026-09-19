@@ -21,9 +21,9 @@ import { Platform } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import type { Briefing, BriefingStatus } from './types';
 import type { BriefingContext } from './context';
-import { buildBriefingContext } from './context';
+import { buildBriefingContext, getRecentNoteLogs } from './context';
 import { defaultStore, type KvStore } from './cache';
-import { fetchBriefing } from './client';
+import { phrasePlan } from './client';
 import { refreshBriefing } from './policy';
 import { todayISO } from '../onboarding/dates';
 
@@ -61,7 +61,8 @@ export function useBriefing(): {
       store: storeRef.current as KvStore,
       online: isOnlineNow(),
       buildContext,
-      fetch: (ctx) => fetchBriefing(ctx),
+      getRecentLogs: () => getRecentNoteLogs(),
+      phrase: (req) => phrasePlan(req),
       onUpdate: (s, b) => {
         if (!cancelled) {
           setStatus(s);

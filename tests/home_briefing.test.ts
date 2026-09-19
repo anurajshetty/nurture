@@ -1,12 +1,14 @@
 /**
- * Track 4 unit tests: briefing cache + daily-refresh policy + edge-function client.
+ * Track 4 unit tests (v1.1): briefing cache + daily-refresh policy +
+ * edge-function phraser client + merge.
  *
- * Pure logic only — in-memory KvStore, stubbed fetch, injected "today".
+ * Pure logic only — in-memory KvStore, stubbed phraser, injected "today".
  * No network, no SQLite, no Gemini. Run with:
  *
  *   npx tsc tests/home_briefing.test.ts src/briefing/cache.ts src/briefing/policy.ts \
  *     src/briefing/client.ts src/briefing/context.ts src/briefing/types.ts \
- *     src/onboarding/dates.ts \
+ *     src/briefing/engine.ts src/briefing/matrix.ts src/briefing/delight.ts \
+ *     src/theme/tokens.ts src/lib/types.ts src/onboarding/dates.ts \
  *     --outDir /tmp/nurture-briefing-tests --module commonjs --target es2022 \
  *     --skipLibCheck --esModuleInterop
  *   node /tmp/nurture-briefing-tests/tests/home_briefing.test.js
@@ -23,12 +25,16 @@ import {
 } from '../src/briefing/cache';
 import {
   BriefingError,
-  EXPECTED_CARD_IDS,
-  fetchBriefing,
-  validateBriefingResponse,
+  mergePhrasedSlots,
+  phrasePlan,
+  validatePhraseResponse,
+  type PhraseRequestBody,
+  type PhrasedSlots,
 } from '../src/briefing/client';
+import { buildPlan } from '../src/briefing/engine';
+import { MATRIX_REVIEW_DATE } from '../src/briefing/matrix';
 import { refreshBriefing, type RefreshDeps } from '../src/briefing/policy';
-import type { Briefing, BriefingCard, BriefingStatus } from '../src/briefing/types';
+import type { Briefing, BriefingStatus, PlanSlot } from '../src/briefing/types';
 import type { BriefingContext } from '../src/briefing/context';
 
 declare const process: { exit(code: number): void };
@@ -65,22 +71,53 @@ class MemStore implements KvStore {
   }
 }
 
-function makeCard(id: BriefingCard['id']): BriefingCard {
-  return { id, title: `Title ${id}`, subtitle: `Subtitle ${id}`, body: [`Line one for ${id}.`, `Line two for ${id}.`] };
+function makeSlot(slotId: string, section: PlanSlot['section']): PlanSlot {
+  return {
+    slotId,
+    section,
+    title: `Title ${slotId}`,
+    preview: `Preview ${slotId}`,
+    body: [[{ text: `Body ${slotId}.` }]],
+    phrase: section === 'routine' || section === 'timely',
+    tint: '#fff',
+    glyph: '❀',
+    glyphColor: '#000',
+    testID: slotId,
+  };
 }
 
 function makeBriefing(week: number, day: number, generatedForDate: string): Briefing {
+  const slots = ['routine-baby', 'routine-body', 'routine-know', 'routine-tips'].map((id) =>
+    makeSlot(id, 'routine'),
+  );
   return {
     week,
     day,
     generatedForDate,
-    cards: (['baby', 'body', 'know', 'tips'] as const).map(makeCard),
+    slots,
     reviewDate: generatedForDate,
+    planHash: 'testhash',
   };
 }
 
 function makeCtx(week: number, day: number): BriefingContext {
   return { week, day, firstTimeMom: true, symptomThemes: ['nausea'] };
+}
+
+function makePhraseReq(slotIds: string[]): PhraseRequestBody {
+  return {
+    week: 28,
+    day: 3,
+    firstTimeMom: true,
+    symptomThemes: ['nausea'],
+    planHash: 'testhash',
+    freshAngles: [],
+    slots: slotIds.map((slotId) => ({
+      slotId,
+      preview: `Preview ${slotId}`,
+      body: [`Body ${slotId}.`],
+    })),
+  };
 }
 
 const TODAY = '2026-09-18';
@@ -118,13 +155,24 @@ async function runRefresh(
   check('cache: roundtrip briefing', got.briefing, briefing);
 
   const raw = store.get(BRIEFING_CACHE_KEY) as string;
-  checkTrue('cache: stored under briefing.cache.v1', raw.includes('"generatedForDate":"2026-09-18"'));
+  checkTrue('cache: stored under briefing.cache.v2', raw.includes('"generatedForDate":"2026-09-18"'));
 
   store.set(BRIEFING_CACHE_KEY, '{not json');
   check('cache: malformed JSON → null', getCachedBriefing(store), null);
 
   store.set(BRIEFING_CACHE_KEY, JSON.stringify({ nope: 1 }));
   check('cache: wrong shape → null', getCachedBriefing(store), null);
+
+  // The v1 shape (cards) must never validate as v2.
+  store.set(
+    BRIEFING_CACHE_KEY,
+    JSON.stringify({
+      generatedForDate: TODAY,
+      week: 28,
+      briefing: { week: 28, day: 3, generatedForDate: TODAY, cards: [], reviewDate: TODAY },
+    }),
+  );
+  check('cache: v1 cards shape → null', getCachedBriefing(store), null);
 
   saveBriefing(briefing, store, TODAY);
   clearBriefing(store);
@@ -151,135 +199,134 @@ async function runRefresh(
 }
 
 /* ------------------------------------------------------------------ */
-/* client.ts — validation                                              */
+/* client.ts — phraser validation                                      */
 /* ------------------------------------------------------------------ */
 
 {
-  // The real edge-function contract: { cards, reviewDate } plus an ignored
-  // footer string. week/day/generatedForDate are never sent back.
+  const req = makePhraseReq(['routine-baby', 'routine-body']);
   const good = {
     reviewDate: TODAY,
     footer: 'General information only — not medical advice.',
-    cards: EXPECTED_CARD_IDS.map((id) => ({
-      id,
-      title: `Title ${id}`,
-      subtitle: `Subtitle ${id}`,
-      body: ['One.', 'Two.'],
-    })),
+    slots: [
+      { slotId: 'routine-baby', preview: 'Phrased baby preview', body: ['Phrased baby line.'] },
+      { slotId: 'routine-body', preview: 'Phrased body preview', body: ['Phrased body line.'] },
+    ],
   };
-  const v = validateBriefingResponse(good);
-  check('client: valid server payload passes', v.cards.map((c) => c.id), ['baby', 'body', 'know', 'tips']);
+  const v = validatePhraseResponse(good, req);
+  check('client: valid phrasing passes', v.slots.map((s) => s.slotId), ['routine-baby', 'routine-body']);
   check('client: reviewDate passes through', v.reviewDate, TODAY);
-  check('client: extra footer key ignored', 'footer' in (v as unknown as Record<string, unknown>), false);
+  check('client: phrased preview kept', v.slots[0].preview, 'Phrased baby preview');
 
-  const swapped = { ...good, cards: [...good.cards].reverse() };
+  const swapped = { ...good, slots: [...good.slots].reverse() };
   let code: string | null = null;
   try {
-    validateBriefingResponse(swapped);
+    validatePhraseResponse(swapped, req);
   } catch (e) {
     code = (e as BriefingError).code;
   }
-  check('client: wrong card order → invalid_response', code, 'invalid_response');
+  check('client: wrong slot order → invalid_response', code, 'invalid_response');
 
   try {
-    validateBriefingResponse({ ...good, cards: good.cards.slice(0, 3) });
+    validatePhraseResponse({ ...good, slots: good.slots.slice(0, 1) }, req);
     code = 'no-throw';
   } catch (e) {
     code = (e as BriefingError).code;
   }
-  check('client: 3 cards → invalid_response', code, 'invalid_response');
+  check('client: slot count mismatch → invalid_response', code, 'invalid_response');
 
   try {
-    validateBriefingResponse({ ...good, reviewDate: 'Sept 18' });
+    validatePhraseResponse({ ...good, reviewDate: 'Sept 18' }, req);
     code = 'no-throw';
   } catch (e) {
     code = (e as BriefingError).code;
   }
   check('client: bad reviewDate → invalid_response', code, 'invalid_response');
 
-  const longTitle = { ...good };
-  longTitle.cards = good.cards.map((c, i) =>
-    i === 0 ? { ...c, title: 'x'.repeat(61) } : c,
-  );
+  // Body line count must match the request (same number of lines, reworded).
+  const lineMismatch = {
+    ...good,
+    slots: good.slots.map((s, i) => (i === 0 ? { ...s, body: ['One.', 'Two.'] } : s)),
+  };
   try {
-    validateBriefingResponse(longTitle);
+    validatePhraseResponse(lineMismatch, req);
     code = 'no-throw';
   } catch (e) {
     code = (e as BriefingError).code;
   }
-  check('client: over-long title → invalid_response', code, 'invalid_response');
+  check('client: body line count mismatch → invalid_response', code, 'invalid_response');
 
-  const longLine = { ...good };
-  longLine.cards = good.cards.map((c, i) =>
-    i === 1 ? { ...c, body: ['y'.repeat(221)] } : c,
-  );
-  try {
-    validateBriefingResponse(longLine);
-    code = 'no-throw';
-  } catch (e) {
-    code = (e as BriefingError).code;
-  }
-  check('client: over-long body line → invalid_response', code, 'invalid_response');
-
-  const emptyBody = { ...good };
-  emptyBody.cards = good.cards.map((c, i) => (i === 2 ? { ...c, body: [] } : c));
-  try {
-    validateBriefingResponse(emptyBody);
-    code = 'no-throw';
-  } catch (e) {
-    code = (e as BriefingError).code;
-  }
-  check('client: empty body → invalid_response', code, 'invalid_response');
+  // Length overruns are clamped, not rejected (the function already clamps).
+  const long = {
+    ...good,
+    slots: good.slots.map((s, i) =>
+      i === 0 ? { ...s, preview: 'x'.repeat(200), body: ['y'.repeat(500)] } : s,
+    ),
+  };
+  const cv = validatePhraseResponse(long, req);
+  checkTrue('client: over-long preview clamped', cv.slots[0].preview.length <= 120);
+  checkTrue('client: over-long body line clamped', cv.slots[0].body[0].length <= 220);
 }
 
 /* ------------------------------------------------------------------ */
-/* client.ts — fetchBriefing transport                                 */
+/* client.ts — mergePhrasedSlots                                       */
+/* ------------------------------------------------------------------ */
+
+{
+  const slots = [
+    makeSlot('routine-baby', 'routine'),
+    makeSlot('delight-card-fact', 'delight'),
+  ];
+  const phrased: PhrasedSlots = {
+    'routine-baby': { preview: 'Phrased preview', body: ['Phrased line one.', 'Phrased line two.'] },
+  };
+  const merged = mergePhrasedSlots(slots, phrased);
+  check('client: merge phrases the flagged slot', merged[0].preview, 'Phrased preview');
+  check('client: merge keeps line count', merged[0].body.length, 2);
+  check('client: merge leaves unflagged slot alone', merged[1].preview, 'Preview delight-card-fact');
+  check('client: merge is pure (input untouched)', slots[0].preview, 'Preview routine-baby');
+}
+
+/* ------------------------------------------------------------------ */
+/* client.ts — phrasePlan transport                                    */
 /* ------------------------------------------------------------------ */
 
 async function clientTests(): Promise<void> {
-  const ctx = makeCtx(28, 3);
-  // The REAL edge-function contract: { cards, reviewDate, footer } —
-  // no week/day/generatedForDate come back over the wire.
+  const req = makePhraseReq(['routine-baby', 'routine-body']);
   const wire = {
     reviewDate: TODAY,
-    footer: 'General information only — not medical advice.',
-    cards: EXPECTED_CARD_IDS.map((id) => ({ id, title: 't', subtitle: 's', body: ['b'] })),
+    slots: req.slots.map((s) => ({ slotId: s.slotId, preview: `P ${s.slotId}`, body: s.body })),
   };
 
-  // Success: only the context fields are sent as the body.
+  // Success: the whole request body is sent as-is; phrasing keyed by slotId.
   let sentBody: unknown = null;
-  const ok = await fetchBriefing(ctx, {
+  const res = await phrasePlan(req, {
     configured: true,
-    today: TODAY,
     invoke: async (body) => {
       sentBody = body;
       return { data: wire, error: null };
     },
   });
-  check('client: real response contract succeeds (no week/day/generatedForDate on the wire)', ok.week, 28);
-  check('client: day comes from the request context', ok.day, 3);
-  check('client: generatedForDate is the device-local today', ok.generatedForDate, TODAY);
-  check('client: reviewDate comes from the server', ok.reviewDate, TODAY);
-  check('client: body is exactly the context', sentBody, ctx);
+  check('client: phrasing keyed by slotId', res.phrased['routine-baby'].preview, 'P routine-baby');
+  check('client: reviewDate comes from the server', res.reviewDate, TODAY);
+  check('client: body is exactly the request', sentBody, req);
 
-  // Context week/day out of range → invalid_response (validated on-device).
+  // Request validation on-device: bad week → invalid_response.
   let code: string | null = null;
   try {
-    await fetchBriefing(makeCtx(3, 3), {
+    await phrasePlan({ ...req, week: 3 }, {
       configured: true,
-      today: TODAY,
       invoke: async () => ({ data: wire, error: null }),
     });
     code = 'no-throw';
   } catch (e) {
     code = (e as BriefingError).code;
   }
-  check('client: bad context week → invalid_response', code, 'invalid_response');
+  check('client: bad request week → invalid_response', code, 'invalid_response');
 
   // Edge-function error → network.
   code = null;
   try {
-    await fetchBriefing(ctx, {
+    await phrasePlan(req, {
       configured: true,
       invoke: async () => ({ data: null, error: new Error('boom') }),
     });
@@ -290,7 +337,7 @@ async function clientTests(): Promise<void> {
 
   // Transport rejection → network.
   try {
-    await fetchBriefing(ctx, {
+    await phrasePlan(req, {
       configured: true,
       invoke: async () => {
         throw new Error('offline');
@@ -304,7 +351,7 @@ async function clientTests(): Promise<void> {
 
   // Timeout → network (injectable short timeout; no real waiting).
   try {
-    await fetchBriefing(ctx, {
+    await phrasePlan(req, {
       configured: true,
       timeoutMs: 30,
       invoke: () => new Promise(() => {}),
@@ -318,7 +365,7 @@ async function clientTests(): Promise<void> {
   // Unconfigured backend → not_configured, invoke never called.
   let invoked = false;
   try {
-    await fetchBriefing(ctx, {
+    await phrasePlan(req, {
       configured: false,
       invoke: async () => {
         invoked = true;
@@ -334,7 +381,7 @@ async function clientTests(): Promise<void> {
 
   // Malformed payload → invalid_response.
   try {
-    await fetchBriefing(ctx, {
+    await phrasePlan(req, {
       configured: true,
       invoke: async () => ({ data: { hello: 1 }, error: null }),
     });
@@ -346,44 +393,78 @@ async function clientTests(): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
-/* policy.ts — refresh decisions                                       */
+/* policy.ts — refresh decisions (engine + phraser)                    */
 /* ------------------------------------------------------------------ */
 
+/** The deterministic engine plan the policy builds for week 28, day 3. */
+function expectedPlan() {
+  return buildPlan({
+    week: 28,
+    day: 3,
+    date: TODAY,
+    firstTimeMom: true,
+    symptomThemes: ['nausea'],
+    logs: [],
+    store: null,
+  });
+}
+
 async function policyTests(): Promise<void> {
-  // 1. Today's cache for the current week → live, fetch NOT called.
+  // 1. Today's cache for the current week → live, phraser NOT called.
   {
     const store = new MemStore();
     const cached = makeBriefing(28, 3, TODAY);
     saveBriefing(cached, store, TODAY);
-    let fetchCalls = 0;
+    let phraseCalls = 0;
     const updates = await runRefresh({
       store,
-      fetch: async () => {
-        fetchCalls++;
-        throw new Error('must not fetch');
+      phrase: async () => {
+        phraseCalls++;
+        throw new Error('must not phrase');
       },
     });
     check('policy: cache hit statuses', updates.map((u) => u[0]), ['live']);
     check('policy: cache hit shows cached briefing', updates[0][1], cached);
-    check('policy: cache hit skips fetch', fetchCalls, 0);
+    check('policy: cache hit skips phraser', phraseCalls, 0);
   }
 
-  // 2. New day → fetch attempted; success → generating then live + cache saved.
+  // 2. New day → generating, engine plan phrased, merged briefing live + cached.
   {
     const store = new MemStore();
     saveBriefing(makeBriefing(28, 2, YESTERDAY), store, YESTERDAY);
-    const fresh = makeBriefing(28, 3, TODAY);
-    let fetchCalls = 0;
+    const plan = expectedPlan();
+    let sentReq: PhraseRequestBody | undefined;
     const updates = await runRefresh({
       store,
-      fetch: async () => {
-        fetchCalls++;
-        return fresh;
+      phrase: async (req) => {
+        sentReq = req;
+        const phrased: PhrasedSlots = {};
+        for (const s of req.slots) {
+          phrased[s.slotId] = { preview: `Phrased ${s.slotId}`, body: s.body.map((l) => `Phrased: ${l}`) };
+        }
+        return { phrased, reviewDate: TODAY };
       },
     });
     check('policy: new day statuses', updates.map((u) => u[0]), ['generating', 'live']);
-    check('policy: new day shows fresh briefing', updates[1][1], fresh);
-    check('policy: new day fetch attempted', fetchCalls, 1);
+    const live = updates[1][1] as Briefing;
+    check('policy: phraser got the plan hash', sentReq?.planHash, plan.planHash);
+    check(
+      'policy: phraser got the phrase:true slot ids in order',
+      sentReq?.slots.map((s) => s.slotId),
+      plan.slots.filter((s) => s.phrase).map((s) => s.slotId),
+    );
+    check(
+      'policy: routine slots show phrased text',
+      live.slots.filter((s) => s.section === 'routine').map((s) => s.preview),
+      plan.slots.filter((s) => s.section === 'routine').map((s) => `Phrased ${s.slotId}`),
+    );
+    check(
+      'policy: delight slots keep curated copy (never phrased)',
+      live.slots.filter((s) => s.section === 'delight').map((s) => s.preview),
+      plan.slots.filter((s) => s.section === 'delight').map((s) => s.preview),
+    );
+    check('policy: reviewDate is the matrix review date', live.reviewDate, MATRIX_REVIEW_DATE);
+    check('policy: planHash carried through', live.planHash, plan.planHash);
     check(
       'policy: success saved to cache',
       (getCachedBriefing(store) as BriefingCacheRecord).generatedForDate,
@@ -391,105 +472,90 @@ async function policyTests(): Promise<void> {
     );
   }
 
-  // 3. Fetch failure + stale cache → offline with the stale briefing.
+  // 3. Phraser failure → live with the curated plan (polish, not dependency).
   {
     const store = new MemStore();
-    const stale = makeBriefing(27, 6, YESTERDAY);
-    saveBriefing(stale, store, YESTERDAY);
+    const plan = expectedPlan();
     const updates = await runRefresh({
       store,
-      fetch: async () => {
+      phrase: async () => {
         throw new BriefingError('network', 'down');
       },
     });
-    check('policy: failure+stale statuses', updates.map((u) => u[0]), ['generating', 'offline']);
-    check('policy: failure+stale shows stale briefing', updates[1][1], stale);
+    check('policy: phraser failure statuses', updates.map((u) => u[0]), ['generating', 'live']);
+    const live = updates[1][1] as Briefing;
+    check('policy: phraser failure shows curated slots', live.slots, plan.slots);
+    check(
+      'policy: curated fallback saved to cache',
+      (getCachedBriefing(store) as BriefingCacheRecord).briefing.slots,
+      plan.slots,
+    );
   }
 
-  // 4. Fetch failure + no cache → empty.
-  {
-    const store = new MemStore();
-    const updates = await runRefresh({
-      store,
-      fetch: async () => {
-        throw new BriefingError('network', 'down');
-      },
-    });
-    check('policy: failure+nocache statuses', updates.map((u) => u[0]), ['generating', 'empty']);
-    check('policy: failure+nocache briefing null', updates[1][1], null);
-  }
-
-  // 5. Week change (same date, different week) → refetch, not live.
-  {
-    const store = new MemStore();
-    saveBriefing(makeBriefing(27, 7, TODAY), store, TODAY);
-    let fetchCalls = 0;
-    const fresh = makeBriefing(28, 1, TODAY);
-    const updates = await runRefresh({
-      store,
-      fetch: async () => {
-        fetchCalls++;
-        return fresh;
-      },
-    });
-    check('policy: week change refetches', fetchCalls, 1);
-    check('policy: week change statuses', updates.map((u) => u[0]), ['generating', 'live']);
-  }
-
-  // 6. Offline fast-path: stale cache → offline, fetch NOT called.
+  // 4. Offline fast-path: the engine builds today's plan on-device even
+  //    with no cache — Home never blanks. Phraser NOT called.
   {
     const store = new MemStore();
     const stale = makeBriefing(28, 2, YESTERDAY);
     saveBriefing(stale, store, YESTERDAY);
-    let fetchCalls = 0;
+    let phraseCalls = 0;
     const updates = await runRefresh({
       store,
       online: false,
-      fetch: async () => {
-        fetchCalls++;
-        throw new Error('must not fetch');
+      phrase: async () => {
+        phraseCalls++;
+        throw new Error('must not phrase');
       },
     });
     check('policy: offline+stale statuses', updates.map((u) => u[0]), ['offline']);
-    check('policy: offline+stale shows stale', updates[0][1], stale);
-    check('policy: offline skips fetch', fetchCalls, 0);
+    const offlineBriefing = updates[0][1] as Briefing;
+    check('policy: offline builds a fresh plan, not the stale cache',
+      offlineBriefing.generatedForDate, TODAY);
+    check('policy: offline plan is the curated engine plan',
+      offlineBriefing.slots, expectedPlan().slots);
+    check('policy: offline skips phraser', phraseCalls, 0);
+    check(
+      'policy: offline plan saved to cache',
+      (getCachedBriefing(store) as BriefingCacheRecord).generatedForDate,
+      TODAY,
+    );
   }
 
-  // 7. Offline fast-path: no cache → empty.
+  // 5. Offline fast-path: no cache → 'offline' with a fresh curated plan,
+  //    never 'empty' (empty is only for "no due date").
   {
     const store = new MemStore();
-    let fetchCalls = 0;
     const updates = await runRefresh({
       store,
       online: false,
-      fetch: async () => {
-        fetchCalls++;
-        throw new Error('must not fetch');
+      phrase: async () => {
+        throw new Error('must not phrase');
       },
     });
-    check('policy: offline+nocache statuses', updates.map((u) => u[0]), ['empty']);
-    check('policy: offline+nocache briefing null', updates[0][1], null);
-    check('policy: offline+nocache skips fetch', fetchCalls, 0);
+    check('policy: offline+nocache statuses', updates.map((u) => u[0]), ['offline']);
+    const offlineBriefing = updates[0][1] as Briefing;
+    check('policy: offline+nocache shows a fresh plan', offlineBriefing.generatedForDate, TODAY);
+    check('policy: offline+nocache plan has slots', offlineBriefing.slots.length > 0, true);
   }
 
-  // 8. No due date (null context) → empty, fetch NOT called.
+  // 6. No due date (null context) → empty, phraser NOT called.
   {
     const store = new MemStore();
-    let fetchCalls = 0;
+    let phraseCalls = 0;
     const updates = await runRefresh({
       store,
       buildContext: () => null,
-      fetch: async () => {
-        fetchCalls++;
-        throw new Error('must not fetch');
+      phrase: async () => {
+        phraseCalls++;
+        throw new Error('must not phrase');
       },
     });
     check('policy: no due date → empty', updates.map((u) => u[0]), ['empty']);
     check('policy: no due date briefing null', updates[0][1], null);
-    check('policy: no due date skips fetch', fetchCalls, 0);
+    check('policy: no due date skips phraser', phraseCalls, 0);
   }
 
-  // 9. Context builder throws → empty, never throws out of refreshBriefing.
+  // 7. Context builder throws → empty, never throws out of refreshBriefing.
   {
     const store = new MemStore();
     const updates = await runRefresh({
@@ -501,35 +567,37 @@ async function policyTests(): Promise<void> {
     check('policy: builder throws → empty', updates.map((u) => u[0]), ['empty']);
   }
 
-  // 10. retry() recovery: first pass fails (offline), second succeeds (live).
+  // 8. Week change (same date, different week) → rebuild, not live.
   {
     const store = new MemStore();
-    const pass1 = await runRefresh({
+    saveBriefing(makeBriefing(27, 7, TODAY), store, TODAY);
+    let phraseCalls = 0;
+    const updates = await runRefresh({
       store,
-      fetch: async () => {
-        throw new BriefingError('network', 'down');
+      phrase: async (req) => {
+        phraseCalls++;
+        const phrased: PhrasedSlots = {};
+        for (const s of req.slots) phrased[s.slotId] = { preview: s.preview, body: s.body };
+        return { phrased, reviewDate: TODAY };
       },
     });
-    check('policy: retry pass1 → empty', pass1.map((u) => u[0]), ['generating', 'empty']);
-    const fresh = makeBriefing(28, 3, TODAY);
-    const pass2 = await runRefresh({
-      store,
-      fetch: async () => fresh,
-    });
-    check('policy: retry pass2 → live', pass2.map((u) => u[0]), ['generating', 'live']);
-    check('policy: retry pass2 shows fresh', pass2[1][1], fresh);
+    check('policy: week change rephrases', phraseCalls, 1);
+    check('policy: week change statuses', updates.map((u) => u[0]), ['generating', 'live']);
   }
 
-  // 11. Cache write failure is best-effort — the briefing still shows live.
+  // 9. Cache write failure is best-effort — the briefing still shows live.
   {
     const store = new MemStore();
     store.set = () => {
       throw new Error('disk full');
     };
-    const fresh = makeBriefing(28, 3, TODAY);
     const updates = await runRefresh({
       store,
-      fetch: async () => fresh,
+      phrase: async (req) => {
+        const phrased: PhrasedSlots = {};
+        for (const s of req.slots) phrased[s.slotId] = { preview: s.preview, body: s.body };
+        return { phrased, reviewDate: TODAY };
+      },
     });
     check('policy: cache write failure still live', updates.map((u) => u[0]), ['generating', 'live']);
   }

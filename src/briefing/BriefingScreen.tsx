@@ -1,22 +1,23 @@
 /**
- * Briefing screen — the Home tab.
+ * Briefing screen — the Home tab (v1.1: rules engine).
  *
- * Renders the week-aware morning briefing as compact expandable rows:
- * the 4 routine cards first (Baby's development → Your body this week →
- * Good to know → Tips), then a quiet "A little wonder" divider, then the
- * 3 delight cards ("Did you know?" + "How big is Mira?" + one rotating
- * card). Tapping a row expands its full text in place; accordion — only
- * one row open at a time.
+ * Renders the engine's ordered plan (`briefing.slots`) as compact
+ * expandable rows: timely cards, the 4 routine cards (baby → body →
+ * know → tips), the "New this week" heads-up, a quiet "A little wonder"
+ * divider, the 3 delight cards, and the quiet-day look-back teaser.
+ * Tapping a row expands its full text in place; accordion — only one row
+ * open at a time.
  *
  * Cards only — no composer, no mic, no input of any kind; nothing tappable
  * except the rows themselves and the tab bar.
  *
  * Consumes `useBriefing()` (owned by the refresh-logic agent) for the real
  * data; the tab agent's new app/(tabs)/index.tsx renders this component.
- * Delight content comes from ./delight (on-device curated banks).
+ * Slot order, selection, and curation all live in ./engine.ts + ./matrix.ts
+ * — this screen only renders.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -33,29 +34,8 @@ import { colors, fontDisplay, radii, shadow, spacing, type as typeScale } from '
 import { useOnboarding } from '../onboarding/useOnboarding';
 import { useBriefing } from './useBriefing';
 import { useBriefingTestOverride } from './testSeam';
-import { defaultStore, type KvStore } from './cache';
-import { todayISO } from '../onboarding/dates';
-import {
-  buildDelightCards,
-  type DelightBody,
-  type DelightCard,
-} from './delight';
-import type { Briefing, BriefingCard } from './types';
-
-/** Card order is fixed (Anuraj's choice): baby → body → know → tips. */
-const CARD_ORDER = ['baby', 'body', 'know', 'tips'] as const;
-
-/** Lilac tint for the "Good to know" tile — matches the 09-home mockup. */
-const LILAC_TINT = '#EFEAF7';
-/** Darker gold for the glyph on the gold tile (readable on tint). */
-const GOLD_DEEP = '#96771B';
-
-const TILE_BY_CARD: Record<BriefingCard['id'], { tint: string; glyph: string; glyphColor: string }> = {
-  baby: { tint: colors.goldTint, glyph: '❀', glyphColor: GOLD_DEEP },
-  body: { tint: colors.blush, glyph: '♥', glyphColor: colors.coralDeep },
-  know: { tint: LILAC_TINT, glyph: '✎', glyphColor: colors.lilac },
-  tips: { tint: colors.sageTint, glyph: '☀', glyphColor: colors.sageDeep },
-};
+import type { DelightBody } from './delight';
+import type { Briefing, PlanSlot } from './types';
 
 function localDateString(d: Date): string {
   const y = d.getFullYear();
@@ -74,13 +54,7 @@ function monthYear(dateStr: string): string {
   return month ? `${month} ${m[1]}` : dateStr;
 }
 
-function orderedCards(cards: BriefingCard[]): BriefingCard[] {
-  return [...cards].sort(
-    (a, b) => CARD_ORDER.indexOf(a.id) - CARD_ORDER.indexOf(b.id),
-  );
-}
-
-/** One compact row on screen: routine and delight cards share this shape. */
+/** One compact row on screen: every engine slot renders through this shape. */
 interface RowCard {
   id: string;
   title: string;
@@ -111,41 +85,17 @@ function DelightBodyText({ body }: { body: DelightBody }) {
   );
 }
 
-function routineRow(card: BriefingCard): RowCard {
-  const tile = TILE_BY_CARD[card.id];
+/** An engine plan slot → one compact row. Slots arrive ordered; the screen never reorders. */
+function slotRow(slot: PlanSlot): RowCard {
   return {
-    id: `briefing-${card.id}`,
-    title: card.title,
-    preview: card.subtitle,
-    body: (
-      <>
-        {card.body.map((para, i) => (
-          <Text
-            key={i}
-            style={[styles.btxt, i === card.body.length - 1 && styles.btxtLast]}
-          >
-            {para}
-          </Text>
-        ))}
-      </>
-    ),
-    tint: tile.tint,
-    glyph: tile.glyph,
-    glyphColor: tile.glyphColor,
-    testID: `briefing-card-${card.id}`,
-  };
-}
-
-function delightRow(card: DelightCard): RowCard {
-  return {
-    id: card.id,
-    title: card.title,
-    preview: card.preview,
-    body: <DelightBodyText body={card.body} />,
-    tint: card.tint,
-    glyph: card.glyph,
-    glyphColor: card.glyphColor,
-    testID: card.id,
+    id: slot.slotId,
+    title: slot.title,
+    preview: slot.preview,
+    body: <DelightBodyText body={slot.body} />,
+    tint: slot.tint,
+    glyph: slot.glyph,
+    glyphColor: slot.glyphColor,
+    testID: slot.testID,
   };
 }
 
@@ -234,7 +184,7 @@ function OfflineBanner() {
 function Disclaimer({ reviewDate }: { reviewDate: string }) {
   return (
     <Text testID="briefing-disclaimer" style={styles.disclaimer}>
-      {`Not medical advice · Reviewed ${monthYear(reviewDate)}`}
+      {`Not medical advice · Content updated ${monthYear(reviewDate)}`}
     </Text>
   );
 }
@@ -303,35 +253,19 @@ export function BriefingScreen() {
   const hasDueDate = !!pregnancy?.dueDate || !!override;
 
   const [openId, setOpenId] = useState<string | null>(null);
-  const [delight, setDelight] = useState<DelightCard[] | null>(null);
-  const storeRef = useRef<KvStore | null>(null);
 
-  // Delight cards derive from the briefing's week; rebuilt when the day or
-  // week changes. Rotation state persists on-device via the kv store.
-  useEffect(() => {
-    if (!effBriefing) {
-      setDelight(null);
-      return;
-    }
-    if (storeRef.current === null) {
-      try {
-        storeRef.current = defaultStore();
-      } catch {
-        storeRef.current = null;
-      }
-    }
-    setDelight(
-      buildDelightCards(effBriefing.week, storeRef.current, todayISO()),
-    );
-    setOpenId(null);
-  }, [effBriefing?.generatedForDate, effBriefing?.week]);
-
+  // Slots arrive fully ordered from the engine (via useBriefing/policy);
+  // the screen renders them as-is, inserting the "A little wonder"
+  // divider before the first delight slot.
   const rows: RowCard[] = useMemo(() => {
     if (!effBriefing) return [];
-    const routine = orderedCards(effBriefing.cards).map(routineRow);
-    const wonder = (delight ?? []).map(delightRow);
-    return [...routine, ...wonder];
-  }, [effBriefing, delight]);
+    return effBriefing.slots.map(slotRow);
+  }, [effBriefing]);
+
+  const firstDelightIdx = useMemo(() => {
+    if (!effBriefing) return -1;
+    return effBriefing.slots.findIndex((s) => s.section === 'delight');
+  }, [effBriefing]);
 
   const toggle = (id: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -360,7 +294,6 @@ export function BriefingScreen() {
         </Screen>
       );
     }
-    const routineCount = orderedCards(effBriefing.cards).length;
     return (
       <Screen testID="briefing-root">
         <Header briefing={effBriefing} />
@@ -369,27 +302,16 @@ export function BriefingScreen() {
           <GeneratingView />
         ) : (
           <>
-            {rows.slice(0, routineCount).map((card) => (
-              <ExpandableRow
-                key={card.id}
-                card={card}
-                open={openId === card.id}
-                onToggle={() => toggle(card.id)}
-              />
+            {rows.map((card, i) => (
+              <Fragment key={card.id}>
+                {i === firstDelightIdx && <WonderDivider />}
+                <ExpandableRow
+                  card={card}
+                  open={openId === card.id}
+                  onToggle={() => toggle(card.id)}
+                />
+              </Fragment>
             ))}
-            {delight && delight.length > 0 && (
-              <>
-                <WonderDivider />
-                {rows.slice(routineCount).map((card) => (
-                  <ExpandableRow
-                    key={card.id}
-                    card={card}
-                    open={openId === card.id}
-                    onToggle={() => toggle(card.id)}
-                  />
-                ))}
-              </>
-            )}
             <Disclaimer reviewDate={effBriefing.reviewDate} />
           </>
         )}

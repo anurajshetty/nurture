@@ -205,8 +205,7 @@ export function buildBriefingContext(): BriefingContext | null {
 }
 
 /** Reads the stored age band, or null when unset/invalid. Never throws. */
-export function getAgeBand(): AgeBandValue | null {
-  try {
+export function getAgeBand(): AgeBandValue | null {  try {
     const v = lazyDb().kvGet(AGE_BAND_KV_KEY) as string | null;
     return isAgeBand(v) ? v : null;
   } catch {
@@ -222,4 +221,42 @@ export function setAgeBand(band: AgeBandValue | null): void {
   const db = lazyDb();
   if (band === null) db.kvDelete(AGE_BAND_KV_KEY);
   else db.kvSet(AGE_BAND_KV_KEY, band);
+}
+
+/** One journal entry for the look-back teaser: id, text, local date. */
+export interface NoteLogEntry {
+  id: string;
+  text: string;
+  /** Local date, YYYY-MM-DD. */
+  date: string;
+}
+
+/**
+ * Zero-arg on-device reader: note-type events from the last 120 days with
+ * their text. The engine quotes one entry verbatim in the quiet-day
+ * look-back teaser; nothing here ever leaves the device. Never throws.
+ */
+export function getRecentNoteLogs(): NoteLogEntry[] {
+  try {
+    const store = lazyStore();
+    const today = todayISO();
+    const start = addDaysISO(today, -120);
+    if (!start) return [];
+    const events = store.listEventsInRange(start, today, 50) as LocalEvent[];
+    const out: NoteLogEntry[] = [];
+    for (const e of events) {
+      if (e.type !== 'note' || e.deletedAt) continue;
+      const data = e.data as Record<string, unknown> | undefined;
+      const raw = data?.text ?? data?.note;
+      if (typeof raw !== 'string' || raw.trim().length === 0) continue;
+      const date =
+        typeof e.occurredAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(e.occurredAt)
+          ? e.occurredAt.slice(0, 10)
+          : today;
+      out.push({ id: e.id, text: raw, date });
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }

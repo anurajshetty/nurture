@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Interactive browser test: Home briefing screen (enriched Home with delight).
+Interactive browser test: Home briefing screen (v1.1 with matrix-driven slots).
 
 Drives the REAL Nurture web UI in real Chromium against a Metro dev
 server (proxied as https://nurture.test so the sandbox's localhost block
@@ -17,11 +17,15 @@ forced through that seam — the test NEVER hits a real API (requests to
 Run:  python3 tests/interactive/home_briefing_test.py [--keep-open]
 
 Flows:
-  1. live      -> 4 routine rows in order (baby, body, know, tips), the
-                   "A little wonder" divider, then 3 delight rows
-                   (fact + size + one rotating); all start collapsed;
-                   tap-to-expand in place; accordion (one open at a time);
-                   tap the open row to collapse
+  1. live      -> v1.1 slot order: timely prep, 4 routine rows
+                   (baby, body, know, tips), "New this week" headsup,
+                   the "A little wonder" divider, 3 delight rows
+                   (fact + size + one rotating), then the look-back;
+                   all start collapsed; tap-to-expand in place;
+                   accordion (one open at a time); tap the open row
+                   to collapse
+  1f. conditional -> headsup renders on day 1, absent on day 3;
+                   divider still precedes delight without headsup
   2. generating-> warm spinner message + skeleton shimmer, no rows
   3. offline   -> cached rows + the gentle offline banner ("Updated yesterday")
   4. empty     -> warm empty state with retry button
@@ -58,50 +62,113 @@ ROTATING_TITLES = [
 ]
 
 
-def make_briefing(generated_for):
+def make_slot(slot_id, section, title, preview, body, tint, glyph, glyph_color, test_id):
+    """body is already a RichBody: list of paragraphs, each a list of runs."""
     return {
-        "week": 28,
-        "day": 3,
+        "slotId": slot_id,
+        "section": section,
+        "title": title,
+        "preview": preview,
+        "body": body,
+        "phrase": section in ("timely", "routine", "headsup"),
+        "tint": tint,
+        "glyph": glyph,
+        "glyphColor": glyph_color,
+        "testID": test_id,
+    }
+
+
+def para(line):
+    return [[{"text": line}]]
+
+
+def make_briefing(generated_for, day=1, include_headsup=True, include_lookback=True):
+    """v1.1 slots: timely → routine ×4 → headsup → delight ×3 → lookback."""
+    slots = [
+        make_slot(
+            "timely-prep-hospital-bag", "timely", "Pack the hospital bag",
+            "A gentle nudge, not a deadline",
+            para("PREP_MARKER_1: Many pack the hospital bag around week 36.")
+            + para("PREP_MARKER_2: Charger, going-home outfit, and snacks cover the basics."),
+            "#EFEAF7", "◈", "#7E57C2", "timely-prep-hospital-bag",
+        ),
+        make_slot(
+            "routine-baby", "routine", "Baby's development",
+            "About the size of an eggplant",
+            para("BABY_MARKER_1: Roughly 15 inches long and just over 2 pounds now.")
+            + para("BABY_MARKER_2: Sleep is settling into cycles of its own."),
+            "#FAF3DF", "❀", "#96771B", "briefing-card-baby",
+        ),
+        make_slot(
+            "routine-body", "routine", "How you're doing",
+            "The third trimester begins",
+            para("BODY_MARKER_1: Many notice backaches and restless sleep.")
+            + para("BODY_MARKER_2: Feeling breathless on the stairs is common too."),
+            "#FBE9E7", "♥", "#C0392B", "briefing-card-body",
+        ),
+        make_slot(
+            "routine-know", "routine", "Good to know",
+            "Commonly due around now",
+            para("KNOW_MARKER_1: The glucose screening test usually happens between weeks 24 and 28.")
+            + para("KNOW_MARKER_2: Many providers start talking about kick counting around now."),
+            "#EFEAF7", "✎", "#7E57C2", "briefing-card-know",
+        ),
+        make_slot(
+            "routine-tips", "routine", "Small comforts",
+            "Small, practical, warm",
+            para("TIPS_MARKER_1: A pillow between the knees makes side-sleeping more comfortable.")
+            + para("TIPS_MARKER_2: Keep water within reach; thirst tends to ramp up now."),
+            "#E8F5E9", "☀", "#2E7D32", "briefing-card-tips",
+        ),
+    ]
+    if include_headsup:
+        slots.append(
+            make_slot(
+                "headsup-new-this-week", "headsup", "New this week",
+                "A peek at what's next",
+                para("HEADSUP_MARKER_1: Next week brings the early-term window.")
+                + para("HEADSUP_MARKER_2: Nothing to do — just a heads-up."),
+                "#E3F2FD", "✦", "#4E7FA3", "headsup-new-this-week",
+            )
+        )
+    slots.extend([
+        make_slot(
+            "delight-card-fact", "delight", "Did you know?",
+            "Sleep is settling into cycles…",
+            [[{"text": "Sleep is settling into cycles — "},
+              {"text": "those active and quiet stretches are starting to have a rhythm.", "bold": True}]],
+            "#FAF3DF", "✦", "#96771B", "delight-card-fact",
+        ),
+        make_slot(
+            "delight-card-size", "delight", "How big is Mira?",
+            "a regulation bowling pin — about 14.8 inches, about 2.2 lb…",
+            [[{"text": "About the size of a regulation bowling pin — "},
+              {"text": "about 14.8 inches, about 2.2 lb.", "bold": True}]],
+            "#E3F2FD", "◉", "#4E7FA3", "delight-card-size",
+        ),
+        make_slot(
+            "delight-card-rotating", "delight", "For the partner",
+            "A preview of the rotating card…",
+            para("Rotating card body."),
+            "#FBE9E7", "♥", "#C0392B", "delight-card-rotating",
+        ),
+    ])
+    if include_lookback:
+        slots.append(
+            make_slot(
+                "lookback-a", "lookback", "A little look back",
+                "From your journal",
+                para("LOOKBACK_MARKER_1: You wrote: “Felt the first real kick during lunch.”"),
+                "#FAF3DF", "❧", "#96771B", "lookback-a",
+            )
+        )
+    return {
+        "week": 36,
+        "day": day,
         "generatedForDate": generated_for,
-        "reviewDate": "2026-08-15",
-        "cards": [
-            {
-                "id": "baby",
-                "title": "Baby's development",
-                "subtitle": "About the size of an eggplant",
-                "body": [
-                    "BABY_MARKER_1: Roughly 15 inches long and just over 2 pounds now.",
-                    "BABY_MARKER_2: Sleep is settling into cycles of its own.",
-                ],
-            },
-            {
-                "id": "body",
-                "title": "Your body this week",
-                "subtitle": "The third trimester begins",
-                "body": [
-                    "BODY_MARKER_1: Many notice backaches and restless sleep.",
-                    "BODY_MARKER_2: Feeling breathless on the stairs is common too.",
-                ],
-            },
-            {
-                "id": "know",
-                "title": "Good to know",
-                "subtitle": "Commonly due around now",
-                "body": [
-                    "KNOW_MARKER_1: The glucose screening test usually happens between weeks 24 and 28.",
-                    "KNOW_MARKER_2: Many providers start talking about kick counting around now.",
-                ],
-            },
-            {
-                "id": "tips",
-                "title": "Tips",
-                "subtitle": "Small, practical, warm",
-                "body": [
-                    "TIPS_MARKER_1: A pillow between the knees makes side-sleeping more comfortable.",
-                    "TIPS_MARKER_2: Keep water within reach; thirst tends to ramp up now.",
-                ],
-            },
-        ],
+        "reviewDate": "2026-09-19",
+        "planHash": "testhash1",
+        "slots": slots,
     }
 
 
@@ -227,16 +294,20 @@ def main():
                 # Delight cards build in an effect after the briefing lands.
                 page.get_by_test_id("delight-card-fact").wait_for(timeout=15000)
 
-            # ---- Flow 1: live — routine rows, divider, delight rows ----
+            # ---- Flow 1: live — v1.1 order: timely, routine ×4, headsup,
+            # divider, delight ×3, lookback ----
             wait_live()
             for tid, title in [
+                ("timely-prep-hospital-bag", "Pack the hospital bag"),
                 ("briefing-card-baby", "Baby's development"),
-                ("briefing-card-body", "Your body this week"),
+                ("briefing-card-body", "How you're doing"),
                 ("briefing-card-know", "Good to know"),
-                ("briefing-card-tips", "Tips"),
+                ("briefing-card-tips", "Small comforts"),
+                ("headsup-new-this-week", "New this week"),
                 ("delight-card-fact", "Did you know?"),
                 ("delight-card-size", "How big is Mira?"),
                 ("delight-card-rotating", None),
+                ("lookback-a", "A little look back"),
             ]:
                 row = page.get_by_test_id(tid)
                 check(f"flow1: {tid} renders", row.count() > 0)
@@ -248,16 +319,20 @@ def main():
             check("flow1: rotating card is one of the 5 kinds",
                   any(t in rot_text for t in ROTATING_TITLES), f"text={rot_text[:60]!r}")
 
-            # Week-28 size card is deterministic (fixed per-week mapping).
+            # The seeded size card content is deterministic in the fixture.
             size_text = page.get_by_test_id("delight-card-size").inner_text()
-            check("flow1: week-28 size card mentions the bowling pin",
+            check("flow1: size card mentions the bowling pin",
                   "bowling pin" in size_text, f"size={size_text[:90]!r}")
 
-            # DOM order: 4 routine rows -> divider -> 3 delight rows.
+            # DOM order: timely -> 4 routine rows -> headsup -> divider ->
+            # 3 delight rows -> lookback.
             order_ok = page.evaluate("""() => {
-              const ids = ['briefing-card-baby','briefing-card-body','briefing-card-know',
-                           'briefing-card-tips','briefing-wonder-divider',
-                           'delight-card-fact','delight-card-size','delight-card-rotating'];
+              const ids = ['timely-prep-hospital-bag',
+                           'briefing-card-baby','briefing-card-body','briefing-card-know',
+                           'briefing-card-tips','headsup-new-this-week',
+                           'briefing-wonder-divider',
+                           'delight-card-fact','delight-card-size','delight-card-rotating',
+                           'lookback-a'];
               const els = ids.map(id => document.querySelector(`[data-testid="${id}"]`));
               if (els.some(e => !e)) return 'missing: ' + ids[els.findIndex(e => !e)];
               for (let i = 1; i < els.length; i++) {
@@ -266,7 +341,8 @@ def main():
               }
               return 'ok';
             }""")
-            check("flow1: routine rows, divider, then delight rows in order", order_ok == "ok", order_ok)
+            check("flow1: v1.1 slot order (timely, routine, headsup, divider, delight, lookback)",
+                  order_ok == "ok", order_ok)
             divider_text = page.get_by_test_id("briefing-wonder-divider").inner_text()
             check("flow1: divider reads 'A little wonder'",
                   "a little wonder" in divider_text.lower(),
@@ -274,14 +350,16 @@ def main():
 
             header = page.get_by_test_id("briefing-header").inner_text()
             check("flow1: header eyebrow shows week/day/weeks-to-go",
-                  "WEEK 28" in header and "DAY 3" in header and "12 WEEKS TO GO" in header,
+                  "WEEK 36" in header and "DAY 1" in header and "4 WEEKS TO GO" in header,
                   f"header={header[:80]!r}")
             check("flow1: header title present", "What's happening this week" in header)
             updated = page.get_by_test_id("briefing-updated").inner_text()
             check("flow1: subtitle says Updated today", "Updated today" in updated, f"updated={updated!r}")
             disclaimer = page.get_by_test_id("briefing-disclaimer").inner_text()
-            check("flow1: disclaimer footer present",
-                  "Not medical advice" in disclaimer and "Reviewed Aug 2026" in disclaimer,
+            check("flow1: disclaimer footer present, no clinical-review claim",
+                  "Not medical advice" in disclaimer
+                  and "Content updated Sep 2026" in disclaimer
+                  and "Reviewed" not in disclaimer,
                   f"disclaimer={disclaimer!r}")
 
             # ---- Flow 1b: rows start collapsed; tap to expand in place ----
@@ -301,7 +379,7 @@ def main():
 
             # ---- Flow 1c: accordion — opening another closes the first ----
             body_row = page.get_by_test_id("briefing-card-body")
-            body_row.get_by_text("Your body this week", exact=True).click()
+            body_row.get_by_text("How you're doing", exact=True).click()
             try:
                 page.wait_for_function(
                     "() => document.querySelector('[data-testid=\"briefing-card-body\"]')"
@@ -326,7 +404,7 @@ def main():
                   }""") == 1)
 
             # ---- Flow 1d: tapping the open row collapses it ----
-            body_row.get_by_text("Your body this week", exact=True).click()
+            body_row.get_by_text("How you're doing", exact=True).click()
             try:
                 page.wait_for_function(
                     "() => !document.querySelector('[data-testid=\"briefing-card-body\"]')"
@@ -351,6 +429,30 @@ def main():
             except Exception:
                 fact_open = False
             check("flow1e: tapping the fact row expands it", fact_open)
+
+            # ---- Flow 1f: headsup + lookback are conditional ----
+            # Day 1: "New this week" appears below the routine cards.
+            force("live", make_briefing(TODAY, day=1, include_headsup=True, include_lookback=False))
+            page.get_by_test_id("headsup-new-this-week").wait_for(timeout=15000)
+            check("flow1f: headsup renders on day 1",
+                  page.get_by_test_id("headsup-new-this-week").count() > 0)
+            # Day 3: no headsup, no lookback in this fixture.
+            force("live", make_briefing(TODAY, day=3, include_headsup=False, include_lookback=False))
+            page.get_by_test_id("briefing-card-tips").wait_for(timeout=15000)
+            check("flow1f: headsup absent on day 3",
+                  page.get_by_test_id("headsup-new-this-week").count() == 0)
+            check("flow1f: lookback absent when not seeded",
+                  page.get_by_test_id("lookback-a").count() == 0)
+            # The divider still sits right before the first delight card.
+            order_no_headsup = page.evaluate("""() => {
+              const wonder = document.querySelector('[data-testid="briefing-wonder-divider"]');
+              const fact = document.querySelector('[data-testid="delight-card-fact"]');
+              if (!wonder || !fact) return 'missing';
+              return (wonder.compareDocumentPosition(fact) & Node.DOCUMENT_POSITION_FOLLOWING)
+                ? 'ok' : 'divider not before delight';
+            }""")
+            check("flow1f: divider still precedes delight without headsup",
+                  order_no_headsup == "ok", order_no_headsup)
 
             # ---- Flow 2: generating — spinner + skeletons, no rows ----
             force("generating", None)

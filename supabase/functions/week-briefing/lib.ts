@@ -1,13 +1,27 @@
 /**
- * week-briefing — shared edge-function logic.
+ * week-briefing — shared edge-function logic (v1.1: LLM-as-phraser).
+ *
+ * The app now curates the facts on-device (the 40-week matrix in
+ * src/briefing/matrix.ts) and the rules engine (src/briefing/engine.ts)
+ * chooses the slots and their order. This function's only job is to PHRASE
+ * the curated slots warmly. It never invents facts.
+ *
+ * - The request carries the anonymized context + the engine's plan
+ *   (slot ids with their verbatim curated preview/body) + freshAngles.
+ * - The model may reword the preview (≤80 chars) and body lines
+ *   (same count, ≤220 chars each) of each slot. It must never add claims,
+ *   numbers, or medical interpretation beyond the supplied text.
+ * - Validation rejects structural problems; length overruns are clamped.
+ * - When the provider fails, the app renders the curated copy directly —
+ *   the function is a polish layer, never a dependency.
  *
  * Deno-free on purpose: this module touches no Deno globals, so it can be
  * unit-tested under node with a stubbed fetch. `index.ts` is the thin Deno
  * wrapper (env, CORS, HTTP status mapping).
  *
  * PRIVACY CONTRACT (the whole point of this function):
- * - The request schema accepts ONLY anonymized context: week, day,
- *   firstTimeMom, ageBand, symptomThemes. Anything else is rejected.
+ * - The request schema accepts ONLY anonymized context plus the engine's
+ *   curated plan text. Anything else is rejected.
  * - Nothing in the request body is ever logged — not even in error paths.
  * - The Gemini API key lives only in the `GEMINI_API_KEY` env secret; it is
  *   never returned to the caller and never logged.
@@ -31,32 +45,47 @@ export const AGE_BANDS: readonly AgeBand[] = [
 ];
 
 /**
- * The entire anonymized context the app may send. Note what is absent:
- * no due date, no names, no emails, no DOB, no free-text notes, no media.
+ * One slot for the phraser: the engine's curated, human-reviewed text.
+ * The model rewords `preview` and `body` — never the slotId.
  */
-export interface BriefingRequest {
+export interface PhraseSlotInput {
+  /** Stable engine slot id, e.g. 'routine-baby', 'timely-prep-hospital-bag'. */
+  slotId: string;
+  /** Curated one-line preview (≤80 chars). */
+  preview: string;
+  /** Curated body lines (1–5, each ≤220 chars). */
+  body: string[];
+}
+
+/**
+ * The entire phraser request. Note what is absent: no due date, no names,
+ * no emails, no DOB, no free-text journal content, no media.
+ */
+export interface PhraseRequest {
   /** Gestational week, 1-indexed: 4..42. */
   week: number;
   /** Day of the gestational week, 1-indexed: 1..7. */
   day: number;
   firstTimeMom: boolean;
   ageBand?: AgeBand;
-  /** Distinct canonical symptom labels from the last 14 days, max 5. */
+  /** Distinct canonical symptom labels from the last 14 days, max 5. Context only. */
   symptomThemes: string[];
+  /** Engine plan hash — lets the app cache by plan. */
+  planHash: string;
+  /** 2–3 one-line angles from the matrix the model may riff on. */
+  freshAngles: string[];
+  /** Only the slots the engine flagged phrase: true, in render order. */
+  slots: PhraseSlotInput[];
 }
 
-export type CardId = 'baby' | 'body' | 'know' | 'tips';
-export const CARD_ORDER: readonly CardId[] = ['baby', 'body', 'know', 'tips'];
-
-export interface BriefingCard {
-  id: CardId;
-  title: string;
-  subtitle: string;
+export interface PhraseSlotOutput {
+  slotId: string;
+  preview: string;
   body: string[];
 }
 
-export interface Briefing {
-  cards: BriefingCard[];
+export interface PhraseResponse {
+  slots: PhraseSlotOutput[];
   /** Set by the function from its own clock — never trusted from the model. */
   reviewDate: string;
 }
@@ -68,100 +97,152 @@ export type RequestProblem = 'invalid_json' | 'invalid_request';
 /* body is never logged anywhere.                                      */
 /* ------------------------------------------------------------------ */
 
-const ALLOWED_KEYS = new Set(['week', 'day', 'firstTimeMom', 'ageBand', 'symptomThemes']);
+const ALLOWED_KEYS = new Set([
+  'week',
+  'day',
+  'firstTimeMom',
+  'ageBand',
+  'symptomThemes',
+  'planHash',
+  'freshAngles',
+  'slots',
+]);
+const ALLOWED_SLOT_KEYS = new Set(['slotId', 'preview', 'body']);
+
+const MAX_SLOTS = 12;
+const MAX_PREVIEW_CHARS = 80;
+const MAX_BODY_LINES = 5;
+const MAX_BODY_LINE_CHARS = 220;
+const MAX_FRESH_ANGLES = 3;
 
 function isIntInRange(v: unknown, min: number, max: number): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function checkSlot(s: unknown): PhraseSlotInput | null {
+  if (!isRecord(s)) return null;
+  for (const key of Object.keys(s)) {
+    if (!ALLOWED_SLOT_KEYS.has(key)) return null;
+  }
+  if (typeof s.slotId !== 'string' || s.slotId.length === 0 || s.slotId.length > 80) return null;
+  if (typeof s.preview !== 'string' || s.preview.length === 0 || s.preview.length > MAX_PREVIEW_CHARS) return null;
+  if (!Array.isArray(s.body) || s.body.length < 1 || s.body.length > MAX_BODY_LINES) return null;
+  const body: string[] = [];
+  for (const line of s.body) {
+    if (typeof line !== 'string' || line.length === 0 || line.length > MAX_BODY_LINE_CHARS) return null;
+    body.push(line);
+  }
+  return { slotId: s.slotId, preview: s.preview, body };
+}
+
 export function validateRequest(
   body: unknown,
-): { ok: true; value: BriefingRequest } | { ok: false; problem: RequestProblem } {
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+): { ok: true; value: PhraseRequest } | { ok: false; problem: RequestProblem } {
+  if (!isRecord(body)) {
     return { ok: false, problem: 'invalid_request' };
   }
-  const b = body as Record<string, unknown>;
-  for (const key of Object.keys(b)) {
+  for (const key of Object.keys(body)) {
     if (!ALLOWED_KEYS.has(key)) return { ok: false, problem: 'invalid_request' };
   }
-  if (!isIntInRange(b.week, 4, 42)) return { ok: false, problem: 'invalid_request' };
-  if (!isIntInRange(b.day, 1, 7)) return { ok: false, problem: 'invalid_request' };
-  if (typeof b.firstTimeMom !== 'boolean') return { ok: false, problem: 'invalid_request' };
+  if (!isIntInRange(body.week, 4, 42)) return { ok: false, problem: 'invalid_request' };
+  if (!isIntInRange(body.day, 1, 7)) return { ok: false, problem: 'invalid_request' };
+  if (typeof body.firstTimeMom !== 'boolean') return { ok: false, problem: 'invalid_request' };
 
-  const value: BriefingRequest = {
-    week: b.week,
-    day: b.day,
-    firstTimeMom: b.firstTimeMom,
+  const value: PhraseRequest = {
+    week: body.week,
+    day: body.day,
+    firstTimeMom: body.firstTimeMom,
     symptomThemes: [],
+    planHash: '',
+    freshAngles: [],
+    slots: [],
   };
 
-  if (b.ageBand !== undefined) {
-    if (typeof b.ageBand !== 'string' || !(AGE_BANDS as readonly string[]).includes(b.ageBand)) {
+  if (body.ageBand !== undefined) {
+    if (typeof body.ageBand !== 'string' || !(AGE_BANDS as readonly string[]).includes(body.ageBand)) {
       return { ok: false, problem: 'invalid_request' };
     }
-    value.ageBand = b.ageBand as AgeBand;
+    value.ageBand = body.ageBand as AgeBand;
   }
 
-  if (!Array.isArray(b.symptomThemes) || b.symptomThemes.length > 5) {
+  if (!Array.isArray(body.symptomThemes) || body.symptomThemes.length > 5) {
     return { ok: false, problem: 'invalid_request' };
   }
-  for (const t of b.symptomThemes) {
+  for (const t of body.symptomThemes) {
     if (typeof t !== 'string' || t.trim().length === 0 || t.length > 40) {
       return { ok: false, problem: 'invalid_request' };
     }
     value.symptomThemes.push(t.trim());
   }
 
+  if (typeof body.planHash !== 'string' || body.planHash.length === 0 || body.planHash.length > 32) {
+    return { ok: false, problem: 'invalid_request' };
+  }
+  value.planHash = body.planHash;
+
+  if (!Array.isArray(body.freshAngles) || body.freshAngles.length > MAX_FRESH_ANGLES) {
+    return { ok: false, problem: 'invalid_request' };
+  }
+  for (const a of body.freshAngles) {
+    if (typeof a !== 'string' || a.length > 120) return { ok: false, problem: 'invalid_request' };
+    value.freshAngles.push(a);
+  }
+
+  if (!Array.isArray(body.slots) || body.slots.length === 0 || body.slots.length > MAX_SLOTS) {
+    return { ok: false, problem: 'invalid_request' };
+  }
+  const seen = new Set<string>();
+  for (const s of body.slots) {
+    const slot = checkSlot(s);
+    if (!slot) return { ok: false, problem: 'invalid_request' };
+    if (seen.has(slot.slotId)) return { ok: false, problem: 'invalid_request' };
+    seen.add(slot.slotId);
+    value.slots.push(slot);
+  }
+
   return { ok: true, value };
 }
 
 /* ------------------------------------------------------------------ */
-/* Prompt engineering.                                                 */
+/* Prompt engineering — the phraser contract.                           */
 /*                                                                     */
 /* The system instruction carries the product's safety rules; the user  */
-/* prompt carries ONLY the anonymized context. Neither ever contains   */
-/* identifiers — the BriefingRequest type has no field for them.        */
+/* prompt carries ONLY the anonymized context + the engine's curated    */
+/* slots. The model rewords; it never invents. Neither ever contains   */
+/* identifiers — the PhraseRequest type has no field for them.          */
 /* ------------------------------------------------------------------ */
 
 export function buildSystemInstruction(): string {
   return [
-    'You are the week-briefing writer for Nurture, a warm pregnancy journal app.',
-    'Write a one-week briefing as four short cards. Your reader is a pregnant woman.',
+    'You are the phraser for Nurture, a warm pregnancy journal app.',
+    'You receive curated, human-reviewed pregnancy facts as slots (slotId + preview + body lines).',
+    'Your ONLY job: reword each slot\'s preview and body in the app\'s voice — specific, not sugary; calm, not clinical.',
     '',
-    'TONE — match this exactly: specific, not sugary; calm, not clinical;',
-    'respectful, not presumptuous. Never force celebration. Never use fetal',
-    "nicknames (no 'peanut', 'little one', 'baby bean'). Never assume the baby's sex.",
-    '',
-    'HARD RULES — every card must obey all of these:',
-    "1. GENERAL INFORMATION ONLY. Describe what is typical in this week of pregnancy:",
-    "   'in week 28, many women notice…', 'usually…', 'often…', 'it is common for…'.",
-    '2. NEVER personalize. Do not interpret the reader\'s experience.',
+    'HARD RULES — every slot must obey all of these:',
+    '1. NEVER add claims, facts, numbers, names, or medical interpretation beyond the supplied text.',
+    '   Rephrase ONLY what is there. If a line is already warm, you may return it nearly unchanged.',
+    '2. GENERAL INFORMATION ONLY. Keep the "many people…", "usually…", "often…" posture of the source text.',
+    '3. NEVER personalize. Do not interpret the reader\'s experience.',
     "   Never write 'your back pain means…', 'your X means Y', or anything that",
     '   connects a symptom to her personally.',
-    '3. NO diagnosis, NO triage, NO medical-adjacent alerts or warnings.',
-    '   If a topic could be read as advice about what to do for a symptom,',
-    '   keep it neutral and general — or leave it out.',
-    '4. COMPACT CARDS: a few short lines each. Overflow rule — more to say',
-    '   about the mother than fits goes in the BODY card; more about the',
-    "   baby's development goes in the BABY card.",
-    '5. EXACTLY FOUR CARDS, in this order:',
-    '   baby — what is developing this week;',
-    '   body — what many women commonly feel this week;',
-    '   know — one useful piece of general knowledge;',
-    '   tips — gentle everyday ideas.',
-    '6. The "recently logged" themes are aggregate category labels from the last',
-    '   14 days. Use them ONLY to weight which general-info topics are most',
-    '   relevant this week (e.g. include backache among the common experiences).',
+    '4. NO diagnosis, NO triage, NO warnings, NO risk rates, NO scary statistics.',
+    '   No prescriptive "you should/shouldn\'t".',
+    '5. Keep the EXACT slotIds, in the EXACT order given. Keep the SAME number of body lines per slot.',
+    '6. Never use fetal nicknames (no \'peanut\', \'little one\', \'baby bean\'). Never assume the baby\'s sex.',
+    '7. The "recently logged" themes are aggregate category labels — context for tone only.',
     '   Never mention that she logged them. Never connect them to her.',
     '',
-    'FORMAT: title ≤ 40 chars, subtitle ≤ 60 chars, body 1–3 short lines,',
-    'each line ≤ 220 chars. Output JSON only — no markdown fences, no commentary.',
+    'FORMAT: preview ≤ 80 chars, body lines each ≤ 220 chars. Output JSON only — no markdown fences, no commentary.',
   ].join('\n');
 }
 
-export function buildUserPrompt(r: BriefingRequest): string {
+export function buildUserPrompt(r: PhraseRequest): string {
   const lines: string[] = [
-    `Write the week briefing for: pregnancy week ${r.week}, day ${r.day} of that week (day 1 = first day of week ${r.week}).`,
+    `Phrase these pregnancy-briefing slots for: pregnancy week ${r.week}, day ${r.day} of that week.`,
     r.firstTimeMom
       ? 'She is a first-time mother.'
       : 'This is not her first pregnancy.',
@@ -169,12 +250,21 @@ export function buildUserPrompt(r: BriefingRequest): string {
   if (r.ageBand) lines.push(`Her age band is ${r.ageBand}.`);
   if (r.symptomThemes.length > 0) {
     lines.push(
-      `Recently logged symptom themes (last 14 days, category labels only): ${r.symptomThemes.join(', ')}.`,
+      `Recently logged symptom themes (last 14 days, category labels only, for tone context): ${r.symptomThemes.join(', ')}.`,
     );
   } else {
     lines.push('No recent symptom themes logged.');
   }
-  lines.push('Output JSON only: exactly four cards in baby → body → know → tips order.');
+  if (r.freshAngles.length > 0) {
+    lines.push(
+      `Fresh angles you may riff on (only within the supplied facts): ${r.freshAngles.join(' · ')}.`,
+    );
+  }
+  lines.push(
+    'Reword each slot\'s preview and body warmly. Never add claims. Return the same slotIds in the same order:',
+    JSON.stringify({ slots: r.slots }),
+    'Output JSON only.',
+  );
   return lines.join('\n');
 }
 
@@ -192,32 +282,31 @@ export class ProviderError extends Error {
 const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
-    cards: {
+    slots: {
       type: 'array',
-      minItems: 4,
-      maxItems: 4,
+      minItems: 1,
+      maxItems: MAX_SLOTS,
       items: {
         type: 'object',
         properties: {
-          id: { type: 'string', enum: ['baby', 'body', 'know', 'tips'] },
-          title: { type: 'string' },
-          subtitle: { type: 'string' },
+          slotId: { type: 'string' },
+          preview: { type: 'string' },
           body: {
             type: 'array',
             minItems: 1,
-            maxItems: 3,
+            maxItems: MAX_BODY_LINES,
             items: { type: 'string' },
           },
         },
-        required: ['id', 'title', 'subtitle', 'body'],
+        required: ['slotId', 'preview', 'body'],
       },
     },
     reviewDate: { type: 'string' },
   },
-  required: ['cards', 'reviewDate'],
+  required: ['slots', 'reviewDate'],
 };
 
-function geminiPayload(r: BriefingRequest, extraInstruction?: string) {
+function geminiPayload(r: PhraseRequest, extraInstruction?: string) {
   const userText = extraInstruction
     ? `${buildUserPrompt(r)}\n\nCORRECTION — your previous output was invalid: ${extraInstruction}\nOutput valid JSON only.`
     : buildUserPrompt(r);
@@ -240,36 +329,41 @@ function clamp(s: string, max: number): string {
 }
 
 /**
- * Validates the model's parsed JSON against the card contract. Structural
- * problems → null; length overruns are clamped (the prompt asks for the
- * limits, this is the backstop). `reviewDate` is always the function's own
- * today — the model's value is ignored.
+ * Validates the model's parsed JSON against the phraser contract: the same
+ * slotIds in the same order as the request, each with a preview and the
+ * same number of body lines. Structural problems → null; length overruns
+ * are clamped (the prompt asks for the limits, this is the backstop).
+ * `reviewDate` is always the function's own today — the model's value is
+ * ignored.
  */
-export function validateBriefing(parsed: unknown, todayISO: string): Briefing | null {
-  if (typeof parsed !== 'object' || parsed === null) return null;
-  const cards = (parsed as Record<string, unknown>).cards;
-  if (!Array.isArray(cards) || cards.length !== 4) return null;
-  const out: BriefingCard[] = [];
-  for (let i = 0; i < 4; i++) {
-    const c = cards[i] as Record<string, unknown> | null;
-    if (typeof c !== 'object' || c === null) return null;
-    if (c.id !== CARD_ORDER[i]) return null; // exact order, exact ids
-    if (typeof c.title !== 'string' || c.title.trim().length === 0) return null;
-    if (typeof c.subtitle !== 'string' || c.subtitle.trim().length === 0) return null;
-    if (!Array.isArray(c.body) || c.body.length < 1 || c.body.length > 3) return null;
+export function validatePhrasing(
+  parsed: unknown,
+  request: PhraseRequest,
+  todayISO: string,
+): PhraseResponse | null {
+  if (!isRecord(parsed)) return null;
+  const slots = parsed.slots;
+  if (!Array.isArray(slots) || slots.length !== request.slots.length) return null;
+  const out: PhraseSlotOutput[] = [];
+  for (let i = 0; i < request.slots.length; i++) {
+    const expected = request.slots[i];
+    const s = slots[i] as Record<string, unknown> | null;
+    if (!isRecord(s)) return null;
+    if (s.slotId !== expected.slotId) return null; // exact order, exact ids
+    if (typeof s.preview !== 'string' || s.preview.trim().length === 0) return null;
+    if (!Array.isArray(s.body) || s.body.length !== expected.body.length) return null;
     const body: string[] = [];
-    for (const line of c.body) {
+    for (const line of s.body) {
       if (typeof line !== 'string' || line.trim().length === 0) return null;
-      body.push(clamp(line.trim(), 220));
+      body.push(clamp(line.trim(), MAX_BODY_LINE_CHARS));
     }
     out.push({
-      id: c.id as CardId,
-      title: clamp(c.title.trim(), 40),
-      subtitle: clamp(c.subtitle.trim(), 60),
+      slotId: expected.slotId,
+      preview: clamp(s.preview.trim(), MAX_PREVIEW_CHARS),
       body,
     });
   }
-  return { cards: out, reviewDate: todayISO };
+  return { slots: out, reviewDate: todayISO };
 }
 
 type FetchImpl = (input: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }) => Promise<{
@@ -279,12 +373,12 @@ type FetchImpl = (input: string, init: { method: string; headers: Record<string,
 }>;
 
 async function generateOnce(
-  r: BriefingRequest,
+  r: PhraseRequest,
   apiKey: string,
   fetchImpl: FetchImpl,
   todayISO: string,
   repairNote?: string,
-): Promise<Briefing> {
+): Promise<PhraseResponse> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
   let res;
@@ -321,24 +415,24 @@ async function generateOnce(
     if (e instanceof ProviderError) throw e;
     throw new ProviderError();
   }
-  const briefing = validateBriefing(json, todayISO);
-  if (!briefing) throw new ProviderError();
-  return briefing;
+  const phrasing = validatePhrasing(json, r, todayISO);
+  if (!phrasing) throw new ProviderError();
+  return phrasing;
 }
 
 /**
- * Calls Gemini and returns a validated briefing. One automatic retry with
+ * Calls Gemini and returns validated phrasing. One automatic retry with
  * a repair note when the first output fails validation; every other
  * failure mode (HTTP error, timeout, unparsable output) → ProviderError.
  * The caller maps ProviderError → HTTP 502 `{ error: 'provider_error' }`
  * and must never log the request body or provider internals.
  */
 export async function callGemini(
-  r: BriefingRequest,
+  r: PhraseRequest,
   apiKey: string,
   fetchImpl: FetchImpl,
   todayISO: string,
-): Promise<Briefing> {
+): Promise<PhraseResponse> {
   try {
     return await generateOnce(r, apiKey, fetchImpl, todayISO);
   } catch (e) {
@@ -350,6 +444,6 @@ export async function callGemini(
     apiKey,
     fetchImpl,
     todayISO,
-    'the JSON did not match the required schema (4 cards in baby→body→know→tips order, title ≤ 40 chars, subtitle ≤ 60 chars, 1–3 body lines of ≤ 220 chars each).',
+    `the JSON did not match the required schema (same ${r.slots.length} slotIds in the same order, preview ≤ ${MAX_PREVIEW_CHARS} chars, ${MAX_BODY_LINES} or fewer body lines of ≤ ${MAX_BODY_LINE_CHARS} chars each).`,
   );
 }

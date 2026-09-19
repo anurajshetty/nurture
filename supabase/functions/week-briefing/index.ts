@@ -1,7 +1,9 @@
 /**
- * week-briefing — Supabase Edge Function (Deno).
+ * week-briefing — Supabase Edge Function (Deno), v1.1: LLM-as-phraser.
  *
- * Generates the anonymous pregnancy-week briefing via the Gemini API.
+ * The app curates the facts on-device (the 40-week matrix) and the rules
+ * engine chooses the slots and their order. This function only PHRASES the
+ * curated slots warmly via the Gemini API — it never invents facts.
  * The key NEVER leaves this function: it is read from the `GEMINI_API_KEY`
  * env secret (Supabase dashboard → nurture project → Edge Functions → Secrets).
  *
@@ -66,8 +68,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const today = new Date().toISOString().slice(0, 10); // reviewDate = today (UTC)
   try {
-    const briefing = await callGemini(validated.value, apiKey, fetch, today);
-    return json(200, { ...briefing, footer: BRIEFING_FOOTER });
+    const phrasing = await callGemini(validated.value, apiKey, fetch, today);
+    return json(200, { ...phrasing, footer: BRIEFING_FOOTER });
   } catch (e) {
     if (e instanceof ProviderError) {
       // Privacy: no provider internals (status, body) are logged or returned.

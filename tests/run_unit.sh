@@ -1,0 +1,54 @@
+#!/bin/bash
+# Runs every tests/*.test.ts unit suite the way each file's header documents:
+# compile with tsc to /tmp and run the emitted JS under node. No framework.
+# Usage: bash tests/run_unit.sh
+cd "$(dirname "$0")/.." || exit 1
+pass=0; fail=0
+run() {
+  local name="$1"; shift
+  if "$@" > /tmp/nurture_unit_out.txt 2>&1; then
+    echo "PASS $name"; pass=$((pass+1))
+  else
+    echo "FAIL $name"; tail -5 /tmp/nurture_unit_out.txt; fail=$((fail+1))
+  fi
+}
+tsc1() { npx tsc --ignoreConfig "$@" --outDir "$OUT" --module commonjs --target es2022 --skipLibCheck --esModuleInterop; }
+
+OUT=/tmp/nurture-briefing-tests
+tsc1 tests/home_briefing.test.ts src/briefing/cache.ts src/briefing/policy.ts src/briefing/client.ts src/briefing/context.ts src/briefing/types.ts src/briefing/engine.ts src/briefing/matrix.ts src/briefing/delight.ts src/theme/tokens.ts src/lib/types.ts src/onboarding/dates.ts && run "home_briefing" node $OUT/tests/home_briefing.test.js
+
+OUT=/tmp/nurture-matrix-tests
+tsc1 tests/briefing_matrix.test.ts src/briefing/engine.ts src/briefing/matrix.ts src/briefing/delight.ts src/briefing/context.ts src/briefing/types.ts src/theme/tokens.ts src/lib/types.ts src/onboarding/dates.ts && run "briefing_matrix" node $OUT/tests/briefing_matrix.test.js
+
+OUT=/tmp/nurture-tests-brief
+tsc1 tests/briefing_context.test.ts src/briefing/context.ts src/onboarding/dates.ts src/lib/types.ts src/logging/symptoms.ts && run "briefing_context" env TZ=UTC node $OUT/tests/briefing_context.test.js
+
+OUT=/tmp/nurture-tests-wb
+tsc1 tests/week_briefing.test.ts supabase/functions/week-briefing/lib.ts && run "week_briefing" node $OUT/tests/week_briefing.test.js
+
+OUT=/tmp/nurture-tests3
+tsc1 tests/epic3_timeline.test.ts src/timeline/timeline.ts src/onboarding/dates.ts src/lib/types.ts && run "epic3_timeline" env TZ=UTC node $OUT/tests/epic3_timeline.test.js
+
+OUT=/tmp/nurture-tests-f
+npx tsc --ignoreConfig tests/epic3_filters.test.ts src/timeline/TimelineFilters.tsx --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "epic3_filters" env NODE_PATH="$PWD/node_modules" node $OUT/tests/epic3_filters.test.js
+
+OUT=/tmp/nurture-lookback-tests
+npx tsc --ignoreConfig tests/epic3_lookback.test.ts src/timeline/lookback.ts src/onboarding/dates.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "epic3_lookback" node $OUT/tests/epic3_lookback.test.js
+
+OUT=/tmp/nurture-tests
+tsc1 tests/epic2.test.ts src/composer/intent.ts src/composer/moodWindow.ts src/notifications/nudgeLogic.ts && run "epic2" node $OUT/tests/epic2.test.js
+
+OUT=/tmp/nurture-tests23
+tsc1 tests/epic2_3.test.ts src/composer/exif.ts src/sync/mediaShape.ts src/lib/types.ts && run "epic2_3" node $OUT/tests/epic2_3.test.js
+
+OUT=/tmp/nurture-tests24
+npx tsc --ignoreConfig tests/epic2_4.test.ts src/composer/voice.ts --outDir $OUT --module commonjs --target es2022 --lib es2022,dom --skipLibCheck --esModuleInterop && run "epic2_4" node $OUT/tests/epic2_4.test.js
+
+OUT=/tmp/nurture-tests44
+tsc1 tests/epic4_media.test.ts src/logging/bumpPhotos.ts src/lib/types.ts && run "epic4_media" node $OUT/tests/epic4_media.test.js
+
+OUT=/tmp/nurture-delight-tests
+tsc1 tests/delight.test.ts src/briefing/delight.ts src/theme/tokens.ts && run "delight" node $OUT/tests/delight.test.js
+
+echo "=== unit suites: $pass passed, $fail failed ==="
+[ "$fail" -eq 0 ]
