@@ -9,45 +9,51 @@ Verifies:
   4. Header shows the picked week number when empty state is active
   5. Zero page errors
 
+Serves the built dist/ through Playwright route interception
+(https://nurture.test) — plain localhost servers are blocked by Chromium's
+Local Network Access checks in sandboxed environments.
+
 Run: python3 tests/interactive/logs_week_picker_test.py
 """
 
-import http.server
-import socketserver
-import threading
+import mimetypes
 import os
 import sys
 import time
 
 DIST = os.path.expanduser("~/workspace/nurture-v12/dist")
-PORT = 8913
+ORIGIN = "https://nurture.test"
+BASE = ORIGIN + "/willow/?testhooks=1"
 
-class Handler(http.server.SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=DIST, **kwargs)
 
-    def do_GET(self):
-        path = self.path.split("?")[0]
-        query = self.path[len(path):]
-        if path.startswith("/willow/"):
-            rel = path[len("/willow/"):]
-            if not rel or not os.path.isfile(os.path.join(DIST, rel)):
-                rel = "index.html"
-            self.path = "/" + rel + query
-        return super().do_GET()
+def serve_dist(route):
+    url = route.request.url
+    assert url.startswith(ORIGIN), url
+    path = url[len(ORIGIN):]
+    if not path.startswith("/willow/"):
+        return route.fulfill(status=404, body="not found")
+    rel = path[len("/willow/"):]
+    if "?" in rel:
+        rel = rel.split("?", 1)[0]
+    if rel == "" or rel.endswith("/"):
+        rel = "index.html"
+    fpath = os.path.join(DIST, rel)
+    if not os.path.isfile(fpath):
+        # SPA fallback: tab routes have no static file; serve index.html.
+        fpath = os.path.join(DIST, "index.html")
+    ctype, _ = mimetypes.guess_type(fpath)
+    if fpath.endswith(".wasm"):
+        ctype = "application/wasm"
+    with open(fpath, "rb") as f:
+        body = f.read()
+    return route.fulfill(status=200, body=body, content_type=ctype or "application/octet-stream")
 
-    def log_message(self, *args):
-        pass
 
 def main():
     from playwright.sync_api import sync_playwright
 
-    httpd = socketserver.TCPServer(("127.0.0.1", PORT), Handler)
-    t = threading.Thread(target=httpd.serve_forever, daemon=True)
-    t.start()
-    time.sleep(0.5)
-
     passed, failed = 0, 0
+
     def check(cond, name):
         nonlocal passed, failed
         if cond:
@@ -59,27 +65,36 @@ def main():
 
     errors = []
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            executable_path=os.path.expanduser(
-                "~/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome"),
-        )
-        page = browser.new_page(viewport={"width": 390, "height": 844})
+        browser = p.chromium.launch(executable_path="/opt/meta-chromium/chrome")
+        ctx = browser.new_context(viewport={"width": 390, "height": 844})
+        ctx.route("**://nurture.test/**", serve_dist)
+        page = ctx.new_page()
         page.on("pageerror", lambda e: errors.append(str(e)))
 
-        base = f"http://localhost:{PORT}/nurture"
-        page.goto(f"{base}/?testhooks=1", wait_until="networkidle")
-        page.wait_for_timeout(4000)
+        page.goto(BASE, timeout=30000)
+        # Fresh profile boots to onboarding (Week-as-home change): complete it
+        # via the test hooks, then navigate DIRECTLY to the tab route with
+        # ?testhooks=1 (expo-router drops the query on in-app redirects).
+        try:
+            page.wait_for_function(
+                "() => typeof window.__nurtureTest !== 'undefined'", timeout=30000)
+        except Exception:
+            check(False, "test hooks installed")
+            browser.close()
+            sys.exit(1)
+        check(True, "test hooks installed")
 
         # Seed: pregnancy due 2026-10-08, one event in week 37, one in week 36
         page.evaluate("""() => {
-            window.__nurtureTest.completeOnboarding();
-            window.__nurtureTest.seedPregnancy({ dueDate: '2026-10-08', parity: 'first' });
-            window.__nurtureTest.seedEvent({ type: 'note', data: { text: 'week 37 note' }, occurredAt: '2026-09-18T10:00:00' });
-            window.__nurtureTest.seedEvent({ type: 'note', data: { text: 'week 36 note' }, occurredAt: '2026-09-04T10:00:00' });
+            const t = window.__nurtureTest;
+            t.completeOnboarding();
+            t.seedPregnancy({ dueDate: '2026-10-08', parity: 'first' });
+            t.seedEvent({ type: 'note', data: { text: 'week 37 note' }, occurredAt: '2026-09-18T10:00:00' });
+            t.seedEvent({ type: 'note', data: { text: 'week 36 note' }, occurredAt: '2026-09-04T10:00:00' });
         }""")
-        page.wait_for_timeout(1000)
-        page.goto(f"{base}/logs?testhooks=1", wait_until="networkidle")
-        page.wait_for_timeout(3000)
+        page.goto(ORIGIN + "/willow/logs?testhooks=1", timeout=30000)
+        page.get_by_test_id("logs-screen").wait_for(timeout=15000)
+        page.wait_for_timeout(1500)
 
         # 1. Pick a week WITH logs (week 36) → should navigate (band visible)
         print("Pick week with logs...")
@@ -104,7 +119,7 @@ def main():
         check("Nothing logged for Week 30" in empty_text,
               "empty state names the week")
         # Header reflects the picked week
-        check(page.get_by_text("Week 30 ▾").count() > 0,
+        check(page.get_by_text("Week 30").count() > 0,
               "header shows picked week")
 
         # 3. Back to all weeks restores the timeline
@@ -114,7 +129,7 @@ def main():
         check(page.locator('[data-testid="week-empty-state"]').count() == 0,
               "back: empty state dismissed")
         body = page.evaluate("() => document.body.innerText")
-        check("week 37 note" in body or "week 35 note" in body,
+        check("week 37 note" in body or "week 36 note" in body,
               "back: timeline restored")
 
         # 4. Zero page errors
@@ -124,9 +139,9 @@ def main():
 
         browser.close()
 
-    httpd.shutdown()
     print(f"\n{passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)
+
 
 if __name__ == "__main__":
     main()

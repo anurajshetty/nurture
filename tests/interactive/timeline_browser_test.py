@@ -27,7 +27,7 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-REPO = os.path.expanduser("~/workspace/app-ideas/pregnancy-tracker/nurture-app")
+REPO = os.path.expanduser("~/workspace/nurture-v12")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
 BASE = ORIGIN + "/willow/?testhooks=1"
@@ -39,8 +39,6 @@ SEED_JS = r"""
   if (!t) return "no-hooks";
   t.completeOnboarding();
   t.clearEvents();
-  // Pregnancy with a due date -> pregnancy-week bands + week-jump button.
-  t.seedPregnancy({ dueDate: "2026-10-08" });
   const now = Date.now();
   const iso = (daysAgo) => new Date(now - daysAgo * 86400000).toISOString();
   t.seedEvent({ type: "note", occurredAt: iso(0),
@@ -102,6 +100,22 @@ def main():
         page = ctx.new_page()
         page.on("pageerror", lambda e: print("PAGEERROR:", str(e)[:200]))
         page.goto(BASE, timeout=30000)
+
+        # Fresh profile boots to onboarding (Week-as-home change): complete it
+        # via the test hooks, then navigate DIRECTLY to the tab route with
+        # ?testhooks=1 (expo-router drops the query on in-app redirects, and
+        # reload() after tab navigation loses the hooks too).
+        try:
+            page.wait_for_function(
+                "() => window.__nurtureTest !== undefined", timeout=30000)
+        except Exception:
+            check("test hooks installed", False, "window.__nurtureTest never appeared")
+            browser.close()
+            sys.exit(1)
+        page.evaluate(
+            "() => { const t = window.__nurtureTest; t.completeOnboarding();"
+            " t.seedPregnancy({ dueDate: '2026-10-08', parity: 'first' }); }")
+        page.goto(ORIGIN + "/willow/week?testhooks=1", timeout=30000)
 
         home = page.get_by_test_id("week-screen")
         try:

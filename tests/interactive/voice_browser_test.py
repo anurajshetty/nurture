@@ -26,7 +26,7 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-REPO = os.path.expanduser("~/workspace/app-ideas/pregnancy-tracker/nurture-app")
+REPO = os.path.expanduser("~/workspace/nurture-v12")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
 BASE = ORIGIN + "/willow/"

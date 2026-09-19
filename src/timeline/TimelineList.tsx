@@ -105,10 +105,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    marginTop: spacing.xl,
-    marginBottom: spacing.md,
+    // Sticky section header: the cream background must cover the header's
+    // FULL footprint. Backgrounds don't cover margins, so the spacing around
+    // the text is padding (never margins) — otherwise cards scrolling
+    // underneath show through the transparent margin zones when the header
+    // sticks (Sept 2026 overlap bug). Totals match the old margin+padding.
+    paddingTop: spacing.xl + spacing.xs,
+    paddingBottom: spacing.md + spacing.xs,
     backgroundColor: colors.bg,
-    paddingVertical: spacing.xs,
+    zIndex: 1,
   },
   weekTitle: {
     fontFamily: fontDisplay,

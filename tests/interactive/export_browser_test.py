@@ -34,7 +34,7 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
-REPO = os.path.expanduser("~/workspace/epic8-work")
+REPO = os.path.expanduser("~/workspace/nurture-v12")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
 BASE = ORIGIN + "/willow/?testhooks=1"
