@@ -17,7 +17,7 @@ from dynamic_credentials import add_surrogate_to_request, read_json_response
 
 REPO = "anurajshetty/nurture"
 BRANCH = "gh-pages"
-DIST = os.path.expanduser("~/workspace/app-ideas/pregnancy-tracker/nurture-app/dist")
+DIST = os.path.expanduser("~/workspace/nurture-v12/dist")
 API = "https://api.github.com"
 ALLOWED = ("api.github.com",)
 CRED = "custom.github"

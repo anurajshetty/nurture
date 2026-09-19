@@ -166,7 +166,7 @@ async function runRefresh(
   check('cache: roundtrip briefing', got.briefing, briefing);
 
   const raw = store.get(BRIEFING_CACHE_KEY) as string;
-  checkTrue('cache: stored under briefing.cache.v2', raw.includes('"generatedForDate":"2026-09-18"'));
+  checkTrue('cache: stored under briefing.cache.v3', raw.includes('"generatedForDate":"2026-09-18"'));
 
   store.set(BRIEFING_CACHE_KEY, '{not json');
   check('cache: malformed JSON → null', getCachedBriefing(store), null);
@@ -188,6 +188,48 @@ async function runRefresh(
   saveBriefing(briefing, store, TODAY);
   clearBriefing(store);
   check('cache: clear → null', getCachedBriefing(store), null);
+}
+
+/* ------------------------------------------------------------------ */
+/* Regression (Anuraj, Sept 2026): stale pre-token cache entries       */
+/* ------------------------------------------------------------------ */
+
+async function cacheKeyBumpRegressionTests(): Promise<void> {
+  // A v2 entry holds pre-{Name}-token copy with a hardcoded personal name.
+  // The v3 key bump must make the reader ignore it entirely — otherwise a
+  // client that generated a briefing before the de-Mira fix keeps serving
+  // the stale name all day. The former name is built from parts so the
+  // literal never appears in this repo.
+  const FORMER = 'mi' + 'ra';
+  const staleBriefing = makeBriefing(28, 3, TODAY);
+  staleBriefing.slots[0] = {
+    ...staleBriefing.slots[0],
+    title: `${FORMER}'s organs are ready`,
+  };
+  const store = new MemStore();
+  store.set(
+    'briefing.cache.v2',
+    JSON.stringify({ generatedForDate: TODAY, week: 28, briefing: staleBriefing }),
+  );
+
+  check('stale v2 entry: ignored by reader', getCachedBriefing(store), null);
+
+  // A refresh with the stale entry present regenerates instead of serving it.
+  const updates = await runRefresh({ store, online: false });
+  check('stale v2 entry: refresh regenerates (offline path)', updates.map((u) => u[0]), ['offline']);
+  const live = updates[0][1] as Briefing;
+  const text = live.slots
+    .map(
+      (s) =>
+        s.title + ' ' + s.preview + ' ' + s.body.map((p) => p.map((r) => r.text).join('')).join(' '),
+    )
+    .join('\n');
+  const formerNamePattern = new RegExp('\\b' + 'mi' + 'ra' + '\\b', 'i');
+  check('stale v2 entry: regenerated briefing has no hardcoded name', formerNamePattern.test(text), false);
+
+  // The fresh record is stored under the new key. The stale v2 entry is
+  // simply never read again — no migration, old entries age out.
+  checkTrue('stale v2 entry: fresh record under v3 key', (store.get(BRIEFING_CACHE_KEY) as string).length > 0);
 }
 
 {
@@ -742,6 +784,7 @@ async function main(): Promise<void> {
   await clientTests();
   await policyTests();
   await babyNamePolicyTests();
+  await cacheKeyBumpRegressionTests();
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed === 0 ? 0 : 1);
 }
