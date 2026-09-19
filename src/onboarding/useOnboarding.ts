@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { kvGet, kvSet } from '../lib/db';
 import { savePregnancy, getActivePregnancy, type PregnancyInput } from '../sync/store';
+import { setBabyName } from '../briefing/context';
 import { syncNow } from '../sync/engine';
 import { useAuth } from '../auth/AuthContext';
 import type { Pregnancy } from '../lib/types';
@@ -25,6 +26,8 @@ export interface OnboardingDraft {
   lmpDate: string | null; // YYYY-MM-DD
   pregnancyType: Pregnancy['pregnancyType'];
   parity: Pregnancy['parity'];
+  /** Optional baby name — local-only, never synced. */
+  babyName: string | null;
 }
 
 export interface OnboardingValue {
@@ -95,6 +98,13 @@ export function useOnboarding(): OnboardingValue {
         kvSet(ONBOARDING_COMPLETED_KEY, '1');
       } catch {
         // Non-fatal; the pregnancy row itself also marks completion.
+      }
+      try {
+        // The name is a local-only preference — it never syncs and never
+        // blocks entry. Blank means "not set".
+        setBabyName(draft.babyName);
+      } catch {
+        // Non-fatal; she can set it later from the You tab.
       }
       setPregnancy(saved);
       setCompleted(true);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   getPrefs,
@@ -45,9 +45,12 @@ import type { AftermathDecisions } from '../../src/lib/types';
 import {
   AGE_BAND_OPTIONS,
   getAgeBand,
+  getBabyName,
   setAgeBand,
+  setBabyName,
   type AgeBandValue,
 } from '../../src/briefing/context';
+import { clearBriefing } from '../../src/briefing/cache';
 import { formatLong, weekOf } from '../../src/onboarding/dates';
 import {
   BottomSheet,
@@ -289,6 +292,12 @@ export default function YouScreen() {
   const [ageBand, setAgeBandState] = useState<AgeBandValue | null>(null);
   const [bandOpen, setBandOpen] = useState(false);
 
+  // Baby name (Sept 2026): optional, local-only — the briefing uses it
+  // where it would otherwise say "baby".
+  const [babyName, setBabyNameState] = useState<string | null>(null);
+  const [nameOpen, setNameOpen] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+
   // Partner sharing (Epic 7): the settings row opens the partner sheet;
   // the subtitle always reflects the live link state.
   const [partnerOpen, setPartnerOpen] = useState(false);
@@ -373,6 +382,11 @@ export default function YouScreen() {
   useEffect(() => {
     try {
       setAgeBandState(getAgeBand());
+    } catch {
+      // kv unreadable — the row just reads "Not set".
+    }
+    try {
+      setBabyNameState(getBabyName());
     } catch {
       // kv unreadable — the row just reads "Not set".
     }
@@ -503,6 +517,28 @@ export default function YouScreen() {
 
   const ageBandLabel =
     AGE_BAND_OPTIONS.find((o) => o.value === ageBand)?.label ?? 'Not set';
+
+  // Baby name: saved immediately, local-only. The cached briefing is
+  // cleared so the new (or cleared) name takes effect on the next Home
+  // visit instead of waiting for tomorrow's refresh.
+  const saveBabyName = useCallback(
+    (name: string | null) => {
+      const trimmed = name?.trim() || null;
+      try {
+        setBabyName(trimmed);
+        clearBriefing();
+      } catch {
+        showToast('That didn’t go through — nothing changed.');
+        return;
+      }
+      setBabyNameState(trimmed);
+      setNameOpen(false);
+      showToast(trimmed ? 'Saved — your weekly briefing will use it.' : 'Cleared.');
+    },
+    [showToast],
+  );
+
+  const babyNameLabel = babyName ?? 'Not set';
 
   const confirmStop = useCallback(async () => {
     if (stopping) return;
@@ -884,6 +920,17 @@ export default function YouScreen() {
           onPress={() => setBandOpen(true)}
           testID="age-band-row"
         />
+        <SettingsRow
+          icon="♥"
+          title="Baby’s name (optional)"
+          subtitle="Your weekly briefing can use it instead of “baby”."
+          value={babyNameLabel}
+          onPress={() => {
+            setNameDraft(babyName ?? '');
+            setNameOpen(true);
+          }}
+          testID="baby-name-row"
+        />
       </View>
 
       <SectionHeader title="If things change" />
@@ -1077,6 +1124,50 @@ export default function YouScreen() {
       </BottomSheet>
 
       <BottomSheet
+        visible={nameOpen}
+        onClose={() => setNameOpen(false)}
+        accessibilityLabel="Baby’s name"
+        testID="baby-name-sheet"
+      >
+        <Text style={styles.sheetTitle} accessibilityRole="header">
+          Baby’s name
+        </Text>
+        <Text style={styles.sheetLede}>
+          Optional. It stays on this device and is only used in your weekly
+          reading — never sent anywhere.
+        </Text>
+        <TextInput
+          value={nameDraft}
+          onChangeText={setNameDraft}
+          placeholder="Baby’s name (optional)"
+          placeholderTextColor={colors.muted}
+          autoCapitalize="words"
+          autoCorrect={false}
+          returnKeyType="done"
+          maxLength={40}
+          style={styles.nameInput}
+          accessibilityLabel="Baby’s name (optional)"
+          testID="baby-name-input"
+        />
+        <Button
+          title="Save"
+          onPress={() => saveBabyName(nameDraft)}
+          testID="baby-name-save"
+        />
+        {babyName ? (
+          <Pressable
+            onPress={() => saveBabyName(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Clear name"
+            style={({ pressed }) => [styles.later, pressed && styles.quietPressed]}
+            testID="baby-name-clear"
+          >
+            <Text style={styles.laterText}>Clear name</Text>
+          </Pressable>
+        ) : null}
+      </BottomSheet>
+
+      <BottomSheet
         visible={partnerOpen}
         onClose={() => {
           setPartnerOpen(false);
@@ -1250,6 +1341,18 @@ const styles = StyleSheet.create({
     ...typeScale.body,
     color: '#5C554D',
     marginBottom: spacing.lg,
+  },
+  nameInput: {
+    minHeight: 56,
+    borderRadius: radii.button,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    fontSize: 16,
+    color: colors.ink,
+    marginBottom: spacing.md,
   },
   disp: {
     flexDirection: 'row',

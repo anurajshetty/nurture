@@ -13,7 +13,6 @@
 
 import {
   FACTS,
-  NAMES,
   PARTNER_TIPS,
   ROTATION_ORDER,
   SIZE_BY_WEEK,
@@ -62,15 +61,21 @@ function memStore(): DelightStore & { data: Record<string, string> } {
   };
 }
 
+/** Effective rotation order: 'name' is only eligible when a baby name is set. */
+function effectiveOrder(hasBabyName: boolean): DelightKind[] {
+  return hasBabyName ? [...ROTATION_ORDER] : ROTATION_ORDER.filter((k) => k !== 'name');
+}
+
 /** Find a YYYY-MM-DD date in Jan 2026 whose rotating kind is `kind`. */
-function dateForKind(kind: DelightKind): string {
+function dateForKind(kind: DelightKind, hasBabyName = false): string {
+  const order = effectiveOrder(hasBabyName);
   for (let d = 1; d <= 31; d++) {
     const iso = `2026-01-${String(d).padStart(2, '0')}`;
-    if (ROTATION_ORDER[dayOfYear(iso) % ROTATION_ORDER.length] === kind) {
+    if (order[dayOfYear(iso) % order.length] === kind) {
       return iso;
     }
   }
-  throw new Error(`no date found for kind ${kind}`);
+  throw new Error(`no date found for kind ${kind} (hasBabyName=${hasBabyName})`);
 }
 
 function bodyText(body: DelightBody): string {
@@ -85,7 +90,7 @@ function bodyText(body: DelightBody): string {
   check('second card is the size', cards[1].kind, 'size');
   checkTrue('third card is one of the rotating kinds', (ROTATION_ORDER as string[]).includes(cards[2].kind), cards[2].kind);
   check('fact title', cards[0].title, 'Did you know?');
-  check('size title', cards[1].title, 'How big is Mira?');
+  check('size title carries the name token', cards[1].title, 'How big is {name}?');
   check('every card has a non-empty preview', cards.every((c) => c.preview.length > 0), true);
   check('every card has body paragraphs', cards.every((c) => c.body.length > 0 && bodyText(c.body).length > 0), true);
   check('every card has tile styling', cards.every((c) => !!c.tint && !!c.glyph && !!c.glyphColor), true);
@@ -115,14 +120,30 @@ function bodyText(body: DelightBody): string {
   checkTrue('every size week 12-40 has an entry', Object.keys(SIZE_BY_WEEK).length === 29, String(Object.keys(SIZE_BY_WEEK).length));
 }
 
-// --- rotation: all 5 kinds appear across 5 consecutive days --------------------
+// --- rotation: without a name, the 4 non-name kinds take turns ---------------
+// --- ('name' is gated out); with a name, all 5 kinds rotate ------------------
 {
   const kinds = new Set<DelightKind>();
-  for (let d = 1; d <= 5; d++) {
+  for (let d = 1; d <= 4; d++) {
     const iso = `2026-01-${String(d).padStart(2, '0')}`;
     kinds.add(buildDelightCards(28, memStore(), iso)[2].kind);
   }
-  check('5 consecutive days cover all 5 rotating kinds', [...kinds].sort(), [...ROTATION_ORDER].sort());
+  check(
+    '4 consecutive days cover the 4 non-name kinds when no name is set',
+    [...kinds].sort(),
+    [...effectiveOrder(false)].sort(),
+  );
+  checkTrue('no name card without a name', ![...kinds].includes('name'));
+  const named = new Set<DelightKind>();
+  for (let d = 1; d <= 5; d++) {
+    const iso = `2026-01-${String(d).padStart(2, '0')}`;
+    named.add(buildDelightCards(28, memStore(), iso, { hasBabyName: true })[2].kind);
+  }
+  check(
+    '5 consecutive days cover all 5 kinds when a name is set',
+    [...named].sort(),
+    [...ROTATION_ORDER].sort(),
+  );
 }
 
 // --- rotation: same day is idempotent (no double-advance) -----------------------
@@ -139,12 +160,13 @@ function bodyText(body: DelightBody): string {
   const store = memStore();
   const kind = 'tradition';
   const d1 = dateForKind(kind);
-  // The same kind recurs every 5 days (dayOfYear % 5); add days properly.
-  const dt = new Date(2026, 0, Number(d1.slice(8)) + 5);
+  // The same kind recurs every effectiveOrder.length days (dayOfYear % N).
+  const period = effectiveOrder(false).length;
+  const dt = new Date(2026, 0, Number(d1.slice(8)) + period);
   const d2 = `2026-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
   const first = buildDelightCards(28, store, d1)[2];
   const second = buildDelightCards(28, store, d2)[2];
-  check('kind repeats every 5 days', second.kind, kind);
+  check(`kind repeats every ${period} days without a name set`, second.kind, kind);
   checkTrue(
     'item advances — no immediate repeat within the bank',
     second.preview !== first.preview,
@@ -152,7 +174,6 @@ function bodyText(body: DelightBody): string {
   );
   checkTrue('tradition bank has depth', TRADITIONS.length >= 8, String(TRADITIONS.length));
   checkTrue('story bank has depth', STORIES.length >= 6, String(STORIES.length));
-  checkTrue('name bank has depth', NAMES.length >= 10, String(NAMES.length));
 }
 
 // --- partner tip: per-week, neutral voice ---------------------------------------
@@ -191,7 +212,6 @@ function bodyText(body: DelightBody): string {
   for (const f of FACTS) texts.push(f.preview, bodyText(f.body));
   for (const t of TRADITIONS) texts.push(t.preview, bodyText(t.body));
   for (const s of STORIES) texts.push(s.preview, bodyText(s.body));
-  for (const n of NAMES) texts.push(n.preview, bodyText(n.body));
   for (const w of Object.keys(PARTNER_TIPS)) {
     const tip = PARTNER_TIPS[Number(w)];
     texts.push(tip.preview, bodyText(tip.body));
@@ -199,6 +219,32 @@ function bodyText(body: DelightBody): string {
   const hits = texts.filter((t) => banned.some((b) => t.toLowerCase().includes(b)));
   check('no bank entry breaks the medical-boundary rules', hits, []);
   checkTrue('fact bank has depth', FACTS.length >= 15, String(FACTS.length));
+}
+
+// --- name celebration: only with a name; celebrates, never invents a meaning --
+{
+  // Sweep many days without a name: the 'name' kind must never appear.
+  let sawName = false;
+  for (let d = 1; d <= 31; d++) {
+    const iso = `2026-03-${String(d).padStart(2, '0')}`;
+    if (buildDelightCards(28, memStore(), iso)[2].kind === 'name') sawName = true;
+  }
+  check('no name kind across 31 days without a name', sawName, false);
+
+  // With a name: the celebration card appears, carries tokens, invents nothing.
+  const iso = dateForKind('name', true);
+  const card = buildDelightCards(28, memStore(), iso, { hasBabyName: true })[2];
+  check('name card kind', card.kind, 'name');
+  check('name card title', card.title, "Your baby's name");
+  check('name card preview carries the token', card.preview, 'You chose {name} ♥…');
+  const body = bodyText(card.body);
+  checkTrue('name card body carries the token', body.includes('{Name}'), body);
+  checkTrue(
+    'name card invents no meaning',
+    !/means|meaning|for “|for "/.test(body),
+    body,
+  );
+  checkTrue('name card has no hardcoded name', !/mira/i.test(body), body);
 }
 
 // --- dayOfYear sanity ---------------------------------------------------------------

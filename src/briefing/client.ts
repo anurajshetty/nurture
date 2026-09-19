@@ -259,15 +259,43 @@ export async function phrasePlan(
 }
 
 /**
+ * The baby-name tokens that may appear in curated slot copy. The real name
+ * is NEVER sent to the phraser — only these tokens travel — so a phrasing
+ * that drops or alters them must not be trusted.
+ */
+const BABY_NAME_TOKEN_RE = /\{Name\}|\{name\}/g;
+
+/**
+ * True when `phrased` keeps every baby-name token the curated field had.
+ * A phraser that drops `{Name}` would silently de-personalize the card
+ * (or, worse, leak a substituted name if substitution ever ran first) —
+ * so a field that loses a token keeps its curated wording.
+ */
+function preservesNameTokens(curated: string, phrased: string): boolean {
+  const needed: string[] = curated.match(BABY_NAME_TOKEN_RE) ?? [];
+  if (needed.length === 0) return true;
+  const kept: string[] = phrased.match(BABY_NAME_TOKEN_RE) ?? [];
+  return needed.every((t) => kept.includes(t));
+}
+
+/**
  * Merge phrased text back into the engine plan: only `phrase: true` slots
  * with a matching phrasing are touched; everything else keeps curated copy.
- * Pure — returns a new slots array.
+ *
+ * Token-preservation rule: a phrased slot that drops any `{Name}`/`{name}`
+ * token the curated copy carried is rejected wholesale — the curated slot
+ * is kept instead. Pure — returns a new slots array.
  */
 export function mergePhrasedSlots(slots: PlanSlot[], phrased: PhrasedSlots): PlanSlot[] {
   return slots.map((s) => {
     if (!s.phrase) return s;
     const p = phrased[s.slotId];
     if (!p) return s;
+    const curatedBody = s.body.map((para) => para.map((run) => run.text).join(''));
+    const tokensKept =
+      preservesNameTokens(s.preview, p.preview) &&
+      curatedBody.every((line, i) => preservesNameTokens(line, p.body[i] ?? ''));
+    if (!tokensKept) return s;
     return {
       ...s,
       preview: p.preview,

@@ -3,9 +3,17 @@
  *
  * The Home tab shows the 4 routine briefing cards first (trust), then a
  * quiet "A little wonder" divider, then 3 delight cards: "Did you know?"
- * + "How big is Mira?" every visit, plus one rotating card among
- * For the partner / Traditions / Story of the week / Name of the week /
+ * + "How big is {name}?" every visit, plus one rotating card among
+ * For the partner / Traditions / Story of the week / Your baby's name /
  * Milestone ahead.
+ *
+ * The {Name}/{name} tokens in curated copy are substituted on-device with
+ * the baby's name when one is set (onboarding/You tab), or "Your baby" /
+ * "your baby" otherwise (see withBabyName in ./context.ts). The tokens —
+ * never the real name — are what the engine and phrase pipeline see, so a
+ * name can never leave the device. The "Your baby's name" rotating card
+ * only appears when a name has been given; it celebrates the choice and
+ * never invents a meaning.
  *
  * Content rules (hard):
  * - Every delight fact is hand-curated and traces to established sources
@@ -168,7 +176,7 @@ export const FACTS: FactEntry[] = [
     preview: 'Flavors from your lunch drift into the amniotic fluid…',
     body: [
       [
-        { text: 'Flavors from your lunch — garlic, vanilla, carrot — drift into the amniotic fluid, and Mira has been tasting them for weeks. ' },
+        { text: 'Flavors from your lunch — garlic, vanilla, carrot — drift into the amniotic fluid, and {name} has been tasting them for weeks. ' },
         { text: "Tonight's dinner is her first restaurant.", bold: true },
       ],
     ],
@@ -179,7 +187,7 @@ export const FACTS: FactEntry[] = [
     preview: 'She already knows your voice from a stranger’s…',
     body: [
       [
-        { text: 'Mira can already tell your voice apart from a stranger’s. ' },
+        { text: '{Name} can already tell your voice apart from a stranger’s. ' },
         { text: 'Newborns recognize the rhythm of the language they heard in the womb — she has been listening for weeks.', bold: true },
       ],
     ],
@@ -624,72 +632,6 @@ export const STORIES: BankEntry[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Names — one name, its meaning, its story. Mira first, always.
-// ---------------------------------------------------------------------------
-
-export const NAMES: BankEntry[] = [
-  {
-    preview: 'Mira — “ocean”, “wonderful”, “peace”…',
-    body: [[{ text: 'Mira', bold: true }, { text: ' — Sanskrit for “ocean”, Latin for “wonderful”, Slavic for “peace”. Three languages, one very good name.' }]],
-  },
-  {
-    preview: 'Aria — a name that sings…',
-    body: [[{ text: 'Aria', bold: true }, { text: ' — Italian for “air” and “melody”. A name that sings.' }]],
-  },
-  {
-    preview: 'Noor — short, luminous, unmistakable…',
-    body: [[{ text: 'Noor', bold: true }, { text: ' — Arabic for “light”. Short, luminous, unmistakable.' }]],
-  },
-  {
-    preview: 'Zoya — “life”…',
-    body: [[{ text: 'Zoya', bold: true }, { text: ' — from the Greek for “life”, beloved across Russia and South Asia.' }]],
-  },
-  {
-    preview: 'Kai — “sea”…',
-    body: [[{ text: 'Kai', bold: true }, { text: ' — Hawaiian for “sea”. Four letters, whole ocean.' }]],
-  },
-  {
-    preview: 'Luna — “moon”…',
-    body: [[{ text: 'Luna', bold: true }, { text: ' — Latin for “moon”. For the one who rearranged your nights.' }]],
-  },
-  {
-    preview: 'Theo — “gift”…',
-    body: [[{ text: 'Theo', bold: true }, { text: ' — from the Greek for “gift of God”. Short for Theodore, strong on its own.' }]],
-  },
-  {
-    preview: 'Amara — “grace”…',
-    body: [[{ text: 'Amara', bold: true }, { text: ' — Igbo for “grace”. Carried beautifully across continents.' }]],
-  },
-  {
-    preview: 'Wren — small, fierce, musical…',
-    body: [[{ text: 'Wren', bold: true }, { text: ' — English, after the tiny bird with the enormous song.' }]],
-  },
-  {
-    preview: 'Elio — “sun”…',
-    body: [[{ text: 'Elio', bold: true }, { text: ' — Italian and Spanish for “sun”. Warmth in four letters.' }]],
-  },
-  {
-    preview: 'Asha — “hope”…',
-    body: [[{ text: 'Asha', bold: true }, { text: ' — Sanskrit for “hope”. A wish disguised as a name.' }]],
-  },
-  {
-    preview: 'Sana — “brilliance”…',
-    body: [[{ text: 'Sana', bold: true }, { text: ' — Arabic for “brilliance, radiance”. Bright from day one.' }]],
-  },
-  {
-    preview: 'Milo — gentle strength…',
-    body: [[{ text: 'Milo', bold: true }, { text: ' — from an old Germanic word for “mild, peaceful”. Gentle strength.' }]],
-  },
-  {
-    preview: 'Ivy — quietly unstoppable…',
-    body: [[{ text: 'Ivy', bold: true }, { text: ' — English, after the climbing plant. Quietly unstoppable.' }]],
-  },
-  {
-    preview: 'Kian — “ancient, enduring”…',
-    body: [[{ text: 'Kian', bold: true }, { text: ' — Irish for “ancient, enduring”. An old soul’s name.' }]],
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Selection — deterministic, on-device, offline-safe.
@@ -754,8 +696,18 @@ export interface BuildDelightOptions {
   /**
    * Matrix-preferred rotating kinds. When non-empty, today's rotating kind
    * is picked from these (by day of year) instead of the default rotation.
+   * 'name' is dropped from the list when no baby name is set (see
+   * hasBabyName).
    */
   rotatingBoost?: RotatingKind[];
+  /**
+   * Whether the user has given the baby a name. Gates the 'name' rotating
+   * kind: true → the slot celebrates the chosen name; false/omitted → the
+   * kind is filtered out of the rotation entirely. The card itself carries
+   * {Name} tokens (substituted on-device in policy.toBriefing) — the real
+   * name never reaches this picker.
+   */
+  hasBabyName?: boolean;
 }
 
 /** Pick the fact card for this week: matrix ids first, then week-anchored facts, evergreen fallback. */
@@ -795,7 +747,7 @@ function pickSize(week: number): DelightCard {
   return {
     id: 'delight-card-size',
     kind: 'size',
-    title: 'How big is Mira?',
+    title: 'How big is {name}?',
     preview: `${entry.delight} — ${entry.length}, ${entry.weight}…`,
     body: [
       [
@@ -852,37 +804,72 @@ function milestoneFor(week: number): BankEntry {
   };
 }
 
-const ROTATING_BANKS: Record<'partner' | 'tradition' | 'story' | 'name', BankEntry[]> = {
+const ROTATING_BANKS: Record<'partner' | 'tradition' | 'story', BankEntry[]> = {
   partner: [], // partner tips are per-week, handled separately below
   tradition: TRADITIONS,
   story: STORIES,
-  name: NAMES,
+  // 'name' has no bank: when a baby name is set, the rotating slot becomes
+  // a celebration of the chosen name (see nameCelebrationCard); when no
+  // name is set, the kind is filtered out of the rotation entirely.
 };
 
-const ROTATING_TITLES: Record<DelightKind, string> = {
+export const ROTATING_TITLES: Record<DelightKind, string> = {
   fact: 'Did you know?',
-  size: 'How big is Mira?',
+  size: 'How big is {name}?',
   partner: 'For the partner',
   tradition: 'Traditions',
   story: 'Story of the week',
-  name: 'Name of the week',
+  name: "Your baby's name",
   milestone: 'Milestone ahead',
 };
+
+/**
+ * The name-celebration card: shown as the rotating 'name' kind only when
+ * the user has given the baby a name. Celebrates the choice warmly and
+ * NEVER invents a meaning — the story of the name belongs to the family.
+ * Carries {Name} tokens; policy.toBriefing substitutes on-device.
+ */
+function nameCelebrationCard(): DelightCard {
+  const tile = TILES.name;
+  return {
+    id: 'delight-card-rotating',
+    kind: 'name',
+    title: ROTATING_TITLES.name,
+    preview: 'You chose {name} ♥…',
+    body: [
+      [
+        { text: '{Name}', bold: true },
+        {
+          text: ' — you chose it. A name with a story only your family knows. Say it out loud now and then; it already sounds like someone you love.',
+        },
+      ],
+    ],
+    tint: tile.tint,
+    glyph: tile.glyph,
+    glyphColor: tile.glyphColor,
+  };
+}
 
 /**
  * Pick the rotating third card. The KIND rotates by day of year; the item
  * within the bank advances via the persisted per-kind cursor (one step per
  * day), so repeat visits feel fresh without repeats. Milestone is computed
- * from the week; partner tips are per-week.
+ * from the week; partner tips are per-week. The 'name' kind is only
+ * eligible when hasBabyName is true — otherwise it is filtered out before
+ * the pick (no name → no name card, by Anuraj's rule).
  */
 function pickRotating(
   week: number,
   store: DelightStore | null,
   today: string,
   boost?: RotatingKind[],
+  hasBabyName = false,
 ): DelightCard {
-  const order = boost && boost.length > 0 ? boost : ROTATION_ORDER;
-  const kind = order[dayOfYear(today) % order.length];
+  const base = boost && boost.length > 0 ? boost : ROTATION_ORDER;
+  const order = hasBabyName ? base : base.filter((k) => k !== 'name');
+  const kinds = order.length > 0 ? order : ROTATION_ORDER.filter((k) => k !== 'name');
+  const kind = kinds[dayOfYear(today) % kinds.length];
+  if (kind === 'name') return nameCelebrationCard();
   let state = loadState(store);
   if (!state || state.date !== today) {
     // New day: advance the cursor for today's kind and persist.
@@ -900,9 +887,13 @@ function pickRotating(
     entry = tip;
   } else if (kind === 'milestone') {
     entry = milestoneFor(week);
-  } else {
+  } else if (kind === 'tradition' || kind === 'story') {
     const bank = ROTATING_BANKS[kind];
     entry = bank[cursor % bank.length];
+  } else {
+    // Unreachable: 'name' returns the celebration card before this point,
+    // and 'fact'/'size' never rotate. Falls back to traditions defensively.
+    entry = TRADITIONS[cursor % TRADITIONS.length];
   }
 
   return {
@@ -931,6 +922,6 @@ export function buildDelightCards(
   return [
     pickFact(week, today, opts.factIds),
     pickSize(week),
-    pickRotating(week, store, today, opts.rotatingBoost),
+    pickRotating(week, store, today, opts.rotatingBoost, opts.hasBabyName),
   ];
 }

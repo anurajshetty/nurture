@@ -125,6 +125,14 @@ export interface EngineInput {
    * Optional; defaults to true so existing callers are unaffected.
    */
   pregnancyActive?: boolean;
+  /**
+   * Optional baby name (Anuraj, Sept 2026). The engine uses it ONLY as a
+   * boolean gate for the 'name' delight kind (celebration card when set,
+   * kind filtered out when unset). The real name NEVER enters the plan —
+   * curated copy carries {Name}/{name} tokens and policy.toBriefing
+   * substitutes on-device, so the name can never reach the phraser.
+   */
+  babyName?: string | null;
 }
 
 /** The engine's output: the ordered plan plus its stable hash. */
@@ -469,11 +477,15 @@ export function buildPlan(input: EngineInput): EnginePlan {
     delight = buildDelightCards(input.week, input.store, input.date, {
       factIds: row.delight.factIds,
       rotatingBoost: boost,
+      // The name celebration card is gated on a set name; the tokens in
+      // the cards are substituted on-device in policy.toBriefing.
+      hasBabyName: !!input.babyName,
     });
   } catch {
     delight = buildDelightCards(input.week, null, input.date, {
       factIds: row.delight.factIds,
       rotatingBoost: boost,
+      hasBabyName: !!input.babyName,
     });
   }
   for (const card of delight) slots.push(delightSlot(card));

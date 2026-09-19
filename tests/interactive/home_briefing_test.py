@@ -57,7 +57,7 @@ ROTATING_TITLES = [
     "For the partner",
     "Traditions",
     "Story of the week",
-    "Name of the week",
+    "Your baby's name",
     "Milestone ahead",
 ]
 
@@ -140,7 +140,7 @@ def make_briefing(generated_for, day=1, include_headsup=True, include_lookback=T
             "#FAF3DF", "✦", "#96771B", "delight-card-fact",
         ),
         make_slot(
-            "delight-card-size", "delight", "How big is Mira?",
+            "delight-card-size", "delight", "How big is your baby?",
             "a regulation bowling pin — about 14.8 inches, about 2.2 lb…",
             [[{"text": "About the size of a regulation bowling pin — "},
               {"text": "about 14.8 inches, about 2.2 lb.", "bold": True}]],
@@ -305,7 +305,7 @@ def main():
                 ("briefing-card-tips", "Small comforts"),
                 ("headsup-new-this-week", "New this week"),
                 ("delight-card-fact", "Did you know?"),
-                ("delight-card-size", "How big is Mira?"),
+                ("delight-card-size", "How big is your baby?"),
                 ("delight-card-rotating", None),
                 ("lookback-a", "A little look back"),
             ]:

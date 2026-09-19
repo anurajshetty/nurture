@@ -52,7 +52,7 @@ function mkEvent(id: string, occurredAt: string): LocalEvent {
   };
 }
 
-// Mira's due date: 2026-10-08 → LMP 2026-01-01 (280 days earlier).
+// Sample due date: 2026-10-08 → LMP 2026-01-01 (280 days earlier).
 const DUE = '2026-10-08';
 
 // ---------- pregnancy week range ----------

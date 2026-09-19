@@ -29,6 +29,7 @@
 
 import type { Briefing, BriefingStatus, PlanSlot, RichBody } from './types';
 import type { BriefingContext, NoteLogEntry } from './context';
+import { getBabyName as readBabyName, withBabyName } from './context';
 import { buildPlan, type EnginePlan } from './engine';
 import { getMatrixRow, MATRIX_REVIEW_DATE } from './matrix';
 import {
@@ -79,6 +80,15 @@ export interface RefreshDeps {
   getRecentMilestone?: () => V12Milestone | null;
   /** Contract C3: false suppresses both v1.2 cards (planner pattern). */
   isPregnancyActive?: () => boolean;
+  /**
+   * Reads the optional baby name (Anuraj, Sept 2026). Defaults to the
+   * on-device kv reader; tests stub this. The name gates the 'name'
+   * delight kind in the engine and is substituted into {Name}/{name}
+   * tokens on-device in toBriefing — it never reaches the network/phraser
+   * (the substituted briefing text is still cached locally like any
+   * other briefing).
+   */
+  getBabyName?: () => string | null;
   onUpdate: (status: BriefingStatus, briefing: Briefing | null) => void;
 }
 
@@ -134,8 +144,21 @@ function toBriefing(
   today: string,
   plan: EnginePlan,
   phrased: PhrasedSlots | null,
+  babyName: string | null,
 ): Briefing {
-  const slots: PlanSlot[] = phrased ? mergePhrasedSlots(plan.slots, phrased) : plan.slots;
+  const merged: PlanSlot[] = phrased ? mergePhrasedSlots(plan.slots, phrased) : plan.slots;
+  // On-device name substitution (Anuraj, Sept 2026): curated copy carries
+  // {Name}/{name} tokens so the real name never reaches the phraser or the
+  // network — the rendered briefing (with the name substituted) is cached
+  // locally like any other briefing text. This is the single place the name
+  // enters rendered text — both the phrased and the offline paths flow
+  // through here. Slots without tokens are untouched.
+  const slots: PlanSlot[] = merged.map((s) => ({
+    ...s,
+    title: withBabyName(s.title, babyName),
+    preview: withBabyName(s.preview, babyName),
+    body: s.body.map((para) => para.map((run) => ({ ...run, text: withBabyName(run.text, babyName) }))),
+  }));
   return {
     week: ctx.week,
     day: ctx.day,
@@ -181,6 +204,10 @@ export async function refreshBriefing(deps: RefreshDeps): Promise<void> {
     // Stale or missing cache. The engine plan is built on-device and is
     // always renderable — even offline, Home never blanks.
     let plan: EnginePlan;
+    // Baby name for the briefing (Anuraj, Sept 2026): read once per pass,
+    // best-effort. Declared here so both toBriefing call sites below can
+    // use it; assigned alongside the other isolated signal reads.
+    let babyName: string | null = null;
     try {
       let logs: NoteLogEntry[] = [];
       try {
@@ -214,6 +241,14 @@ export async function refreshBriefing(deps: RefreshDeps): Promise<void> {
       } catch {
         pregnancyActive = false;
       }
+      // Baby name (Anuraj, Sept 2026): optional, local-only. The engine
+      // uses it only as a gate for the name-celebration delight card; the
+      // real name is substituted into tokens on-device in toBriefing.
+      try {
+        babyName = deps.getBabyName ? deps.getBabyName() : readBabyName();
+      } catch {
+        babyName = null;
+      }
       plan = buildPlan({
         week: ctx.week,
         day: ctx.day,
@@ -226,6 +261,7 @@ export async function refreshBriefing(deps: RefreshDeps): Promise<void> {
         upcomingAppointment,
         recentMilestone,
         pregnancyActive,
+        babyName,
       });
     } catch {
       // Engine failure is not expected (buildPlan never throws by design);
@@ -237,7 +273,7 @@ export async function refreshBriefing(deps: RefreshDeps): Promise<void> {
     // Offline: render the curated plan directly. The phraser is polish,
     // not a dependency.
     if (!online) {
-      const briefing = toBriefing(ctx, today, plan, null);
+      const briefing = toBriefing(ctx, today, plan, null, babyName);
       try {
         // Best-effort: a failed write must not hide a good briefing.
         saveBriefing(briefing, store, today);
@@ -263,7 +299,7 @@ export async function refreshBriefing(deps: RefreshDeps): Promise<void> {
       phrased = null;
     }
 
-    const briefing = toBriefing(ctx, today, plan, phrased);
+    const briefing = toBriefing(ctx, today, plan, phrased, babyName);
     try {
       // Best-effort: a failed write must not hide a good briefing.
       saveBriefing(briefing, store, today);

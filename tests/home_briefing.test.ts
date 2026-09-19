@@ -36,6 +36,7 @@ import { MATRIX_REVIEW_DATE } from '../src/briefing/matrix';
 import { refreshBriefing, type RefreshDeps } from '../src/briefing/policy';
 import type { Briefing, BriefingStatus, PlanSlot } from '../src/briefing/types';
 import type { BriefingContext } from '../src/briefing/context';
+import { withBabyName } from '../src/briefing/context';
 
 declare const process: { exit(code: number): void };
 
@@ -102,6 +103,16 @@ function makeBriefing(week: number, day: number, generatedForDate: string): Brie
 
 function makeCtx(week: number, day: number): BriefingContext {
   return { week, day, firstTimeMom: true, symptomThemes: ['nausea'] };
+}
+
+/** The plan slots as toBriefing renders them with no name set (generic fallback). */
+function substituted(slots: PlanSlot[]): PlanSlot[] {
+  return slots.map((s) => ({
+    ...s,
+    title: withBabyName(s.title, null),
+    preview: withBabyName(s.preview, null),
+    body: s.body.map((para) => para.map((run) => ({ ...run, text: withBabyName(run.text, null) }))),
+  }));
 }
 
 function makePhraseReq(slotIds: string[]): PhraseRequestBody {
@@ -286,6 +297,40 @@ async function runRefresh(
   check('client: merge is pure (input untouched)', slots[0].preview, 'Preview routine-baby');
 }
 
+{
+  // Token-preservation rule: a phrasing that drops {Name}/{name} is rejected.
+  const tokenSlot: PlanSlot = {
+    ...makeSlot('routine-baby', 'routine'),
+    preview: '{Name} is growing every day.',
+    body: [[{ text: 'And {name} has been tasting.' }]],
+  };
+  const keep: PhrasedSlots = {
+    'routine-baby': {
+      preview: '{Name} is growing every single day.',
+      body: ['And {name} has been tasting new flavors.'],
+    },
+  };
+  const drop: PhrasedSlots = {
+    'routine-baby': {
+      preview: 'The baby is growing every day.',
+      body: ['And {name} has been tasting.'],
+    },
+  };
+  const kept = mergePhrasedSlots([tokenSlot], keep);
+  check('client: merge keeps phrasing that preserves tokens', kept[0].preview, '{Name} is growing every single day.');
+  const dropped = mergePhrasedSlots([tokenSlot], drop);
+  check('client: merge rejects phrasing that drops {Name}', dropped[0].preview, '{Name} is growing every day.');
+  check('client: rejected merge keeps curated body', dropped[0].body[0][0].text, 'And {name} has been tasting.');
+  const dropBody: PhrasedSlots = {
+    'routine-baby': {
+      preview: '{Name} is growing every day.',
+      body: ['And the baby has been tasting.'],
+    },
+  };
+  const droppedBody = mergePhrasedSlots([tokenSlot], dropBody);
+  check('client: merge rejects phrasing that drops {name} in body', droppedBody[0].preview, '{Name} is growing every day.');
+}
+
 /* ------------------------------------------------------------------ */
 /* client.ts — phrasePlan transport                                    */
 /* ------------------------------------------------------------------ */
@@ -438,9 +483,14 @@ async function policyTests(): Promise<void> {
       store,
       phrase: async (req) => {
         sentReq = req;
+        // A compliant phraser preserves the {Name}/{name} tokens (here by
+        // keeping the curated wording with a "Phrased: " prefix).
         const phrased: PhrasedSlots = {};
         for (const s of req.slots) {
-          phrased[s.slotId] = { preview: `Phrased ${s.slotId}`, body: s.body.map((l) => `Phrased: ${l}`) };
+          phrased[s.slotId] = {
+            preview: `Phrased: ${s.preview}`,
+            body: s.body.map((l) => `Phrased: ${l}`),
+          };
         }
         return { phrased, reviewDate: TODAY };
       },
@@ -454,9 +504,9 @@ async function policyTests(): Promise<void> {
       plan.slots.filter((s) => s.phrase).map((s) => s.slotId),
     );
     check(
-      'policy: routine slots show phrased text',
+      'policy: routine slots show phrased text (tokens preserved, name substituted)',
       live.slots.filter((s) => s.section === 'routine').map((s) => s.preview),
-      plan.slots.filter((s) => s.section === 'routine').map((s) => `Phrased ${s.slotId}`),
+      plan.slots.filter((s) => s.section === 'routine').map((s) => withBabyName(`Phrased: ${s.preview}`, null)),
     );
     check(
       'policy: delight slots keep curated copy (never phrased)',
@@ -484,11 +534,15 @@ async function policyTests(): Promise<void> {
     });
     check('policy: phraser failure statuses', updates.map((u) => u[0]), ['generating', 'live']);
     const live = updates[1][1] as Briefing;
-    check('policy: phraser failure shows curated slots', live.slots, plan.slots);
+    check(
+      'policy: phraser failure shows curated slots (name substituted)',
+      live.slots,
+      substituted(plan.slots),
+    );
     check(
       'policy: curated fallback saved to cache',
       (getCachedBriefing(store) as BriefingCacheRecord).briefing.slots,
-      plan.slots,
+      substituted(plan.slots),
     );
   }
 
@@ -511,8 +565,8 @@ async function policyTests(): Promise<void> {
     const offlineBriefing = updates[0][1] as Briefing;
     check('policy: offline builds a fresh plan, not the stale cache',
       offlineBriefing.generatedForDate, TODAY);
-    check('policy: offline plan is the curated engine plan',
-      offlineBriefing.slots, expectedPlan().slots);
+    check('policy: offline plan is the curated engine plan (name substituted)',
+      offlineBriefing.slots, substituted(expectedPlan().slots));
     check('policy: offline skips phraser', phraseCalls, 0);
     check(
       'policy: offline plan saved to cache',
@@ -603,9 +657,91 @@ async function policyTests(): Promise<void> {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* baby name (Anuraj, Sept 2026): gating + on-device substitution       */
+/* ------------------------------------------------------------------ */
+
+async function babyNamePolicyTests(): Promise<void> {
+  const echoPhrase = async (req: PhraseRequestBody) => {
+    const phrased: PhrasedSlots = {};
+    for (const s of req.slots) phrased[s.slotId] = { preview: s.preview, body: s.body };
+    return { phrased, reviewDate: TODAY };
+  };
+
+  // 1. Name set → the briefing shows it; the phraser never sees it.
+  {
+    const store = new MemStore();
+    let sentReq: PhraseRequestBody | undefined;
+    const updates = await runRefresh({
+      store,
+      getBabyName: () => 'Wren',
+      phrase: async (req) => {
+        sentReq = req;
+        return echoPhrase(req);
+      },
+    });
+    check('name: live statuses', updates.map((u) => u[0]), ['generating', 'live']);
+    const live = updates[1][1] as Briefing;
+    const size = live.slots.find((s) => s.slotId === 'delight-card-size');
+    check('name: size card title uses the name', size?.title, 'How big is Wren?');
+    const baby = live.slots.find((s) => s.slotId === 'routine-baby');
+    checkTrue('name: routine-baby preview uses the name', (baby?.preview ?? '').includes('Wren'));
+    const flat = JSON.stringify(live.slots);
+    checkTrue('name: no unreplaced tokens in the briefing', !flat.includes('{Name}') && !flat.includes('{name}'));
+    checkTrue('name: phraser never saw the name (privacy)', !JSON.stringify(sentReq).includes('Wren'));
+  }
+
+  // 2. No name → generic fallback; no celebration card.
+  {
+    const store = new MemStore();
+    const updates = await runRefresh({ store, getBabyName: () => null, phrase: echoPhrase });
+    const live = updates[1][1] as Briefing;
+    const size = live.slots.find((s) => s.slotId === 'delight-card-size');
+    check('no-name: size card title is generic', size?.title, 'How big is your baby?');
+    check(
+      'no-name: no celebration card',
+      live.slots.some((s) => s.title === "Your baby's name"),
+      false,
+    );
+  }
+
+  // 3. On the 'name' rotation day with a name set → the celebration card.
+  {
+    const store = new MemStore();
+    // 2026-01-03: dayOfYear 3 % 5 === 3 → ROTATION_ORDER[3] === 'name'.
+    const updates: Array<[BriefingStatus, Briefing | null]> = [];
+    await refreshBriefing({
+      today: '2026-01-03',
+      store,
+      online: true,
+      buildContext: () => makeCtx(28, 3),
+      getBabyName: () => 'Wren',
+      phrase: echoPhrase,
+      onUpdate: (s, b) => {
+        updates.push([s, b]);
+      },
+    });
+    const live = updates[1][1] as Briefing;
+    const rotating = live.slots.find((s) => s.slotId === 'delight-card-rotating');
+    check('name-day: celebration card title', rotating?.title, "Your baby's name");
+    checkTrue('name-day: preview celebrates the name', (rotating?.preview ?? '').includes('You chose Wren ♥'));
+  }
+
+  // 4. The offline path substitutes too.
+  {
+    const store = new MemStore();
+    const updates = await runRefresh({ store, online: false, getBabyName: () => 'Wren' });
+    check('name: offline statuses', updates.map((u) => u[0]), ['offline']);
+    const briefing = updates[0][1] as Briefing;
+    const size = briefing.slots.find((s) => s.slotId === 'delight-card-size');
+    check('name: offline size title uses the name', size?.title, 'How big is Wren?');
+  }
+}
+
 async function main(): Promise<void> {
   await clientTests();
   await policyTests();
+  await babyNamePolicyTests();
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed === 0 ? 0 : 1);
 }

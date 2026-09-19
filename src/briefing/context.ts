@@ -223,6 +223,69 @@ export function setAgeBand(band: AgeBandValue | null): void {
   else db.kvSet(AGE_BAND_KV_KEY, band);
 }
 
+/* ------------------------------------------------------------------ */
+/* Baby name (Anuraj, Sept 2026): optional, user-supplied, local-only.  */
+/*                                                                     */
+/* The name is captured in onboarding (skippable) and editable in the  */
+/* You tab. It NEVER enters BriefingContext and is NEVER sent to the   */
+/* edge function — curated copy carries {Name}/{name} tokens instead,  */
+/* and the real name is substituted on-device at briefing assembly      */
+/* (see withBabyName, applied in policy.toBriefing). Delight cards are  */
+/* never phrased, so their tokens are equally safe.                    */
+/* ------------------------------------------------------------------ */
+
+/** Optional baby name, stored in local kv under BABY_NAME_KV_KEY. Local-only: never synced, never sent off-device. */
+export const BABY_NAME_KV_KEY = 'briefing.babyName';
+
+/** Token for the name in sentence-initial (capitalized) position. */
+export const BABY_NAME_TOKEN_CAP = '{Name}';
+/** Token for the name in mid-sentence (lowercase) position. */
+export const BABY_NAME_TOKEN = '{name}';
+
+/** Reads the stored baby name (trimmed), or null when unset/blank. Never throws. */
+export function getBabyName(): string | null {
+  try {
+    const v = lazyDb().kvGet(BABY_NAME_KV_KEY) as string | null;
+    if (typeof v !== 'string') return null;
+    const t = v.trim();
+    return t.length > 0 ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stores (or clears, with null/blank) the baby name. Local-only — the
+ * value lives in the on-device kv store and is never synced or sent to
+ * the phraser. Never throws.
+ */
+export function setBabyName(name: string | null): void {
+  try {
+    const db = lazyDb();
+    if (name === null || name.trim().length === 0) db.kvDelete(BABY_NAME_KV_KEY);
+    else db.kvSet(BABY_NAME_KV_KEY, name.trim());
+  } catch {
+    // A failed write keeps the previous value; the UI still works.
+  }
+}
+
+/**
+ * Substitutes the {Name}/{name} tokens in curated copy with the baby's
+ * name when one is set, or the generic fallback otherwise. Pure.
+ * "{Name}'s" → "<name>'s" / "Your baby's" — the possessive rides along.
+ *
+ * The name is inserted verbatim (trimmed) for both tokens — the token case
+ * only selects the fallback: sentence-initial `{Name}` → "Your baby",
+ * mid-sentence `{name}` → "your baby". Curated copy must use the token
+ * whose case matches the grammatical position.
+ */
+export function withBabyName(text: string, name: string | null | undefined): string {
+  const clean = typeof name === 'string' ? name.trim() : '';
+  const cap = clean.length > 0 ? clean : 'Your baby';
+  const low = clean.length > 0 ? clean : 'your baby';
+  return text.split(BABY_NAME_TOKEN_CAP).join(cap).split(BABY_NAME_TOKEN).join(low);
+}
+
 /** One journal entry for the look-back teaser: id, text, local date. */
 export interface NoteLogEntry {
   id: string;

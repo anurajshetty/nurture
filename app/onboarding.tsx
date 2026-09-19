@@ -7,7 +7,8 @@
  *      back for confirmation. Kind validation; "I'll do this later" skips
  *      ahead without ever blocking entry.
  *   2. A couple of quick things — singleton/multiples + first/subsequent
- *      chips (drives week-content personalization), smart defaults set.
+ *      chips (drives week-content personalization), smart defaults set,
+ *      plus an optional baby-name field (skippable, local-only).
  *   3. Notifications — plain-language pre-prompt, one system permission
  *      request, and per-type toggles wired to notification_prefs.
  *   4. Done — week pill + due date, or a quiet no-date variant.
@@ -17,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import {
   Button,
@@ -81,6 +82,7 @@ export default function OnboardingScreen() {
   const [pregnancyType, setPregnancyType] = useState<Pregnancy['pregnancyType']>('singleton');
   const [parity, setParity] = useState<Pregnancy['parity']>('first');
   const [skippedDate, setSkippedDate] = useState(false);
+  const [babyName, setBabyName] = useState('');
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [permNote, setPermNote] = useState<string | null>(null);
@@ -144,18 +146,20 @@ export default function OnboardingScreen() {
   const finish = useCallback(async () => {
     if (finishing) return;
     setFinishing(true);
+    const trimmedName = babyName.trim() || null;
     const draft: OnboardingDraft = skippedDate
-      ? { dueDate: null, lmpDate: null, pregnancyType, parity }
+      ? { dueDate: null, lmpDate: null, pregnancyType, parity, babyName: trimmedName }
       : {
           dueDate: estimatedDue,
           lmpDate: mode === 'lmp' ? lmpISO : null,
           pregnancyType,
           parity,
+          babyName: trimmedName,
         };
     await complete(draft);
     setFinishing(false);
     router.replace('/(tabs)');
-  }, [finishing, skippedDate, estimatedDue, lmpISO, mode, pregnancyType, parity, complete]);
+  }, [finishing, skippedDate, estimatedDue, lmpISO, mode, pregnancyType, parity, babyName, complete]);
 
   return (
     <Screen>
@@ -300,6 +304,22 @@ export default function OnboardingScreen() {
               testID="onboarding-chip-subsequent"
             />
           </View>
+
+          <Text style={styles.q}>Have you picked a name?</Text>
+          <Text style={styles.qsub}>Optional — your weekly reading can use it. Skip if you’d rather wait.</Text>
+          <TextInput
+            value={babyName}
+            onChangeText={setBabyName}
+            placeholder="Baby’s name (optional)"
+            placeholderTextColor={colors.muted}
+            autoCapitalize="words"
+            autoCorrect={false}
+            returnKeyType="done"
+            maxLength={40}
+            style={styles.nameInput}
+            accessibilityLabel="Baby’s name (optional)"
+            testID="onboarding-baby-name"
+          />
 
           <View style={styles.spacer} />
           <Button title="Continue" onPress={() => setStep(3)} testID="onboarding-chips-continue" />
@@ -556,6 +576,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  nameInput: {
+    minHeight: 56,
+    borderRadius: radii.button,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    fontSize: 16,
+    color: colors.ink,
     marginTop: spacing.xs,
   },
   rows: {

@@ -75,7 +75,7 @@ const milestoneCases: Array<[string, string]> = [
   ['first heartbeat today!', 'First heartbeat'],
   ['saw the baby on the screen', 'Saw the baby'],
   ['we saw the baby today', 'Saw the baby'],
-  ['picked a name — Mira!', 'Picked a name'],
+  ['picked a name — Wren!', 'Picked a name'],
   ['we chose a name', 'Picked a name'],
   ['decided on a name finally', 'Picked a name'],
   ['named the baby after my grandma', 'Picked a name'],

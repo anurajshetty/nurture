@@ -129,7 +129,7 @@ const LATE_PREP = [PREP_PEDIATRICIAN, PREP_CAR_SEAT];
 const ROW_36: WeekMatrixRow = {
   week: 36,
   anchors: {
-    baby: 'Mira is gaining about an ounce a day now — the plumping-up phase.',
+    baby: '{Name} is gaining about an ounce a day now — the plumping-up phase.',
     body: 'Weekly check-ins often begin now — short visits, mostly listening.',
   },
   milestones: [
@@ -185,7 +185,7 @@ const ROW_36: WeekMatrixRow = {
 const ROW_37: WeekMatrixRow = {
   week: 37,
   anchors: {
-    baby: 'Early term — Mira\'s organs are ready; now it\'s all about plumping up.',
+    baby: 'Early term — {name}\'s organs are ready; now it\'s all about plumping up.',
     body: 'The heaviness shifts — many describe week 37 as "any day now" energy.',
   },
   milestones: [
@@ -234,7 +234,7 @@ const ROW_37: WeekMatrixRow = {
 const ROW_38: WeekMatrixRow = {
   week: 38,
   anchors: {
-    baby: 'Mira\'s grip is strong now — she\'ll wrap those tiny fingers around yours.',
+    baby: '{Name}\'s grip is strong now — she\'ll wrap those tiny fingers around yours.',
     body: 'The finish line is close enough to picture — rest is the assignment.',
   },
   milestones: [
@@ -283,7 +283,7 @@ const ROW_38: WeekMatrixRow = {
 const ROW_39: WeekMatrixRow = {
   week: 39,
   anchors: {
-    baby: 'Full term — Mira is ready whenever she is. The grand finale.',
+    baby: 'Full term — {name} is ready whenever she is. The grand finale.',
     body: 'You\'ve done the long work — now it\'s waiting, wonderfully.',
   },
   milestones: [
@@ -332,7 +332,7 @@ const ROW_39: WeekMatrixRow = {
 const ROW_40: WeekMatrixRow = {
   week: 40,
   anchors: {
-    baby: 'The due date — Mira\'s estimated arrival. She\'ll come on her own schedule.',
+    baby: 'The due date — {name}\'s estimated arrival. She\'ll come on her own schedule.',
     body: 'You\'ve carried her 40 weeks — an extraordinary, ordinary miracle.',
   },
   milestones: [
@@ -482,7 +482,7 @@ const ROW_42: WeekMatrixRow = {
 export const FALLBACK_ROW: WeekMatrixRow = {
   week: 0,
   anchors: {
-    baby: 'Mira is growing every day — length, weight, and new refinements.',
+    baby: '{Name} is growing every day — length, weight, and new refinements.',
     body: 'Your body is doing remarkable, ordinary work.',
   },
   milestones: [],
