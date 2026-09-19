@@ -27,8 +27,10 @@
  *
  * Write path matches the composer note shape exactly so the timeline
  * renders uniformly: `saveEvent({ type: 'note', data: { text,
- * attachments? }, visibility: 'private' })`, then fire-and-forget
- * `enqueueMediaUploads` for cloud backup (Epic 2.3 seam).
+ * attachments? }, visibility })`, then fire-and-forget
+ * `enqueueMediaUploads` for cloud backup (Epic 2.3 seam). The visibility
+ * picker (Epic 7, §7.1) defaults journal notes to private — "a few words,
+ * just for you" — and she can mark a note shared any time.
  *
  * Draft autosave: the text is persisted (debounced) to the local kv store
  * under 'draft:journal' on every keystroke, restored the next time the
@@ -51,10 +53,17 @@ import {
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { BottomSheet } from '../components';
+import Segmented from '../components/Segmented';
 import { colors, minTouch, radii, spacing, type as typeScale } from '../theme/tokens';
 import { kvDelete, kvGet, kvSet } from '../lib/db';
 import { saveEvent } from '../sync/store';
 import { enqueueMediaUploads } from '../sync/media';
+import {
+  defaultVisibilityForType,
+  visibilityNote,
+  VISIBILITY_LABELS,
+  VISIBILITY_OPTIONS,
+} from '../partner/visibility';
 import {
   pickDocument,
   pickFromCamera,
@@ -63,7 +72,7 @@ import {
   type PendingAttachment,
 } from '../composer/attachments';
 import { startDictation } from '../composer/voice';
-import type { EventAttachment } from '../lib/types';
+import type { EventAttachment, Visibility } from '../lib/types';
 
 export type JournalSheetProps = {
   visible: boolean;
@@ -122,6 +131,9 @@ export default function JournalSheet({ visible, onClose }: JournalSheetProps) {
   const [saving, setSaving] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  // Per-entry visibility (Epic 7, §7.1): journal notes default private —
+  // "a few words, just for you". Changeable any time from the entry.
+  const [visibility, setVisibility] = useState<Visibility>(() => defaultVisibilityForType('note'));
   const restoredRef = useRef(false);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Dictation session bookkeeping (mirrors the composer's pattern).
@@ -275,8 +287,8 @@ export default function JournalSheet({ visible, onClose }: JournalSheetProps) {
       const atts = attachments.map(attachmentPayload);
       const data: Record<string, unknown> = { text: noteText };
       if (atts.length > 0) data.attachments = atts;
-      // Identical to the composer note write: private, timestamped now.
-      const event = saveEvent({ type: 'note', data, visibility: 'private' });
+      // Identical to the composer note write, with the chosen visibility.
+      const event = saveEvent({ type: 'note', data, visibility });
       try {
         kvDelete(JOURNAL_DRAFT_KEY);
       } catch {
@@ -293,7 +305,7 @@ export default function JournalSheet({ visible, onClose }: JournalSheetProps) {
     } finally {
       setSaving(false);
     }
-  }, [text, attachments, saving, onClose, endVoiceSession]);
+  }, [text, attachments, saving, visibility, onClose, endVoiceSession]);
 
   const handleClose = useCallback(() => {
     endVoiceSession();
@@ -473,7 +485,18 @@ export default function JournalSheet({ visible, onClose }: JournalSheetProps) {
           </View>
         ))}
 
-        <Text style={styles.privateNote}>🔒 Private — only you can see this.</Text>
+        <Text style={styles.sectionLabel}>Who can see this</Text>
+        <Segmented
+          options={VISIBILITY_OPTIONS}
+          value={visibility}
+          onChange={setVisibility}
+          labels={VISIBILITY_LABELS}
+          accessibilityLabel="Entry visibility"
+          testID="journal-visibility"
+        />
+        <Text style={styles.visibilityNote} testID="journal-visibility-note">
+          {visibilityNote(visibility)}
+        </Text>
       </ScrollView>
     </BottomSheet>
   );
@@ -676,10 +699,11 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontWeight: '700',
   },
-  privateNote: {
+  visibilityNote: {
     ...typeScale.footnote,
     color: colors.muted,
     textAlign: 'center',
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
+    lineHeight: 19,
   },
 });

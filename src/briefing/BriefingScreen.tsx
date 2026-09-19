@@ -34,6 +34,8 @@ import { colors, fontDisplay, radii, shadow, spacing, type as typeScale } from '
 import { useOnboarding } from '../onboarding/useOnboarding';
 import { useBriefing } from './useBriefing';
 import { useBriefingTestOverride } from './testSeam';
+import { isAfterwards } from './afterwards';
+import AfterwardsHome from '../support/AfterwardsHome';
 import type { DelightBody } from './delight';
 import type { Briefing, PlanSlot } from './types';
 
@@ -274,6 +276,17 @@ export function BriefingScreen() {
 
   if (onboardingLoading && !override) {
     return <View style={{ flex: 1, backgroundColor: colors.bg }} />;
+  }
+
+  // Epic 9 (changed-outcome mode): a stopped pregnancy renders the afterwards
+  // state — her memories and gentle support, never developmental content.
+  // This branch takes precedence over the empty state below.
+  if (isAfterwards()) {
+    return (
+      <Screen testID="briefing-root">
+        <AfterwardsHome />
+      </Screen>
+    );
   }
 
   // No due date → warm empty state, never a crash.

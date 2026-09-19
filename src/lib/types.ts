@@ -116,3 +116,53 @@ export interface SyncConflict<TLocal = LocalEvent | Pregnancy> {
   remote: TLocal;
   detectedAt: string; // ISO 8601
 }
+
+// ─────────────────────────────────────────────────────────────
+// Epic 6 — reminders (APPEND-ONLY; other epics add their own marked sections)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * State of one "question for the visit" on an appointment event (contract C1).
+ *
+ * - 'to_ask': she hasn't raised it yet (the default for a new question).
+ * - 'asked': she raised it during the visit; no answer captured yet.
+ * - 'answered': the provider answered and she (or the note) captured it.
+ * - 'deferred': deliberately parked for a later visit.
+ * - 'dismissed': dropped — struck through, kept for the record.
+ *
+ * Stored per question in the appointment event's `data.questions` array
+ * (see src/plan/questions.ts for the storage rationale). Other epics are
+ * read-only consumers of this type and its storage.
+ */
+export type QuestionState = 'to_ask' | 'asked' | 'answered' | 'deferred' | 'dismissed';
+
+/* ── Epic 9: changed-outcome mode ── */
+
+/** The owner's decision about her timeline after stopping. */
+export type StoryDecision = 'kept' | 'exported' | 'deleted';
+
+/** The owner's decision about previously shared partner memories. */
+export type PartnerMemoryDecision = 'kept' | 'removed';
+
+/**
+ * The owner's data decisions after stopping (contract C3 aftermath).
+ * Absent fields = undecided — "I'll decide later" is first-class, and
+ * everything stays private until she chooses.
+ */
+export interface AftermathDecisions {
+  story?: StoryDecision;
+  partnerMemories?: PartnerMemoryDecision;
+  /** ISO 8601 of the most recent decision. */
+  decidedAt?: string;
+}
+
+/**
+ * One gentle-read entry (Epic 9 "Gentle reads" module).
+ * Titles are placeholders for the reviewed content pack — see
+ * src/support/gentleReads.ts. Never described as clinician-reviewed.
+ */
+export interface GentleRead {
+  id: string;
+  title: string;
+  blurb: string;
+}

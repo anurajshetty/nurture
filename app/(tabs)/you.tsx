@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import {
   getPrefs,
   requestNotificationPermissions,
@@ -7,6 +8,40 @@ import {
 } from '../../src/notifications/prefs';
 import { exportArchive, requestAccountDeletion } from '../../src/privacy/privacy';
 import { getActivePregnancy } from '../../src/sync/store';
+import {
+  countSharedMoments,
+  getDataDecisions,
+  isAfterwards,
+  recordDataDecision,
+  stopPregnancyTracking,
+  stopReminderPatch,
+  toggleDataRow,
+  type DataRowId,
+  type DataRowState,
+} from '../../src/support/aftermath';
+import {
+  hasPartnerToDecideAbout,
+  readPartnerSnapshot,
+  removePartnerAccess,
+  type PartnerSnapshot,
+} from '../../src/support/partnerLink';
+import {
+  DECIDE_LATER_LABEL,
+  DECIDE_LATER_TOAST,
+  DELETE_GUARD_CONFIRM,
+  DELETE_GUARD_FINE,
+  DELETE_GUARD_KEEP,
+  DELETE_GUARD_KEPT_TOAST,
+  DELETE_GUARD_DELETED_TOAST,
+  DELETE_GUARD_LEDE,
+  DELETE_GUARD_TITLE,
+  ITS_DONE_LEDE,
+  ITS_DONE_TITLE,
+  STOPPED_LIST_COPY,
+  STORY_KICK,
+  STORY_LEDE,
+} from '../../src/support/afterwardsCopy';
+import type { AftermathDecisions } from '../../src/lib/types';
 import {
   AGE_BAND_OPTIONS,
   getAgeBand,
@@ -24,6 +59,8 @@ import {
   Toggle,
 } from '../../src/components';
 import { colors, radii, spacing, type as typeScale } from '../../src/theme/tokens';
+import { getPartnerLink, type PartnerLink } from '../../src/partner/model';
+import PartnerSheet from '../../src/partner/PartnerSheet';
 
 
 const LEAD_OPTIONS = [
@@ -124,12 +161,109 @@ function TimeStepper({
   );
 }
 
+/** Epic 9 — one expand-to-choose data row (module-level; pure presentational). */
+export interface DataRowOption {
+  key: string;
+  label: string;
+  /** Dark quiet button (the delete row's option). */
+  dark?: boolean;
+  testID: string;
+  onChoose: () => void;
+}
+
+export interface DataRowDef {
+  id: DataRowId;
+  title: string;
+  subtitle: string;
+  body: string;
+  /** Non-null once decided — renders the quiet ✓ + label state. */
+  decidedLabel: string | null;
+  options: DataRowOption[];
+}
+
+function DataRow({
+  row,
+  open,
+  onToggle,
+  onChoose,
+}: {
+  row: DataRowDef;
+  open: boolean;
+  onToggle: () => void;
+  onChoose: (option: DataRowOption) => void;
+}) {
+  const decided = row.decidedLabel !== null && !open;
+  const testID = `data-row-${row.id}`;
+  return (
+    <View style={[styles.drow, decided && styles.drowDone]} testID={testID}>
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={
+          decided
+            ? `${row.title}. Decided: ${row.decidedLabel}. Tap to change.`
+            : `${row.title}. ${open ? 'Collapse' : 'Expand'}. ${row.subtitle}.`
+        }
+        style={({ pressed }) => [styles.drowHead, pressed && styles.quietPressed]}
+        testID={`${testID}-header`}
+      >
+        <View style={styles.drowText}>
+          <Text style={styles.drowTitle}>{row.title}</Text>
+          <Text style={styles.drowSub}>{row.subtitle}</Text>
+        </View>
+        {decided ? (
+          <View style={styles.decided} testID={`${testID}-decided`}>
+            <View style={styles.check} accessibilityElementsHidden>
+              <Text style={styles.checkGlyph}>✓</Text>
+            </View>
+            <Text style={styles.decidedLabel}>{row.decidedLabel}</Text>
+          </View>
+        ) : (
+          <Text style={[styles.drowChev, open && styles.drowChevOpen]} accessibilityElementsHidden>
+            ›
+          </Text>
+        )}
+      </Pressable>
+      {open && !decided ? (
+        <View style={styles.drowBody} testID={`${testID}-options`}>
+          <Text style={styles.drowBodyText}>{row.body}</Text>
+          {row.options.map((o) =>
+            o.dark ? (
+              <Pressable
+                key={o.key}
+                onPress={() => onChoose(o)}
+                accessibilityRole="button"
+                accessibilityLabel={o.label}
+                style={({ pressed }) => [styles.optDark, pressed && styles.optDarkPressed]}
+                testID={o.testID}
+              >
+                <Text style={styles.optDarkText}>{o.label}</Text>
+              </Pressable>
+            ) : (
+              <Button
+                key={o.key}
+                title={o.label}
+                variant="ghost"
+                onPress={() => onChoose(o)}
+                style={styles.optButton}
+                testID={o.testID}
+              />
+            ),
+          )}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 /**
  * You — the control room: notification pause + reminders, deep links to
  * partner / export / privacy / pregnancy settings, and the quiet
  * stop-tracking row. Built from design/06-reminders.html.
  */
 export default function YouScreen() {
+  const router = useRouter();
   const [endOfDayEnabled, setEndOfDayEnabled] = useState(true);
   const [endOfDayTime, setEndOfDayTime] = useState('20:30');
   const [appointmentReminders, setAppointmentReminders] = useState(true);
@@ -138,9 +272,15 @@ export default function YouScreen() {
   const [quietHours, setQuietHours] = useState({ start: '21:00', end: '08:00' });
 
   const [stopOpen, setStopOpen] = useState(false);
-  const [stopPhase, setStopPhase] = useState<'choose' | 'done'>('choose');
+  const [stopPhase, setStopPhase] = useState<'choose' | 'done' | 'guard'>('choose');
   const [disposition, setDisposition] = useState<Disposition>('keep');
   const [stopping, setStopping] = useState(false);
+
+  // Epic 9 — the "It's done." aftermath: expand-to-choose data decisions.
+  const [decisions, setDecisions] = useState<AftermathDecisions>({});
+  const [openRow, setOpenRow] = useState<DataRowId | null>(null);
+  const [partnerSnap, setPartnerSnap] = useState<PartnerSnapshot | null>(null);
+  const [sharedCount, setSharedCount] = useState(0);
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -148,6 +288,34 @@ export default function YouScreen() {
   // Weekly-briefing age band (track 3): optional, local-only.
   const [ageBand, setAgeBandState] = useState<AgeBandValue | null>(null);
   const [bandOpen, setBandOpen] = useState(false);
+
+  // Partner sharing (Epic 7): the settings row opens the partner sheet;
+  // the subtitle always reflects the live link state.
+  const [partnerOpen, setPartnerOpen] = useState(false);
+  const [partnerLink, setPartnerLink] = useState<PartnerLink>(() => {
+    try {
+      return getPartnerLink();
+    } catch {
+      return { status: 'none', partnerName: 'Alex' };
+    }
+  });
+
+  const refreshPartnerLink = useCallback(() => {
+    try {
+      setPartnerLink(getPartnerLink());
+    } catch {
+      // The row keeps its last reading; the sheet surfaces errors itself.
+    }
+  }, []);
+
+  const partnerSubtitle =
+    partnerLink.status === 'active'
+      ? `${partnerLink.partnerName} · connected`
+      : partnerLink.status === 'invited'
+        ? 'Invite sent — waiting for your partner'
+        : partnerLink.status === 'revoked'
+          ? 'Access revoked — nothing shared'
+          : 'No one connected yet';
 
   const paused = globalPauseUntil !== null;
 
@@ -285,11 +453,37 @@ export default function YouScreen() {
     [endOfDayTime, showToast],
   );
 
-  const openStop = useCallback(() => {
-    setStopPhase('choose');
-    setDisposition('keep');
-    setStopOpen(true);
+  // Loads the persisted data decisions + partner snapshot for the "It's done." view.
+  const loadAftermath = useCallback(() => {
+    try {
+      setDecisions(getDataDecisions());
+    } catch {
+      // Decisions unreadable — rows render undecided, decide-later stays first-class.
+    }
+    try {
+      setPartnerSnap(readPartnerSnapshot());
+    } catch {
+      setPartnerSnap(null);
+    }
+    try {
+      setSharedCount(countSharedMoments());
+    } catch {
+      setSharedCount(0);
+    }
   }, []);
+
+  const openStop = useCallback(() => {
+    setOpenRow(null);
+    // Already stopped → reopen straight into the "It's done." aftermath.
+    if (isAfterwards()) {
+      loadAftermath();
+      setStopPhase('done');
+    } else {
+      setStopPhase('choose');
+      setDisposition('keep');
+    }
+    setStopOpen(true);
+  }, [loadAftermath]);
 
   // Weekly-briefing age band (track 3): saved immediately on tap, local-only.
   const chooseAgeBand = useCallback(
@@ -325,32 +519,207 @@ export default function YouScreen() {
         }
       }
       if (disposition === 'delete') await requestAccountDeletion();
-      const pauseStamp = new Date().toISOString();
-      await updatePrefs({
-        endOfDayEnabled: false,
-        appointmentReminders: false,
-        globalPauseUntil: pauseStamp,
-      });
+      // Epic 9: own the stop transition (contract C3) — status → 'stopped'.
+      // Idempotent; safe to call even after a full deletion (no-op then).
+      stopPregnancyTracking();
+      const patch = stopReminderPatch(new Date().toISOString());
+      await updatePrefs(patch);
       setEndOfDayEnabled(false);
       setAppointmentReminders(false);
-      setGlobalPauseUntil(pauseStamp);
+      setGlobalPauseUntil(patch.globalPauseUntil ?? null);
+      // Seed the data decisions from what she chose at stop time — she can
+      // still change any of them below.
+      try {
+        setDecisions(
+          recordDataDecision({
+            story: disposition === 'delete' ? 'deleted' : disposition === 'export' ? 'exported' : 'kept',
+          }),
+        );
+      } catch {
+        // Decision storage unavailable — rows render undecided.
+      }
+      loadAftermath();
       setStopPhase('done');
     } catch {
       showToast('Something didn’t go through — nothing changed. Take your time.');
     } finally {
       setStopping(false);
     }
-  }, [disposition, stopping, showToast]);
+  }, [disposition, stopping, showToast, loadAftermath]);
+
+  // Epic 9 — expand-to-choose option handlers.
+  const chooseStoryKeep = useCallback(() => {
+    try {
+      setDecisions(recordDataDecision({ story: 'kept' }));
+    } catch {
+      // Storage unavailable — the row still settles visually for the session.
+    }
+    setOpenRow(null);
+    showToast('Saved.');
+  }, [showToast]);
+
+  const chooseStoryExport = useCallback(async () => {
+    try {
+      await exportArchive();
+    } catch {
+      showToast('Export isn’t ready in this build yet — your data stays safe in the app.');
+      return;
+    }
+    try {
+      setDecisions(recordDataDecision({ story: 'exported' }));
+    } catch {
+      // Storage unavailable — the row still settles visually for the session.
+    }
+    setOpenRow(null);
+    showToast('Your export is downloading.');
+  }, [showToast]);
+
+  const choosePartnerMemories = useCallback(
+    (decision: 'kept' | 'removed') => {
+      if (decision === 'removed') {
+        // Through Epic 7's exported function only (contract C2): already-synced
+        // partner data is marked for removal on next sync.
+        removePartnerAccess();
+      }
+      try {
+        setDecisions(recordDataDecision({ partnerMemories: decision }));
+      } catch {
+        // Storage unavailable — the row still settles visually for the session.
+      }
+      setOpenRow(null);
+      showToast('Saved.');
+    },
+    [showToast],
+  );
+
+  /** The gentle guard's "Yes, delete everything" — the ONLY path that deletes. */
+  const confirmDeleteEverything = useCallback(async () => {
+    try {
+      await requestAccountDeletion();
+    } catch {
+      showToast('Something didn’t go through — nothing changed. Take your time.');
+      return;
+    }
+    // Recorded AFTER the wipe on purpose: the deletion clears every table
+    // including the aftermath marker, and re-marking it here is what keeps
+    // the quiet afterwards Home (no developmental content) rendering after
+    // deletion. The stopped-pregnancy status remains the stop signal during
+    // the aftermath; this marker only carries the post-deletion quiet state.
+    try {
+      setDecisions(recordDataDecision({ story: 'deleted' }));
+    } catch {
+      // Storage unavailable — the row still settles visually for the session.
+    }
+    setStopPhase('done');
+    setOpenRow(null);
+    showToast(DELETE_GUARD_DELETED_TOAST);
+  }, [showToast]);
+
+  const decideLater = useCallback(() => {
+    showToast(DECIDE_LATER_TOAST);
+    setStopOpen(false);
+  }, [showToast]);
 
   const leadLabel =
     LEAD_OPTIONS.find((o) => o.minutes === leadMinutes)?.label ?? '1 hour before';
 
-  const doneTail =
-    disposition === 'delete'
-      ? 'Your data has been deleted.'
-      : disposition === 'export'
-        ? 'Your export is downloading. Your story is yours to keep.'
-        : 'Your story stays as your memories — private, always.';
+  // Epic 9 — expand-to-choose data rows for the "It's done." aftermath.
+  // Tapping a row reveals its concrete options; tapping an option records the
+  // decision and collapses the row into a quiet decided state (✓ + label).
+  // No checkboxes. Decided rows re-tap to change. "I'll decide later" stays
+  // first-class — undecided rows simply render undecided.
+  const partnerName = partnerSnap?.partnerName ?? 'your partner';
+  const partnerNameCap = partnerName.charAt(0).toUpperCase() + partnerName.slice(1);
+  const sharedWord = sharedCount === 1 ? 'moment' : 'moments';
+
+  const dataRowDefs: DataRowDef[] = [
+    {
+      id: 'story-keep',
+      title: 'Keep my story in the app',
+      subtitle: 'Timeline stays as memories',
+      body: 'Your timeline stays as your memories. No new pregnancy content, no notifications — just what you saved, kept safe.',
+      decidedLabel: decisions.story === 'kept' ? 'Kept in the app' : null,
+      options: [
+        { key: 'choose', label: 'Choose this', testID: 'data-row-story-keep-choose', onChoose: chooseStoryKeep },
+      ],
+    },
+    {
+      id: 'story-export',
+      title: 'Export my story',
+      subtitle: 'Download a private archive',
+      body: 'Download your entries, photos, and files as a private archive — the same export flow as always, on this device.',
+      decidedLabel: decisions.story === 'exported' ? 'Exported' : null,
+      options: [
+        { key: 'choose', label: 'Choose this', testID: 'data-row-story-export-choose', onChoose: chooseStoryExport },
+      ],
+    },
+    {
+      id: 'story-delete',
+      title: 'Delete everything',
+      subtitle: 'Remove it all, permanently',
+      body: 'Permanently remove your story — timeline, photos, and files — from the app and your account.',
+      decidedLabel: decisions.story === 'deleted' ? 'Deleted' : null,
+      options: [
+        {
+          key: 'choose',
+          label: 'Choose this',
+          dark: true,
+          testID: 'data-row-story-delete-choose',
+          onChoose: () => setStopPhase('guard'),
+        },
+      ],
+    },
+    ...(hasPartnerToDecideAbout(partnerSnap)
+      ? [
+          {
+            id: 'partner' as DataRowId,
+            title: `Shared memories with ${partnerName}`,
+            subtitle: `${sharedCount} shared ${sharedWord} · you decide`,
+            body: `${partnerNameCap} has ${sharedCount} shared ${sharedWord} from your pregnancy. Pregnancy notifications to ${partnerName} have already stopped — this is only about the memories already shared.`,
+            decidedLabel:
+              decisions.partnerMemories === 'kept'
+                ? `${partnerNameCap} keeps them`
+                : decisions.partnerMemories === 'removed'
+                  ? 'Access removed'
+                  : null,
+            options: [
+              {
+                key: 'keep',
+                label: `${partnerNameCap} keeps them`,
+                testID: 'data-row-partner-keep',
+                onChoose: () => choosePartnerMemories('kept'),
+              },
+              {
+                key: 'remove',
+                label: `Remove ${partnerName}’s access`,
+                testID: 'data-row-partner-remove',
+                onChoose: () => choosePartnerMemories('removed'),
+              },
+            ],
+          },
+        ]
+      : []),
+  ];
+
+  const toggleRow = useCallback(
+    (row: DataRowDef) => {
+      // Visual state only — the persisted decision stands until she picks a
+      // new option (mockup: decided rows re-tap to change, not to clear).
+      const visual: DataRowState =
+        row.decidedLabel !== null
+          ? { open: openRow === row.id, decided: openRow !== row.id }
+          : { open: openRow === row.id, decided: false };
+      const next = toggleDataRow(visual);
+      setOpenRow(next.open ? row.id : null);
+    },
+    [openRow],
+  );
+
+  const onChooseRowOption = useCallback((_row: DataRowDef, option: DataRowOption) => {
+    // The option handler records the decision and collapses the row into its
+    // quiet decided state (chooseDataRowOption() models this transition).
+    option.onChoose();
+  }, []);
 
   return (
     <Screen scroll={false}>
@@ -462,8 +831,12 @@ export default function YouScreen() {
         <SettingsRow
           icon="♥"
           title="Partner sharing"
-          subtitle="No one connected yet"
-          onPress={() => showToast('Partner sharing is coming soon — nothing is shared until then.')}
+          subtitle={partnerSubtitle}
+          onPress={() => {
+            refreshPartnerLink();
+            setPartnerOpen(true);
+          }}
+          testID="partner-sharing-row"
         />
         <SettingsRow
           icon="▤"
@@ -472,6 +845,16 @@ export default function YouScreen() {
           title="Visit summary (PDF)"
           subtitle="For your appointments"
           onPress={() => showToast('Visit summaries are coming soon.')}
+        />
+        {/* Epic 8: OB-visit export entry point (added row only — existing rows untouched). */}
+        <SettingsRow
+          icon="⎙"
+          tint={colors.blueTint}
+          tintInk={colors.blue}
+          title="Export for OB visit"
+          subtitle="A facts-only summary of your logs"
+          onPress={() => router.push('/export')}
+          testID="export-ob-visit-row"
         />
         <SettingsRow
           icon="◈"
@@ -526,6 +909,12 @@ export default function YouScreen() {
         accessibilityLabel="Stop pregnancy tracking"
         testID="stop-tracking-sheet"
       >
+      {/* Epic 9: the "It's done." aftermath is long — scroll inside the sheet. */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.sheetScroll}
+        keyboardShouldPersistTaps="handled"
+      >
         {stopPhase === 'choose' ? (
           <View>
             <Text style={styles.sheetTitle} accessibilityRole="header">
@@ -577,23 +966,74 @@ export default function YouScreen() {
               <Text style={styles.laterText}>Decide later</Text>
             </Pressable>
           </View>
-        ) : (
-          <View style={styles.doneWrap}>
-            <View style={styles.doneMedallion} accessibilityElementsHidden>
-              <Text style={styles.doneCheck}>✓</Text>
-            </View>
-            <Text style={styles.sheetTitle}>Done — everything has stopped.</Text>
-            <Text style={[styles.sheetLede, styles.doneLede]}>
-              Updates, reminders, and partner notifications are off. {doneTail}
+        ) : stopPhase === 'guard' ? (
+          <View>
+            <Text style={styles.sheetTitle} accessibilityRole="header">
+              {DELETE_GUARD_TITLE}
             </Text>
+            <Text style={styles.sheetLede}>{DELETE_GUARD_LEDE}</Text>
             <Button
-              title="Close"
+              title={DELETE_GUARD_KEEP}
               variant="ghost"
-              onPress={() => setStopOpen(false)}
-              testID="stop-done-close"
+              onPress={() => {
+                setStopPhase('done');
+                showToast(DELETE_GUARD_KEPT_TOAST);
+              }}
+              testID="delete-guard-keep"
             />
+            <Pressable
+              onPress={confirmDeleteEverything}
+              accessibilityRole="button"
+              accessibilityLabel={DELETE_GUARD_CONFIRM}
+              style={({ pressed }) => [styles.optDark, styles.guardConfirm, pressed && styles.optDarkPressed]}
+              testID="delete-guard-confirm"
+            >
+              <Text style={styles.optDarkText}>{DELETE_GUARD_CONFIRM}</Text>
+            </Pressable>
+            <Text style={styles.fine}>{DELETE_GUARD_FINE}</Text>
+          </View>
+        ) : (
+          <View>
+            <Text style={styles.sheetTitle} accessibilityRole="header">
+              {ITS_DONE_TITLE}
+            </Text>
+            <Text style={styles.sheetLede}>{ITS_DONE_LEDE}</Text>
+            <View style={styles.stopCard} testID="stopped-list">
+              {STOPPED_LIST_COPY.map((item, i) => (
+                <View
+                  key={item}
+                  style={[styles.stopItem, i > 0 && styles.stopItemBorder]}
+                >
+                  <Text style={styles.stopDash} accessibilityElementsHidden>
+                    –
+                  </Text>
+                  <Text style={styles.stopText}>{item}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.kick}>{STORY_KICK}</Text>
+            <Text style={[styles.sheetLede, styles.storyLede]}>{STORY_LEDE}</Text>
+            {dataRowDefs.map((row) => (
+              <DataRow
+                key={row.id}
+                row={row}
+                open={openRow === row.id}
+                onToggle={() => toggleRow(row)}
+                onChoose={(option) => onChooseRowOption(row, option)}
+              />
+            ))}
+            <Pressable
+              onPress={decideLater}
+              accessibilityRole="button"
+              accessibilityLabel={DECIDE_LATER_LABEL}
+              style={({ pressed }) => [styles.later, pressed && styles.quietPressed]}
+              testID="decide-later-button"
+            >
+              <Text style={styles.laterText}>{DECIDE_LATER_LABEL}</Text>
+            </Pressable>
           </View>
         )}
+      </ScrollView>
       </BottomSheet>
 
       <BottomSheet
@@ -634,6 +1074,18 @@ export default function YouScreen() {
             );
           },
         )}
+      </BottomSheet>
+
+      <BottomSheet
+        visible={partnerOpen}
+        onClose={() => {
+          setPartnerOpen(false);
+          refreshPartnerLink();
+        }}
+        accessibilityLabel="Partner sharing"
+        testID="partner-sheet"
+      >
+        <PartnerSheet onChanged={refreshPartnerLink} />
       </BottomSheet>
 
       </ScrollView>
@@ -791,6 +1243,9 @@ const styles = StyleSheet.create({
     color: colors.ink,
     marginBottom: spacing.sm,
   },
+  sheetScroll: {
+    paddingBottom: spacing.md,
+  },
   sheetLede: {
     ...typeScale.body,
     color: '#5C554D',
@@ -860,27 +1315,159 @@ const styles = StyleSheet.create({
     color: colors.muted,
   },
 
-  doneWrap: {
-    alignItems: 'center',
-    paddingVertical: spacing.lg,
+  // Epic 9 — "It's done." aftermath.
+  stopCard: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs,
+    marginBottom: spacing.sm,
   },
-  doneMedallion: {
-    width: 64,
-    height: 64,
-    borderRadius: radii.chip,
+  stopItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  stopItemBorder: {
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
+  stopDash: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#F1EAE0',
+    color: colors.muted,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 26,
+  },
+  stopText: {
+    ...typeScale.body,
+    color: colors.ink,
+    flex: 1,
+    lineHeight: 22,
+  },
+  kick: {
+    fontSize: 12,
+    letterSpacing: 1.44,
+    textTransform: 'uppercase',
+    color: colors.coralDeep,
+    fontWeight: '700',
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  storyLede: {
+    marginBottom: spacing.md,
+  },
+  // Expand-to-choose data rows.
+  drow: {
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
+  },
+  drowDone: {
+    backgroundColor: colors.card,
+  },
+  drowHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    paddingHorizontal: 16,
+    minHeight: 64,
+  },
+  drowText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  drowTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.ink,
+  },
+  drowSub: {
+    fontSize: 12.5,
+    color: colors.muted,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  drowChev: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.muted,
+    marginLeft: spacing.sm,
+  },
+  drowChevOpen: {
+    transform: [{ rotate: '90deg' }],
+  },
+  drowBody: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  drowBodyText: {
+    fontSize: 13.5,
+    color: '#5C554D',
+    lineHeight: 21,
+    marginBottom: spacing.md,
+  },
+  decided: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginLeft: spacing.sm,
+    flexShrink: 0,
+  },
+  check: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: colors.sageTint,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.md,
   },
-  doneCheck: {
-    fontSize: 30,
-    color: colors.sageDeep,
+  checkGlyph: {
+    fontSize: 13,
     fontWeight: '700',
+    color: colors.sageDeep,
   },
-  doneLede: {
+  decidedLabel: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: colors.sageDeep,
+    flexShrink: 1,
+  },
+  optButton: {
+    marginBottom: spacing.sm,
+  },
+  optDark: {
+    backgroundColor: colors.ink,
+    borderRadius: radii.button,
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  optDarkPressed: {
+    opacity: 0.85,
+  },
+  optDarkText: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  guardConfirm: {
+    marginTop: spacing.sm,
+  },
+  fine: {
+    ...typeScale.subhead,
+    color: colors.muted,
+    lineHeight: 20,
     textAlign: 'center',
-    marginBottom: spacing.lg,
+    marginTop: spacing.sm,
   },
 
   toastWrap: {
