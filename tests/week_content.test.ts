@@ -102,15 +102,15 @@ ok(
   'week range label present',
 );
 
-// --- getWeekContent: fallback week -------------------------------------
+// --- getWeekContent: newly curated week ----------------------------------
 
 const c20 = getWeekContent(20, '2027-02-10', '2026-09-19');
-eq(c20.week, 20, 'fallback content week');
+eq(c20.week, 20, 'newly curated content week');
 ok(c20.size !== null, 'week 20 has a size entry (banana)');
 eq(c20.size?.staple, 'a banana', 'week 20 size staple');
-eq(c20.highlights.length, 3, 'fallback: 3 highlights');
-eq(c20.readings.length, 2, 'fallback: 2 readings');
-eq(c20.questions.length, 2, 'fallback: 2 questions');
+eq(c20.highlights.length, 3, 'curated: 3 highlights');
+eq(c20.readings.length, 2, 'curated: 2 readings');
+eq(c20.questions.length, 2, 'curated: 2 questions');
 
 // --- getWeekContent: size coverage edges --------------------------------
 
@@ -126,10 +126,10 @@ ok(c41.highlights.length === 3, 'week 41 curated highlights present');
 const q36 = getWeekQuestions(36);
 eq(q36.length, 2, 'curated week 36: 2 questions');
 const q20 = getWeekQuestions(20);
-eq(q20.length, 2, 'fallback week: 2 questions');
+eq(q20.length, 2, 'generic week-20 questions: 2');
 ok(
   !q20.some((q) => /should|must|never/i.test(q)),
-  'fallback questions are prompts, not advice',
+  'generic questions are prompts, not advice',
 );
 
 // --- week range label ----------------------------------------------------

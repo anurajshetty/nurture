@@ -66,7 +66,8 @@ function formatTime(iso: string): string {
   const dayMs = 86_400_000;
   const dayDiff = Math.round((startOf(now).getTime() - startOf(d).getTime()) / dayMs);
   const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  if (dayDiff <= 0) return `Today · ${time}`;
+  // Future dates (dayDiff < 0) render their actual date — never "Today".
+  if (dayDiff === 0) return `Today · ${time}`;
   if (dayDiff === 1) return `Yesterday · ${time}`;
   const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   return `${date} · ${time}`;

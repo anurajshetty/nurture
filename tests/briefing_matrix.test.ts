@@ -70,10 +70,14 @@ function titles(slots: PlanSlot[]): string[] {
 /* ------------------------------------------------------------------ */
 
 {
-  checkTrue('matrix: weeks 36-42 curated', CURATED_WEEKS.join(',') === '36,37,38,39,40,41,42');
+  checkTrue(
+    'matrix: weeks 4-42 curated',
+    CURATED_WEEKS.join(',') === Array.from({ length: 39 }, (_, i) => i + 4).join(','),
+  );
   checkTrue('matrix: week 36 has curated row', hasCuratedRow(36));
-  checkTrue('matrix: week 28 falls back', !hasCuratedRow(28));
-  checkTrue('matrix: week 4 falls back', !hasCuratedRow(4));
+  checkTrue('matrix: week 28 curated', hasCuratedRow(28));
+  checkTrue('matrix: week 4 curated', hasCuratedRow(4));
+  checkTrue('matrix: week 2 still falls back', !hasCuratedRow(2));
 
   // getMatrixRow never returns undefined for any valid week.
   for (let w = 4; w <= 42; w++) {
@@ -87,7 +91,7 @@ function titles(slots: PlanSlot[]): string[] {
   }
 
   // Fallback rows carry safe generic copy — never empty seeds.
-  const fb = getMatrixRow(20);
+  const fb = getMatrixRow(2);
   checkTrue('matrix: fallback baby seeds non-empty', fb.routineSeeds.baby.length > 0);
   checkTrue('matrix: fallback body seeds non-empty', fb.routineSeeds.body.length > 0);
   checkTrue('matrix: fallback know seeds non-empty', fb.routineSeeds.know.length > 0);
@@ -184,9 +188,8 @@ function titles(slots: PlanSlot[]): string[] {
 }
 
 {
-  // Fallback week 28: prep windows still apply (glucose window is 24–28,
-  // but the matrix prep set starts at 32 — none active at 28).
-  const plan = buildPlan(input({ week: 28, day: 3, date: '2026-07-20' }));
+  // Fallback week 2: the matrix prep set starts at week 32 — none active at 2.
+  const plan = buildPlan(input({ week: 2, day: 3, date: '2026-07-20' }));
   checkTrue(
     'engine: no prep card when no window active',
     !plan.slots.some((s) => s.slotId.startsWith('timely-prep-')),
@@ -384,7 +387,7 @@ const LOGS = [
     }
   }
   // Fallback row too.
-  const fb = buildPlan(input({ week: 20, day: 3, date: '2026-05-20' }));
+  const fb = buildPlan(input({ week: 2, day: 3, date: '2026-05-20' }));
   const fbText = JSON.stringify(fb.slots.map((s) => [s.preview, s.body])).toLowerCase();
   checkTrue('safety: fallback has no prescriptive language', !fbText.includes('you should'));
 }

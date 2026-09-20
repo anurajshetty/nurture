@@ -748,6 +748,7 @@ async function babyNamePolicyTests(): Promise<void> {
   }
 
   // 3. On the 'name' rotation day with a name set → the celebration card.
+  // (Week 29 has no rotatingBoost, so the full rotation order applies.)
   {
     const store = new MemStore();
     // 2026-01-03: dayOfYear 3 % 5 === 3 → ROTATION_ORDER[3] === 'name'.
@@ -756,7 +757,7 @@ async function babyNamePolicyTests(): Promise<void> {
       today: '2026-01-03',
       store,
       online: true,
-      buildContext: () => makeCtx(28, 3),
+      buildContext: () => makeCtx(29, 3),
       getBabyName: () => 'Wren',
       phrase: echoPhrase,
       onUpdate: (s, b) => {

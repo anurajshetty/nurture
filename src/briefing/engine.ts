@@ -201,6 +201,20 @@ export function applyAgeBandNote(
   if (typeof note === 'string' && note.length > 0) body.push([{ text: note }]);
 }
 
+/**
+ * Phraser contract: the Edge Function rejects the entire phrase request
+ * when any phrase:true preview exceeds 80 chars. Curated anchors, teasers,
+ * and milestone copy can be longer (they render in full on the Week tab
+ * and in card bodies), so the briefing preview — a subtitle seed the
+ * phraser rewords — is clamped at a word boundary. Follows the clampLen
+ * convention (client.ts).
+ */
+function fitPreview(s: string): string {
+  if (s.length <= 80) return s;
+  const cut = s.slice(0, 79).replace(/\s+\S*$/, '');
+  return `${cut || s.slice(0, 79)}…`;
+}
+
 function routineSlot(
   id: RoutineId,
   row: WeekMatrixRow,
@@ -217,9 +231,9 @@ function routineSlot(
   if (id === 'body') applyAgeBandNote(body, row, input.ageBand);
   const preview =
     id === 'baby'
-      ? row.anchors.baby
+      ? fitPreview(row.anchors.baby)
       : id === 'body'
-        ? row.anchors.body
+        ? fitPreview(row.anchors.body)
         : id === 'know'
           ? 'General information — your care team knows the rest'
           : 'Tiny things that can help today';
@@ -244,7 +258,7 @@ function milestoneSlot(m: MatrixMilestone): PlanSlot {
     slotId: `timely-milestone-${m.id}`,
     section: 'timely',
     title: m.weekOffset === 0 ? m.label : `One week to ${m.label.toLowerCase()}`,
-    preview: m.copy,
+    preview: fitPreview(m.copy),
     body: para(m.copy),
     phrase: true,
     tint: tile.tint,
@@ -260,7 +274,7 @@ function prepSlot(p: MatrixPrep): PlanSlot {
     slotId: `timely-prep-${p.id}`,
     section: 'timely',
     title: 'A gentle heads-up',
-    preview: p.copy,
+    preview: fitPreview(p.copy),
     body: para(p.copy),
     phrase: true,
     tint: tile.tint,
@@ -276,7 +290,7 @@ function headsupSlot(teaser: string): PlanSlot {
     slotId: 'headsup',
     section: 'headsup',
     title: 'New this week',
-    preview: teaser,
+    preview: fitPreview(teaser),
     body: para(teaser),
     phrase: true,
     tint: tile.tint,

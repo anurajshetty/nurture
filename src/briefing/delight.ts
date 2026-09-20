@@ -878,7 +878,18 @@ function pickRotating(
 ): DelightCard {
   const base = boost && boost.length > 0 ? boost : ROTATION_ORDER;
   const order = hasBabyName ? base : base.filter((k) => k !== 'name');
-  const kinds = order.length > 0 ? order : ROTATION_ORDER.filter((k) => k !== 'name');
+  // Partner tips are authored per week (weeks 12–40). If this week has no
+  // tip, 'partner' can't render — drop it from the rotation so the pick
+  // always lands on a kind with content. (Weeks 4–11 have no partner tips;
+  // without this the rotating card crashes for those weeks.)
+  const withContent =
+    PARTNER_TIPS[clampWeek(week)] === undefined
+      ? order.filter((k) => k !== 'partner')
+      : order;
+  const kinds =
+    withContent.length > 0
+      ? withContent
+      : ROTATION_ORDER.filter((k) => k !== 'name' && k !== 'partner');
   const kind = kinds[dayOfYear(today) % kinds.length];
   if (kind === 'name') return nameCelebrationCard();
   let state = loadState(store);
