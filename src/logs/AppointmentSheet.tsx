@@ -11,24 +11,18 @@
  * she expects it (the appointment editor opens there once the
  * Logs-side param handling lands).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import BottomSheet from '../components/BottomSheet';
 import { DatePickerField } from '../components/DatePickerField';
 import { TimePickerField } from '../components/TimePickerField';
 import { colors, radii, spacing, type as typeScale } from '../theme/tokens';
-import { saveEvent } from '../sync/store';
+import { getActivePregnancy, saveEvent } from '../sync/store';
+import { appointmentDateBounds } from '../onboarding/dates';
 import { refreshAppointmentReminders } from '../notifications/appointments';
 import type { LocalEvent } from '../lib/types';
 import { buildAppointmentInput } from './appointmentInput';
-
-// Matches the Composer's appointment proposal bounds: appointments are
-// logged past or future, so the date picker spans a year either way.
-const APPT_MIN_DATE = new Date();
-APPT_MIN_DATE.setFullYear(APPT_MIN_DATE.getFullYear() - 1);
-const APPT_MAX_DATE = new Date();
-APPT_MAX_DATE.setFullYear(APPT_MAX_DATE.getFullYear() + 1);
 
 /** Default time when she doesn't touch the picker: 10:30 AM today. */
 function defaultTime(): Date {
@@ -50,6 +44,22 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
   const [date, setDate] = useState(() => new Date());
   const [time, setTime] = useState(defaultTime);
   const [where, setWhere] = useState('');
+
+  // Picker window (Anuraj, Sept 2026): min = today (no past scheduled
+  // dates); max = the pregnancy's due date + 2 months from the record, so
+  // postpartum checkups after delivery stay pickable without the picker
+  // running unbounded. The scheduled date is card data only — it never
+  // affects feed position.
+  const dateBounds = useMemo(() => {
+    let due: string | null = null;
+    try {
+      due = getActivePregnancy()?.dueDate ?? null;
+    } catch {
+      // Store unavailable (tests) — appointmentDateBounds falls back to
+      // today + 2 months.
+    }
+    return appointmentDateBounds(due);
+  }, [visible]);
 
   // The sheet stays mounted while hidden — start every session with a
   // fresh form, not the previous appointment's details.
@@ -109,8 +119,8 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
           <View style={styles.whenPill} testID="appointment-date-wrap">
             <DatePickerField
               value={date}
-              minimumDate={APPT_MIN_DATE}
-              maximumDate={APPT_MAX_DATE}
+              minimumDate={dateBounds.min}
+              maximumDate={dateBounds.max}
               onChange={setDate}
               accessibilityLabel="Appointment date"
               testID="appointment-date"

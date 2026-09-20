@@ -63,7 +63,8 @@ function ev(partial: Partial<LocalEvent> & { type: string }): LocalEvent {
     data: partial.data ?? {},
     idempotencyKey: `k${seq}`,
     deletedAt: null,
-    updatedAt: '2026-09-10T10:00:00.000Z',
+    updatedAt: partial.updatedAt ?? '2026-09-10T10:00:00.000Z',
+    createdAt: partial.createdAt ?? partial.occurredAt ?? '2026-09-10T10:00:00.000Z',
     dirty: false,
   };
 }

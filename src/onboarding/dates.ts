@@ -53,6 +53,35 @@ export function addDaysISO(iso: string, days: number): string | null {
   return toISODate(d);
 }
 
+/** Adds whole months to a YYYY-MM-DD date, clamping the day when the target
+ *  month is shorter (Jan 31 + 1 month → Feb 28); null on invalid input. */
+export function addMonthsISO(iso: string, months: number): string | null {
+  const d = parseISODate(iso);
+  if (!d) return null;
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, dim));
+  return toISODate(d);
+}
+
+/**
+ * Appointment scheduled-date picker bounds (Anuraj, Sept 2026): min is
+ * today — no past scheduled dates; max is the pregnancy's due date + 2
+ * months, so postpartum checkups after delivery stay pickable without the
+ * picker running unbounded. Pure — pass the active pregnancy's due date
+ * (YYYY-MM-DD) from the record, never a hardcoded date; when no due date
+ * is on the record yet (mid-onboarding), the window falls back to
+ * today + 2 months.
+ */
+export function appointmentDateBounds(dueISO: string | null): { min: Date; max: Date } {
+  const min = startOfToday();
+  const base = (dueISO && parseISODate(dueISO)) || min;
+  const maxISO = addMonthsISO(toISODate(base), 2);
+  return { min, max: (maxISO && parseISODate(maxISO)) || min };
+}
+
 /**
  * Naegele's rule: estimated due date from the first day of the last period.
  * Returns null when the LMP is not a valid date.

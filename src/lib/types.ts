@@ -83,6 +83,13 @@ export interface LocalEvent {
   /** Tombstone: set when deleted. Row is kept until the server acknowledges it. */
   deletedAt: string | null; // ISO 8601
   updatedAt: string; // ISO 8601
+  /**
+   * Immutable creation timestamp (ISO 8601, v6 schema). Appointment cards
+   * in the feed sort and week-band by this — the entry sits in the story
+   * where it was logged, not at its scheduled date. Always resolved (falls
+   * back to occurredAt for rows that predate the column).
+   */
+  createdAt: string; // ISO 8601
   /** True while the row has local changes not yet pushed to the server. */
   dirty: boolean;
 }

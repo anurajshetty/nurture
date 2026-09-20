@@ -20,7 +20,7 @@
  *   node /tmp/nurture-onboarding-profile-tests/tests/onboarding_profile.test.js
  */
 
-import { validateDob } from '../src/onboarding/dates';
+import { addMonthsISO, appointmentDateBounds, toISODate, todayISO, validateDob } from '../src/onboarding/dates';
 import {
   buildInviteMessage,
   buildInviteSubject,
@@ -28,7 +28,7 @@ import {
   buildSmsUrl,
   detectContactKind,
 } from '../src/onboarding/shareInvite';
-import { applySchema, type SyncDbHandle } from '../src/lib/schema';
+import { applySchema, SCHEMA_VERSION, type SyncDbHandle } from '../src/lib/schema';
 
 declare const process: { exit(code: number): void };
 
@@ -139,13 +139,18 @@ const URL = 'https://nurture.app/join/8f3k-29dx-qw';
 /* ------------------------------------------------------------------ */
 
 /** Minimal in-memory SyncDbHandle supporting exactly what applySchema issues. */
-function fakeHandle(legacy: boolean): SyncDbHandle & { columns: string[]; meta: Map<string, string> } {
+function fakeHandle(legacy: boolean): SyncDbHandle & { columns: string[]; eventColumns: string[]; meta: Map<string, string> } {
   const columns = legacy
     ? ['id', 'user_id', 'due_date', 'lmp_date', 'pregnancy_type', 'parity', 'status', 'updated_at', 'dirty']
     : ['id', 'user_id', 'due_date', 'lmp_date', 'owner_name', 'dob', 'pregnancy_type', 'parity', 'status', 'updated_at', 'dirty'];
+  // events table: legacy (pre-v6) rows lack created_at.
+  const eventColumns = legacy
+    ? ['id', 'user_id', 'pregnancy_id', 'type', 'occurred_at', 'visibility', 'data', 'idempotency_key', 'deleted_at', 'updated_at', 'dirty']
+    : ['id', 'user_id', 'pregnancy_id', 'type', 'occurred_at', 'visibility', 'data', 'idempotency_key', 'deleted_at', 'updated_at', 'created_at', 'dirty'];
   const meta = new Map<string, string>(legacy ? [['schema_version', '3']] : []);
   const api = {
     columns,
+    eventColumns,
     meta,
     getFirstSync<T>(source: string): T | null {
       if (source.includes("key = 'schema_version'")) {
@@ -158,14 +163,17 @@ function fakeHandle(legacy: boolean): SyncDbHandle & { columns: string[]; meta: 
       if (source.startsWith('PRAGMA table_info(pregnancies)')) {
         return columns.map((name) => ({ name }) as unknown as T);
       }
+      if (source.startsWith('PRAGMA table_info(events)')) {
+        return eventColumns.map((name) => ({ name }) as unknown as T);
+      }
       return [];
     },
     runSync(source: string, ...params: unknown[]): { changes: number; lastInsertRowId: number } {
       // applySchema issues INSERT OR IGNORE with a ? param; runMigrations
-      // issues INSERT OR REPLACE with the version inlined as '4'.
-      const m = /INSERT OR (REPLACE|IGNORE) INTO meta \(key, value\) VALUES \('schema_version', (?:\?|'4')\)/.exec(source);
+      // issues INSERT OR REPLACE with the version inlined ('4' … '6').
+      const m = /INSERT OR (REPLACE|IGNORE) INTO meta \(key, value\) VALUES \('schema_version', (?:\?|'(\d+)')\)/.exec(source);
       if (m) {
-        const value = source.includes("'4'") ? '4' : String(params[0]);
+        const value = m[2] ?? String(params[0]);
         if (m[1] === 'REPLACE' || !meta.has('schema_version')) {
           meta.set('schema_version', value);
         }
@@ -173,8 +181,10 @@ function fakeHandle(legacy: boolean): SyncDbHandle & { columns: string[]; meta: 
       return { changes: 0, lastInsertRowId: 0 };
     },
     execSync(source: string): void {
-      const alter = /ALTER TABLE pregnancies ADD COLUMN (\w+)/.exec(source);
-      if (alter && !columns.includes(alter[1])) columns.push(alter[1]);
+      const alterPreg = /ALTER TABLE pregnancies ADD COLUMN (\w+)/.exec(source);
+      if (alterPreg && !columns.includes(alterPreg[1])) columns.push(alterPreg[1]);
+      const alterEv = /ALTER TABLE events ADD COLUMN (\w+)/.exec(source);
+      if (alterEv && !eventColumns.includes(alterEv[1])) eventColumns.push(alterEv[1]);
       // CREATE TABLE IF NOT EXISTS on a fresh handle: columns already seeded.
     },
     withTransactionSync(task: () => void): void {
@@ -185,26 +195,54 @@ function fakeHandle(legacy: boolean): SyncDbHandle & { columns: string[]; meta: 
 }
 
 {
-  // Fresh database: CREATE TABLE carries the new columns, version lands on 4.
+  // Fresh database: CREATE TABLE carries the new columns, version lands on SCHEMA_VERSION.
   const fresh = fakeHandle(false);
   applySchema(fresh);
   ok(fresh.columns.includes('owner_name'), 'schema: fresh db has owner_name');
   ok(fresh.columns.includes('dob'), 'schema: fresh db has dob');
-  ok(fresh.meta.get('schema_version') === '5', 'schema: fresh db version is 5');
+  ok(fresh.eventColumns.includes('created_at'), 'schema: fresh db has events.created_at');
+  ok(fresh.meta.get('schema_version') === String(SCHEMA_VERSION), 'schema: fresh db version is SCHEMA_VERSION');
 
-  // Legacy v3 database: migration adds both columns, bumps to 4.
+  // Legacy v3 database: migrations add the missing columns and walk the
+  // version all the way to SCHEMA_VERSION.
   const legacy = fakeHandle(true);
   ok(!legacy.columns.includes('dob'), 'schema: legacy db starts without dob');
+  ok(!legacy.eventColumns.includes('created_at'), 'schema: legacy db starts without events.created_at');
   applySchema(legacy);
   ok(legacy.columns.includes('owner_name'), 'schema: migration adds owner_name');
   ok(legacy.columns.includes('dob'), 'schema: migration adds dob');
-  ok(legacy.meta.get('schema_version') === '4', 'schema: legacy db version becomes 4');
+  ok(legacy.eventColumns.includes('created_at'), 'schema: migration adds events.created_at');
+  ok(legacy.meta.get('schema_version') === String(SCHEMA_VERSION), 'schema: legacy db version becomes SCHEMA_VERSION');
 
   // Idempotent: a second run changes nothing.
   const before = legacy.columns.length;
+  const beforeEv = legacy.eventColumns.length;
   applySchema(legacy);
   ok(legacy.columns.length === before, 'schema: migration is idempotent');
-  ok(legacy.meta.get('schema_version') === '4', 'schema: version stays 4');
+  ok(legacy.eventColumns.length === beforeEv, 'schema: events migration is idempotent');
+  ok(legacy.meta.get('schema_version') === String(SCHEMA_VERSION), 'schema: version stays SCHEMA_VERSION');
+}
+
+/* ------------------------------------------------------------------ */
+/* appointmentDateBounds (Anuraj, Sept 2026)                            */
+/* ------------------------------------------------------------------ */
+
+{
+  // addMonthsISO clamps short months instead of overflowing.
+  ok(addMonthsISO('2026-10-08', 2) === '2026-12-08', 'addMonths: Oct 8 + 2mo = Dec 8');
+  ok(addMonthsISO('2026-01-31', 1) === '2026-02-28', 'addMonths: Jan 31 + 1mo clamps to Feb 28');
+  ok(addMonthsISO('not-a-date', 2) === null, 'addMonths: invalid input -> null');
+
+  // Bounds follow the pregnancy record's due date — never hardcoded.
+  const b = appointmentDateBounds('2026-10-08');
+  ok(toISODate(b.min) === todayISO(), 'appt bounds: min is today');
+  ok(toISODate(b.max) === '2026-12-08', 'appt bounds: max is due date + 2 months');
+  ok(b.max.getTime() > b.min.getTime(), 'appt bounds: max is after min');
+
+  // No due date on the record yet (mid-onboarding): today + 2 months.
+  const fb = appointmentDateBounds(null);
+  ok(toISODate(fb.min) === todayISO(), 'appt bounds fallback: min is today');
+  ok(toISODate(fb.max) === addMonthsISO(todayISO(), 2), 'appt bounds fallback: max is today + 2 months');
 }
 
 console.log(`\n=== onboarding_profile: ${passed} passed, ${failed} failed ===`);

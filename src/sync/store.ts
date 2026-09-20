@@ -27,6 +27,7 @@ interface EventRow {
   idempotency_key: string;
   deleted_at: string | null;
   updated_at: string;
+  created_at: string | null;
   dirty: number;
 }
 
@@ -64,6 +65,10 @@ function rowToEvent(row: EventRow): LocalEvent {
     idempotencyKey: row.idempotency_key,
     deletedAt: row.deleted_at,
     updatedAt: row.updated_at,
+    // created_at is NOT NULL from v6 on; the fallback covers rows read
+    // from a database whose migration hasn't run yet (shouldn't happen —
+    // applySchema runs at boot — but never return a hole).
+    createdAt: row.created_at ?? row.occurred_at,
     dirty: row.dirty === 1,
   };
 }
@@ -86,13 +91,16 @@ export function saveEvent(input: EventInput): LocalEvent {
     idempotencyKey: Crypto.randomUUID(),
     deletedAt: null,
     updatedAt: now,
+    // created_at is the immutable story position: appointment cards sort
+    // by this in the feed (Anuraj, Sept 2026) — never rewritten afterwards.
+    createdAt: now,
     dirty: true,
   };
   db.withTransactionSync(() => {
     db.runSync(
       `INSERT INTO events (id, user_id, pregnancy_id, type, occurred_at, visibility, data,
-        idempotency_key, deleted_at, updated_at, dirty)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 1)`,
+        idempotency_key, deleted_at, updated_at, created_at, dirty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 1)`,
       event.id,
       event.userId,
       event.pregnancyId,
@@ -102,6 +110,7 @@ export function saveEvent(input: EventInput): LocalEvent {
       JSON.stringify(event.data),
       event.idempotencyKey,
       event.updatedAt,
+      event.createdAt,
     );
     db.runSync(
       `INSERT INTO outbox (id, event_id, op, attempts, created_at) VALUES (?, ?, 'upsert', 0, ?)`,
@@ -179,11 +188,19 @@ export function listEvents(limit = 200): LocalEvent[] {
 /**
  * Lists one page of local (non-deleted) events, newest first — the
  * pagination primitive behind the virtualized timeline.
+ *
+ * Story order (Anuraj, Sept 2026): every new report, log, or appointment
+ * goes to the top of the current week's feed section, so the feed sorts
+ * by the immutable created_at — never by subject date (not the
+ * appointment's scheduled date, not a report's document date). The
+ * COALESCE covers rows whose migration hasn't backfilled yet.
  */
 export function listEventsPage(limit: number, offset: number): LocalEvent[] {
   return getDb()
     .getAllSync<EventRow>(
-      'SELECT * FROM events WHERE deleted_at IS NULL ORDER BY occurred_at DESC LIMIT ? OFFSET ?',
+      `SELECT * FROM events WHERE deleted_at IS NULL
+       ORDER BY COALESCE(created_at, occurred_at) DESC
+       LIMIT ? OFFSET ?`,
       limit,
       offset,
     )

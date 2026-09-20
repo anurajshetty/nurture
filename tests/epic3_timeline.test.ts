@@ -17,6 +17,7 @@ import {
   formatWeekRange,
   pregnancyWeekForEvent,
   pregnancyWeekRange,
+  storyDateOf,
 } from '../src/timeline/timeline';
 import type { LocalEvent } from '../src/lib/types';
 
@@ -48,6 +49,7 @@ function mkEvent(id: string, occurredAt: string): LocalEvent {
     idempotencyKey: id,
     deletedAt: null,
     updatedAt: occurredAt,
+    createdAt: occurredAt,
     dirty: false,
   };
 }
@@ -134,6 +136,80 @@ const DUE = '2026-10-08';
   const sections = buildSections(mixed, DUE);
   check('bad timestamps skipped', sections.length, 1);
   check('good event still grouped', sections[0]?.data.map((e) => e.id), ['good']);
+}
+
+// ---------- storyDateOf: every entry sits where it was logged ----------
+
+function mkAppt(id: string, occurredAt: string, createdAt: string): LocalEvent {
+  return {
+    id,
+    userId: null,
+    pregnancyId: null,
+    type: 'appointment',
+    occurredAt,
+    visibility: 'private',
+    data: {},
+    idempotencyKey: id,
+    deletedAt: null,
+    updatedAt: createdAt,
+    createdAt,
+    dirty: false,
+  };
+}
+
+function mkReport(id: string, documentDate: string, createdAt: string): LocalEvent {
+  return {
+    id,
+    userId: null,
+    pregnancyId: null,
+    type: 'report',
+    occurredAt: documentDate,
+    visibility: 'private',
+    data: {},
+    idempotencyKey: id,
+    deletedAt: null,
+    updatedAt: createdAt,
+    createdAt,
+    dirty: false,
+  };
+}
+
+{
+  const appt = mkAppt('a', '2026-10-05T10:00:00.000Z', '2026-09-19T09:00:00.000Z');
+  const report = mkReport('r', '2026-08-01T10:00:00.000Z', '2026-09-19T09:00:00.000Z');
+  const note = mkEvent('n', '2026-09-19T09:00:00.000Z');
+  check('storyDateOf: appointment → createdAt', storyDateOf(appt), '2026-09-19T09:00:00.000Z');
+  check('storyDateOf: report → createdAt (not document date)', storyDateOf(report), '2026-09-19T09:00:00.000Z');
+  check('storyDateOf: note → createdAt', storyDateOf(note), '2026-09-19T09:00:00.000Z');
+  const legacy = { ...appt, createdAt: '' };
+  check('storyDateOf: blank createdAt falls back to occurredAt', storyDateOf(legacy), appt.occurredAt);
+}
+
+{
+  // A: visit scheduled Oct 5, logged Sep 19. B: visit scheduled Sep 21,
+  // logged Sep 20. Story order must be B then A (logged later first),
+  // even though A's visit is later.
+  const a = mkAppt('a', '2026-10-05T10:00:00.000Z', '2026-09-19T09:00:00.000Z');
+  const b = mkAppt('b', '2026-09-21T10:00:00.000Z', '2026-09-20T09:00:00.000Z');
+  const sections = buildSections([a, b], DUE);
+  const flat = sections.flatMap((s) => s.data.map((e) => e.id));
+  check('appointments sort by created date, not scheduled date', flat, ['b', 'a']);
+  // Both logged in the same week → one band, the logged week (completed
+  // week 37 → display "Week 38"), not the visit weeks.
+  check('appointments band by logged week', sections.map((s) => s.key), ['preg-37']);
+}
+
+{
+  // R: report with a document date of Aug 1 but logged Sep 20. S:
+  // report with document date Sep 18 but logged Sep 19. Story order must
+  // be R then S (logged later first) — sorted by created date, never by
+  // document date — and both band by logged week.
+  const r = mkReport('r', '2026-08-01T10:00:00.000Z', '2026-09-20T09:00:00.000Z');
+  const s = mkReport('s', '2026-09-18T10:00:00.000Z', '2026-09-19T09:00:00.000Z');
+  const sections = buildSections([r, s], DUE);
+  const flat = sections.flatMap((sec) => sec.data.map((e) => e.id));
+  check('reports sort by created date, not document date', flat, ['r', 's']);
+  check('reports band by logged week', sections.map((sec) => sec.key), ['preg-37']);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

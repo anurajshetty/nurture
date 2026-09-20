@@ -16,9 +16,13 @@ Checks (all real UI, no stubs):
      kicker/row, NO reminder sheet, NO status pills (question-chip-*).
   2. Remove a question -> row disappears immediately.
   3. Add questions up to 5 -> add button disables, "That's 5" note shows.
-  4. Save -> "Saved" toast, sheet closes.
+  4. Save -> NO "Saved" toast/pill anywhere, sheet closes IMMEDIATELY,
+     and the feed card now reads "5 questions to ask".
   5. Week: tap the "Coming up" card -> the SAME sheet opens.
-  6. Zero page errors throughout.
+  6. Feed story order (Sept 2026): two appointments seeded with crossed
+     scheduled vs logged dates render newest-LOGGED first, and the
+     appointment date sits at the card's right edge (positional check).
+  7. Zero page errors throughout.
 
 Run:  python3 tests/interactive/appointment_questions_test.py [--keep-open]
 """
@@ -174,14 +178,20 @@ def main():
               or add_btn.get_attribute("aria-disabled") == "true")
         check("max note shows", "the max" in text)
 
-        # --- 4. Save -> toast + close ------------------------------------
+        # --- 4. Save -> NO toast, immediate close, feed count updates ----
+        # Anuraj, Sept 2026: the black "Saved" pill is removed; Save closes
+        # the sheet immediately and the feed card picks up the new count.
         print("Save")
         page.get_by_test_id("appointment-save").click()
-        page.wait_for_timeout(600)
-        check("Saved toast", "Saved" in page.evaluate("document.body.innerText"))
-        page.wait_for_timeout(1500)
-        check("sheet closes after save",
+        page.wait_for_timeout(400)
+        check("NO Saved toast/pill after save",
+              "Saved" not in page.evaluate("document.body.innerText"))
+        check("sheet closes immediately after save",
               page.get_by_test_id("appointment-editor").count() == 0)
+        page.wait_for_timeout(1200)
+        feed_text = page.evaluate("document.body.innerText")
+        check("feed card shows 5 questions to ask",
+              "5 questions to ask" in feed_text)
 
         # --- 5. Week Coming-up card opens the SAME sheet ------------------
         print("Week -> tap Coming up card")
@@ -200,7 +210,67 @@ def main():
         check("Week sheet: no Notes", "Notes" not in text)
         page.screenshot(path="/tmp/appt-questions-sheet-390x844.png")
 
-        # --- 6. zero page errors ------------------------------------------
+        # --- 6. feed story order + date position -------------------------
+        # A: scheduled +10 days, logged 2 days ago. B: scheduled +1 day,
+        # logged just now. Feed must show B then A (newest-logged first),
+        # and each appointment date must sit at the card's right edge.
+        print("Feed story order: seed crossed scheduled/logged dates")
+        page.evaluate("""() => {
+          const t = window.__nurtureTest;
+          t.clearEvents();
+          const now = new Date();
+          const aWhen = new Date(now);
+          aWhen.setDate(aWhen.getDate() + 10);
+          aWhen.setHours(10, 30, 0, 0);
+          const a = t.seedEvent({
+            type: 'appointment',
+            occurredAt: aWhen.toISOString(),
+            data: { title: 'Later visit', provider: 'Dr. Izu', questions: [] },
+          });
+          const twoDaysAgo = new Date(now);
+          twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+          t.setCreatedAt(a.id, twoDaysAgo.toISOString());
+          const bWhen = new Date(now);
+          bWhen.setDate(bWhen.getDate() + 1);
+          bWhen.setHours(9, 0, 0, 0);
+          t.seedEvent({
+            type: 'appointment',
+            occurredAt: bWhen.toISOString(),
+            data: { title: 'Soon visit', provider: 'Dr. Izu', questions: [] },
+          });
+        }""")
+        page.goto(LOGS_URL, wait_until="networkidle")
+        page.wait_for_timeout(2500)
+        # Card pressables only: the [data-testid^="event-card-"] prefix also
+        # matches sub-elements (date/questions/delete), so filter to the
+        # pressables themselves via JS and read them in DOM (= feed) order.
+        feed_texts = page.evaluate("""() => {
+          const all = [...document.querySelectorAll('[data-testid^="event-card-"]')];
+          const isSub = (el) => {
+            const t = el.getAttribute('data-testid') || '';
+            return t.startsWith('event-card-date-') || t.startsWith('event-card-questions-')
+                || t.startsWith('event-card-delete-') || t === 'event-card-photo-placeholder';
+          };
+          return all.filter((el) => !isSub(el)).map((el) => el.innerText);
+        }""")
+        check("two appointment cards in feed", len(feed_texts) == 2)
+        check("newest-logged appointment first (Soon visit)",
+              "Soon visit" in feed_texts[0])
+        check("older-logged appointment second (Later visit)",
+              "Later visit" in feed_texts[1])
+        # Positional: the date's right edge hugs the card's right edge.
+        first_card = page.locator('[data-testid^="event-card-"]',
+                                  has=page.locator('[data-testid^="event-card-date-"]')).first
+        card_box = first_card.bounding_box()
+        date_box = first_card.locator('[data-testid^="event-card-date-"]').bounding_box()
+        card_right = card_box["x"] + card_box["width"]
+        date_right = date_box["x"] + date_box["width"]
+        check("appointment date at card right edge",
+              card_right - date_right < 80
+              and date_right > card_box["x"] + card_box["width"] * 0.5)
+        page.screenshot(path="/tmp/appt-feed-order-390x844.png")
+
+        # --- 7. zero page errors ------------------------------------------
         check("zero page errors", len(errors) == 0)
         if errors:
             for e in errors:

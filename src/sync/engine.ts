@@ -52,6 +52,7 @@ interface EventRow {
   idempotency_key: string;
   deleted_at: string | null;
   updated_at: string;
+  created_at: string | null;
   dirty: number;
 }
 
@@ -89,6 +90,7 @@ function rowToEvent(row: EventRow): LocalEvent {
     idempotencyKey: row.idempotency_key,
     deletedAt: row.deleted_at,
     updatedAt: row.updated_at,
+    createdAt: row.created_at ?? row.occurred_at,
     dirty: row.dirty === 1,
   };
 }
@@ -106,6 +108,7 @@ function serverToEvent(s: ServerEvent): LocalEvent {
     idempotencyKey: s.idempotency_key ?? s.id,
     deletedAt: s.deleted_at,
     updatedAt: s.updated_at,
+    createdAt: s.created_at ?? s.occurred_at,
     dirty: false,
   };
 }
@@ -192,8 +195,8 @@ function applyServerRow(s: ServerEvent, result: SyncResult): void {
   if (!local) {
     db.runSync(
       `INSERT OR REPLACE INTO events (id, user_id, pregnancy_id, type, occurred_at, visibility,
-        data, idempotency_key, deleted_at, updated_at, dirty)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        data, idempotency_key, deleted_at, updated_at, created_at, dirty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       s.id,
       s.user_id,
       s.pregnancy_id,
@@ -204,6 +207,9 @@ function applyServerRow(s: ServerEvent, result: SyncResult): void {
       remote.idempotencyKey,
       s.deleted_at,
       s.updated_at,
+      // The server's created_at is the entry's creation time; fall back
+      // to occurred_at when the server row predates the column.
+      s.created_at ?? s.occurred_at,
     );
     result.pulled += 1;
     return;

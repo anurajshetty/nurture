@@ -336,8 +336,25 @@ export default function EventCard({ event, onAppointmentPress, onAppointmentDele
           </View>
           <Text style={styles.typeLabel}>{meta.label}</Text>
         </View>
-        <Text style={styles.time}>{formatTime(event.occurredAt)}</Text>
-        <Text style={styles.visibility}>{visibilityLabel(event.visibility)}</Text>
+        {/*
+          Appointment cards (Anuraj, Sept 2026): the appointment date sits
+          at the RIGHT end of the card; the visibility label tucks in right
+          after the APPOINTMENT label. Every other entry keeps the date
+          next to its label with visibility pushed right.
+        */}
+        {isAppointment ? (
+          <>
+            <Text style={[styles.visibility, styles.visibilityInline]}>
+              {visibilityLabel(event.visibility)}
+            </Text>
+            <Text style={[styles.time, styles.timeRight]} testID={`event-card-date-${event.id}`}>{formatTime(event.occurredAt)}</Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.time}>{formatTime(event.occurredAt)}</Text>
+            <Text style={styles.visibility}>{visibilityLabel(event.visibility)}</Text>
+          </>
+        )}
       </View>
       {title ? <Text style={styles.title}>{title}</Text> : null}
       {isAppointment ? (
@@ -459,6 +476,15 @@ const styles = StyleSheet.create({
   time: {
     ...typeScale.footnote,
     color: colors.muted,
+  },
+  // Appointment cards: the date rides the right end of the meta row.
+  timeRight: {
+    marginLeft: 'auto',
+  },
+  // Appointment cards: visibility sits right after the type label instead
+  // of riding the right end (the date takes that spot).
+  visibilityInline: {
+    marginLeft: 0,
   },
   visibility: {
     ...typeScale.footnote,

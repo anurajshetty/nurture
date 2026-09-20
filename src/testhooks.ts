@@ -58,5 +58,13 @@ export function installTestHooks(): void {
         new Date().toISOString(),
       );
     },
+    /**
+     * Backdates an event's immutable created_at (appointment story-order
+     * tests): lets the interactive suite seed appointments whose scheduled
+     * date differs from the date they were logged.
+     */
+    setCreatedAt: (id: string, iso: string) => {
+      getDb().runSync('UPDATE events SET created_at = ? WHERE id = ?', iso, id);
+    },
   };
 }

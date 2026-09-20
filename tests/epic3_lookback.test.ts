@@ -47,6 +47,7 @@ function ev(over: { type: EventType; occurredAt: string; data?: Record<string, u
     idempotencyKey: `k-${seq}`,
     deletedAt: over.deletedAt ?? null,
     updatedAt: '2026-09-18T00:00:00.000Z',
+    createdAt: over.occurredAt,
     dirty: false,
   };
 }

@@ -16,7 +16,7 @@ export interface SyncDbHandle {
 }
 
 export const DB_NAME = 'nurture.db';
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS events (
   idempotency_key TEXT UNIQUE NOT NULL,
   deleted_at TEXT,
   updated_at TEXT NOT NULL,
+  -- v6 (Willow, Sept 2026): creation timestamp. The feed's story order
+  -- keys off this for EVERY entry — each new report, log, or appointment
+  -- lands at the top of the current week's section, never at a subject
+  -- date (appointment's scheduled date, report's document date). Set once
+  -- at insert, never updated.
+  created_at TEXT,
   dirty INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS outbox (
@@ -215,6 +221,23 @@ function runMigrations(handle: SyncDbHandle): void {
       });
     }
     handle.runSync("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '5')");
+  }
+  if (current < 6) {
+    // v6 (Willow feed story order, Sept 2026): events gains created_at,
+    // the immutable creation timestamp. EVERY new report, log, or
+    // appointment goes to the top of the current week's feed section: the
+    // feed sorts and week-bands by creation date, never by subject date
+    // (not the appointment's scheduled date, not a report's document
+    // date). Set once at insert, never updated. Existing rows backfill to
+    // occurred_at — the closest knowable story position, and exactly the
+    // order they already render in, so nothing visibly reshuffles on
+    // upgrade.
+    const cols = handle.getAllSync<{ name: string }>('PRAGMA table_info(events)');
+    if (!cols.some((c) => c.name === 'created_at')) {
+      handle.execSync('ALTER TABLE events ADD COLUMN created_at TEXT');
+    }
+    handle.runSync('UPDATE events SET created_at = occurred_at WHERE created_at IS NULL');
+    handle.runSync("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '6')");
   }
 }
 

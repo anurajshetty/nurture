@@ -13,7 +13,7 @@
  * "Saved · Undo" toast. Everything works offline and queues for sync.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -25,9 +25,9 @@ import {
 import { Feather } from '@expo/vector-icons';
 import BottomSheet from '../components/BottomSheet';
 import { DatePickerField } from '../components/DatePickerField';
-import { toISODate } from '../onboarding/dates';
+import { appointmentDateBounds, toISODate } from '../onboarding/dates';
 import { colors, radii, shadow, spacing, type as typeScale } from '../theme/tokens';
-import { deleteEvent, saveEvent } from '../sync/store';
+import { deleteEvent, getActivePregnancy, saveEvent } from '../sync/store';
 import {
   drainMediaOutbox,
   enqueueMediaUploads,
@@ -91,12 +91,10 @@ interface Toast {
 const TOAST_MS = 8000;
 const MOOD_POPOVER_MS = 12000;
 
-// "When?" row bounds on the appointment proposal (Epic 4.5): appointments
-// are logged past or future, so the picker spans a year either way.
-const APPT_MIN_DATE = new Date();
-APPT_MIN_DATE.setFullYear(APPT_MIN_DATE.getFullYear() - 1);
-const APPT_MAX_DATE = new Date();
-APPT_MAX_DATE.setFullYear(APPT_MAX_DATE.getFullYear() + 1);
+// "When?" row bounds on the appointment proposal (Anuraj, Sept 2026):
+// computed per render from the pregnancy record — min = today (no past
+// scheduled dates), max = due date + 2 months (postpartum checkups stay
+// pickable; the picker never runs unbounded). See appointmentDateBounds.
 
 function formatElapsed(totalSecs: number): string {
   const m = Math.floor(totalSecs / 60);
@@ -154,6 +152,22 @@ export default function Composer({
   const hasText = text.trim().length > 0;
   const hasAttachments = attachments.length > 0;
   const proposal = proposals[proposalIdx] ?? null;
+
+  // Picker window (Anuraj, Sept 2026): min = today (no past scheduled
+  // dates); max = the pregnancy's due date + 2 months from the record, so
+  // postpartum checkups after delivery stay pickable without the picker
+  // running unbounded. The scheduled date is card data only — it never
+  // affects feed position.
+  const apptBounds = useMemo(() => {
+    if (proposal?.kind !== 'appointment') return null;
+    let due: string | null = null;
+    try {
+      due = getActivePregnancy()?.dueDate ?? null;
+    } catch {
+      // Store unavailable — appointmentDateBounds falls back to today + 2 months.
+    }
+    return appointmentDateBounds(due);
+  }, [proposal]);
 
   const clearToastTimer = () => {
     if (toastTimer.current) {
@@ -462,8 +476,8 @@ export default function Composer({
               <View style={styles.whenPicker}>
                 <DatePickerField
                   value={appointmentDate ?? new Date()}
-                  minimumDate={APPT_MIN_DATE}
-                  maximumDate={APPT_MAX_DATE}
+                  minimumDate={apptBounds?.min ?? new Date()}
+                  maximumDate={apptBounds?.max ?? new Date()}
                   onChange={setAppointmentDate}
                   accessibilityLabel="Appointment date"
                   testID="appointment-date-picker"

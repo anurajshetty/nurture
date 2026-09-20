@@ -69,10 +69,25 @@ export function pregnancyWeekForDay(dueDate: string, dayISO: string): number | n
  * Completed pregnancy week an event belongs to, or null when the dates
  * don't parse. Events before week 1 (or after week 42) clamp to the
  * nearest band so every card always lands somewhere warm, never nowhere.
+ *
+ * NOTE: pass the event's STORY date (storyDateOf), not occurredAt raw —
+ * appointment cards belong to the week they were logged in.
  */
 export function pregnancyWeekForEvent(dueDate: string, occurredAt: string): number | null {
   // The YYYY-MM-DD date part of the ISO timestamp; timezone-neutral.
   return pregnancyWeekForDay(dueDate, occurredAt.slice(0, 10));
+}
+
+/**
+ * The date an entry sits at in the story (Anuraj, Sept 2026): EVERY new
+ * report, log, or appointment goes to the top of the current week's feed
+ * section, so entries sort and week-band by CREATION date — never by
+ * subject date (not the appointment's scheduled date, not a report's
+ * document date). Pure — the feed's ORDER BY, week banding, and week
+ * filter all funnel through this one function so they can never disagree.
+ */
+export function storyDateOf(event: LocalEvent): string {
+  return event.createdAt || event.occurredAt;
 }
 
 /**
@@ -167,11 +182,12 @@ interface BandInfo {
 /** The week band for one event: pregnancy weeks when a due date is known,
  * otherwise Monday-start calendar weeks ("Week of Sep 14"). */
 function bandForEvent(event: LocalEvent, dueDate: string | null): BandInfo | null {
-  const day = event.occurredAt.slice(0, 10);
+  // Story position: appointments band by the week they were logged in.
+  const day = storyDateOf(event).slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
 
   if (dueDate) {
-    const week = pregnancyWeekForEvent(dueDate, event.occurredAt);
+    const week = pregnancyWeekForEvent(dueDate, storyDateOf(event));
     const range = week === null ? null : pregnancyWeekRange(week, dueDate);
     if (week === null || !range) return null;
     return {
@@ -203,9 +219,11 @@ export function buildSections(
   events: LocalEvent[],
   dueDate: string | null,
 ): TimelineSection[] {
-  const sorted = [...events].sort((a, b) =>
-    a.occurredAt < b.occurredAt ? 1 : a.occurredAt > b.occurredAt ? -1 : 0,
-  );
+  const sorted = [...events].sort((a, b) => {
+    const sa = storyDateOf(a);
+    const sb = storyDateOf(b);
+    return sa < sb ? 1 : sa > sb ? -1 : 0;
+  });
   const entries = new Map<string, { section: TimelineSection; sortKey: string }>();
   for (const event of sorted) {
     const band = bandForEvent(event, dueDate);

@@ -28,7 +28,7 @@ import {
   spacing,
   type as typeScale,
 } from '../../src/theme/tokens';
-import { countEvents, deleteEvent, listEventsInRange, listEventsPage } from '../../src/sync/store';
+import { countEvents, deleteEvent, getEvent, listEventsInRange, listEventsPage } from '../../src/sync/store';
 import { refreshAppointmentReminders } from '../../src/notifications/appointments';
 import { kvGet, kvSet } from '../../src/lib/db';
 import type { LocalEvent } from '../../src/lib/types';
@@ -51,6 +51,7 @@ import {
   formatWeekRange,
   pregnancyWeekForEvent,
   pregnancyWeekRange,
+  storyDateOf,
 } from '../../src/timeline/timeline';
 import type { TimelineSection } from '../../src/timeline/timeline';
 import {
@@ -111,7 +112,22 @@ export default function LogsScreen() {
   }, []);
   const closeAppointmentEditor = useCallback(() => {
     setEditorVisible(false);
-  }, []);
+    // The sheet persists questions straight to the store, but this
+    // screen's event list still holds the pre-edit snapshot — refresh the
+    // edited appointment so its "{n} questions to ask" line is current the
+    // moment the sheet closes. (The sheet is a BottomSheet, not a route,
+    // so the focus-effect reload below does NOT refire on close.)
+    if (editorEventId) {
+      try {
+        const fresh = getEvent(editorEventId);
+        if (fresh) {
+          setEvents((prev) => prev.map((e) => (e.id === fresh.id ? fresh : e)));
+        }
+      } catch {
+        // The list keeps its snapshot; the next focus reload heals it.
+      }
+    }
+  }, [editorEventId]);
   /**
    * Mockup 18 — delete appointment. deleteTarget is the appointment event
    * awaiting confirmation; the dialog is stateless. Confirming soft-deletes
@@ -251,15 +267,16 @@ export default function LogsScreen() {
   /**
    * Both filters applied in one place: the type chip, then the week
    * filter. A selected week keeps only events whose week — computed by
-   * the SAME single formula the dividers use (pregnancyWeekForEvent, via
-   * pregnancyWeekForDay) — equals it, so the filter and the bands can
-   * never disagree.
+   * the SAME single formula the dividers use (pregnancyWeekForEvent on the
+   * event's STORY date, via storyDateOf: every entry sits in the week it
+   * was logged in) — equals it, so the filter and the bands can never
+   * disagree.
    */
   const applyFilters = useCallback(
     (list: LocalEvent[]) => {
       let out = list.filter((e) => matchesFilter(e, filter));
       if (dueDate && weekFilter !== 'all') {
-        out = out.filter((e) => pregnancyWeekForEvent(dueDate, e.occurredAt) === weekFilter);
+        out = out.filter((e) => pregnancyWeekForEvent(dueDate, storyDateOf(e)) === weekFilter);
       }
       return out;
     },

@@ -11,19 +11,18 @@
  * Sep 19"), "time · provider" sub, YOUR QUESTIONS kicker, plain question
  * rows with a × remove each, "+ Add a question" (disabled at 5 with
  * "That's 5 — the max. Remove one to add another."), empty state
- * "Jot down what you want to ask — up to 5.", coral Save below with a
- * "Saved" toast. No status pills, no Notes, no Reminder section.
+ * "Jot down what you want to ask — up to 5.", coral Save below (no toast —
+ * Anuraj, Sept 2026). No status pills, no Notes, no Reminder section.
  *
  * Questions persist immediately on add/remove (`data.questions` on the
- * event, via src/plan/questions.ts); Save confirms with a toast and
- * closes the sheet.
+ * event, via src/plan/questions.ts); Save just closes the sheet.
  *
  * Mounted by the Week tab (tap-through from the "Coming up" card) and the
  * Logs tab (card tap / ?appointment=<id> deep link). When the event is
  * gone, the sheet says so gently.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -36,9 +35,7 @@ import BottomSheet from '../components/BottomSheet';
 import {
   colors,
   minTouch,
-  radii,
   spacing,
-  type as typeScale,
 } from '../theme/tokens';
 import { getEvent } from '../sync/store';
 import { appointmentWhere, formatClock } from '../notifications/reminderCopy';
@@ -83,15 +80,6 @@ export default function AppointmentEditor({
   const [event, setEvent] = useState<LocalEvent | null>(null);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const showToast = useCallback((message: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(message);
-    toastTimer.current = setTimeout(() => setToast(null), 1600);
-  }, []);
 
   const reload = useCallback(() => {
     if (!eventId) {
@@ -112,10 +100,6 @@ export default function AppointmentEditor({
     setAdding(false);
     setDraft('');
     reload();
-    return () => {
-      if (toastTimer.current) clearTimeout(toastTimer.current);
-      if (closeTimer.current) clearTimeout(closeTimer.current);
-    };
     // visible/eventId gate the whole session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, eventId]);
@@ -143,11 +127,10 @@ export default function AppointmentEditor({
     }
   }, [questions, draft, eventId, atMax, reload]);
 
+  // Questions persist immediately on add/remove; Save just closes.
   const handleSave = useCallback(() => {
-    showToast('Saved');
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(onClose, 1200);
-  }, [onClose, showToast]);
+    onClose();
+  }, [onClose]);
 
   return (
     <BottomSheet
@@ -294,11 +277,6 @@ export default function AppointmentEditor({
             </Pressable>
           </View>
         )}
-        {toast ? (
-          <View style={styles.toast} testID="appointment-toast">
-            <Text style={styles.toastText}>{toast}</Text>
-          </View>
-        ) : null}
       </ScrollView>
     </BottomSheet>
   );
@@ -464,21 +442,5 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#FFFFFF',
-  },
-  /* Confirmation toast ("Saved"). */
-  toast: {
-    alignSelf: 'center',
-    backgroundColor: colors.ink,
-    borderRadius: radii.chip,
-    paddingVertical: 12,
-    paddingHorizontal: 22,
-    maxWidth: '92%',
-    marginTop: spacing.md,
-  },
-  toastText: {
-    ...typeScale.subhead,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    textAlign: 'center',
   },
 });
