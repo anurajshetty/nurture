@@ -97,6 +97,8 @@ OUT=/tmp/nurture-rd-tests
 npx tsc --ignoreConfig tests/reminder_default.test.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "reminder_default" env TZ=UTC node $OUT/tests/reminder_default.test.js
 OUT=/tmp/nurture-pp-tests
 tsc1 tests/photo_persistence.test.ts src/sync/photoPersistence.ts && run "photo_persistence" node $OUT/tests/photo_persistence.test.js
+OUT=/tmp/nurture-kicks-tests
+npx tsc --ignoreConfig tests/kicks.test.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "kicks" env TZ=UTC node $OUT/tests/kicks.test.js
 
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

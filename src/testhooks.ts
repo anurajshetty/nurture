@@ -14,7 +14,7 @@
  *   (used to exercise pregnancy-week bands and the week-jump button)
  */
 
-import { clearAllEvents, saveEvent, savePregnancy } from './sync/store';
+import { clearAllEvents, listEvents, saveEvent, savePregnancy } from './sync/store';
 import { getDb, kvSet } from './lib/db';
 import { ONBOARDING_COMPLETED_KEY } from './onboarding/useOnboarding';
 import type { EventInput, Pregnancy } from './lib/types';
@@ -86,6 +86,20 @@ export function installTestHooks(): void {
         hasAskedFirstQuestion: () => boolean;
       };
       return hasAskedFirstQuestion();
+    },
+    /**
+     * Number of non-deleted events of one type (kick-counter interactive
+     * assertions: save persists exactly one session, discard/exit save
+     * nothing).
+     */
+    countEventsOfType: (type: string) =>
+      listEvents(1000).filter((e) => e.type === type).length,
+    /** Kick reminder state, for opt-in consent assertions. */
+    isKickReminderOn: () => {
+      const { isKickReminderEnabled } = require('../src/kicks/reminder') as {
+        isKickReminderEnabled: () => boolean;
+      };
+      return isKickReminderEnabled();
     },
   };
 }

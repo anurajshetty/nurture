@@ -45,6 +45,12 @@ import AppointmentEditor from '../../src/logs/AppointmentEditor';
 import { AskFab } from '../../src/aiChat/AskFab';
 import { ConsentSheet } from '../../src/aiChat/ConsentSheet';
 import { AskChat } from '../../src/aiChat/AskChat';
+import { KicksFab } from '../../src/kicks/KicksFab';
+import { KickHomeCard } from '../../src/kicks/KickHomeCard';
+import KickCountingScreen from '../../src/kicks/KickCountingScreen';
+import KickHistoryScreen from '../../src/kicks/KickHistoryScreen';
+import { hasKickSessions } from '../../src/kicks/store';
+import { kicksVisibleForDisplayedWeek } from '../../src/kicks/session';
 import { hasAskedFirstQuestion } from '../../src/aiChat/history';
 import {
   MAX_WEEK,
@@ -196,6 +202,18 @@ export default function WeekScreen() {
     setConsentVisible(false);
     setChatVisible(true);
   }, []);
+  /**
+   * Kick counter (Willow, Anuraj approved Sept 20, 2026): the floating
+   * kicks pill + Home card appear from displayed week 19. The pill opens
+   * the counting screen; the card opens the weekly session list ("Her
+   * pattern") and retires permanently after her first saved session.
+   */
+  const [countingVisible, setCountingVisible] = useState(false);
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [hasKicks, setHasKicks] = useState(false);
+  const closeCounting = useCallback(() => setCountingVisible(false), []);
+  const closeHistory = useCallback(() => setHistoryVisible(false), []);
+  const handleKickSaved = useCallback(() => setHasKicks(true), []);
   /** Mirror of viewWeek for the focus callback below (stable [] deps). */
   const viewWeekRef = useRef<number | null>(null);
   useEffect(() => {
@@ -229,6 +247,11 @@ export default function WeekScreen() {
         const w = Math.min(viewWeekRef.current ?? s.currentWeek, s.currentWeek);
         setSizeArt(pickSizeArt(w + 1));
         setMoments(countWeekMoments());
+        try {
+          setHasKicks(hasKickSessions());
+        } catch {
+          setHasKicks(false);
+        }
         try {
           setBabyName(getBabyName());
         } catch {
@@ -467,6 +490,12 @@ export default function WeekScreen() {
 
       {/* Highlights */}
       <Kicker>Highlights this week</Kicker>
+      {/* Kick counter Home card (Anuraj, Sept 2026): displayed week 19+,
+          directly below the Highlights kicker. Opens the weekly session
+          list — not the counter — and retires after her first session. */}
+      {kicksVisibleForDisplayedWeek(displayWeekNum) && !hasKicks ? (
+        <KickHomeCard onPress={() => setHistoryVisible(true)} />
+      ) : null}
       <Card testID="week-highlights">
         {content.highlights.map((h, i) => (
           <View
@@ -604,6 +633,17 @@ export default function WeekScreen() {
       </Text>
     </Screen>
       <AskFab onPress={openAsk} />
+      {/* Kick counter entry (Anuraj, Sept 2026): the kicks pill floats
+          12pt above the Ask pill, same right edge. Displayed week 19+. */}
+      {kicksVisibleForDisplayedWeek(displayWeekNum) ? (
+        <KicksFab onPress={() => setCountingVisible(true)} />
+      ) : null}
+      <KickCountingScreen
+        visible={countingVisible}
+        onClose={closeCounting}
+        onSaved={handleKickSaved}
+      />
+      <KickHistoryScreen visible={historyVisible} onClose={closeHistory} />
       <ConsentSheet
         visible={consentVisible}
         onNotNow={closeConsent}

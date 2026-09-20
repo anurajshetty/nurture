@@ -22,6 +22,7 @@ import {
 import { type EventAttachment, type LocalEvent } from '../lib/types';
 import { getEvent } from '../sync/store';
 import { readQuestions } from '../plan/questions';
+import KickFeedSection from '../kicks/KickFeedSection';
 import {
   readReportSummaryState,
   REPORT_SUMMARY_DISCLAIMER,
@@ -46,7 +47,7 @@ const TYPE_META: Record<string, TypeMeta> = {
   report: { label: 'Report', glyph: '📄', dot: 'report' },
   appointment: { label: 'Appointment', glyph: '▦', dot: 'appointment' },
   weight: { label: 'Weight', glyph: '◍', dot: 'weight' },
-  kick_session: { label: 'Kicks', glyph: '✦', dot: 'kick' },
+  kick_session: { label: 'Kick counting', glyph: '✦', dot: 'kick' },
   question: { label: 'Question', glyph: '◉', dot: 'question' },
 };
 
@@ -266,6 +267,7 @@ export default function EventCard({ event, onAppointmentPress, onAppointmentDele
   // no raw filename, no attachment row, no "Backing up…".
   const isReport = event.type === 'report';
   const isAppointment = event.type === 'appointment';
+  const isKickSession = event.type === 'kick_session';
   const appointmentQuestions = isAppointment ? readQuestions(event) : [];
   const appointmentPressable = isAppointment && !!onAppointmentPress;
   // Mockup 18: the delete × renders on appointment cards in the Logs feed.
@@ -334,6 +336,9 @@ export default function EventCard({ event, onAppointmentPress, onAppointmentDele
           {questionsLine(appointmentQuestions.length)}
         </Text>
       ) : null}
+      {/* Kick sessions render their own section (mockup 23): session
+          line, strength note, and the deviation-only appointment link. */}
+      {isKickSession ? <KickFeedSection event={event} /> : null}
       {!isReport && text ? <Text style={styles.text}>{text}</Text> : null}
       {chips.length > 0 ? (
         <View style={styles.chipRow}>

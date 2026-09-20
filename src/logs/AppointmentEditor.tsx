@@ -44,6 +44,9 @@ import {
   readQuestions,
   saveQuestions,
 } from '../plan/questions';
+import { detachKick, readAttachedKicks } from '../kicks/appointments';
+import { saveAttachedKicks } from '../kicks/store';
+import { formatDurationShort, formatKickDate } from '../kicks/session';
 import type { LocalEvent } from '../lib/types';
 
 export interface AppointmentEditorProps {
@@ -106,6 +109,21 @@ export default function AppointmentEditor({
 
   const questions = event ? readQuestions(event) : [];
   const atMax = questions.length >= MAX_QUESTIONS;
+
+  // Kick sessions attached from the Logs feed (mockup 25 — Anuraj approved
+  // Sept 20, 2026). The whole KICKS section renders only when at least one
+  // session is attached; with zero, the sheet is visually identical to
+  // mockup 17. Max 5 per appointment, enforced at attach time.
+  const kicks = event ? readAttachedKicks(event.data) : [];
+
+  const removeKick = useCallback(
+    (id: string) => {
+      if (!eventId) return;
+      const updated = detachKick(kicks, id);
+      if (saveAttachedKicks(eventId, updated)) reload();
+    },
+    [kicks, eventId, reload],
+  );
 
   const removeQuestion = useCallback(
     (id: string) => {
@@ -261,6 +279,46 @@ export default function AppointmentEditor({
               <Text style={styles.maxnote} testID="question-max-note">
                 That&apos;s 5 — the max. Remove one to add another.
               </Text>
+            ) : null}
+
+            {/* KICKS (mockup 25): only when sessions are attached. */}
+            {kicks.length > 0 ? (
+              <View testID="appointment-kicks">
+                <Text style={styles.kicker}>Kicks</Text>
+                {kicks.map((k) => (
+                  <View
+                    key={k.id}
+                    style={styles.krow}
+                    testID={`kick-row-${k.id}`}
+                  >
+                    <View style={styles.ktext}>
+                      <Text style={styles.kdate}>
+                        {formatKickDate(k.occurredAt)}
+                      </Text>
+                      <Text style={styles.kline}>
+                        {k.movements} {k.movements === 1 ? 'kick' : 'kicks'} · in{' '}
+                        {formatDurationShort(k.durationSec)}
+                      </Text>
+                      {k.strength ? (
+                        <Text style={styles.kstrength}>{k.strength}</Text>
+                      ) : null}
+                    </View>
+                    <Pressable
+                      onPress={() => removeKick(k.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove kick session"
+                      testID={`kick-remove-${k.id}`}
+                      style={({ pressed }) => [
+                        styles.kx,
+                        pressed && styles.pressed,
+                      ]}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.kxText}>×</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
             ) : null}
 
             <Pressable
@@ -429,6 +487,54 @@ const styles = StyleSheet.create({
     color: colors.muted,
     textAlign: 'center',
     marginBottom: spacing.sm,
+  },
+  /* KICKS section (mockup 25): attached kick sessions. Rendered only when
+     at least one is attached. */
+  krow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    paddingLeft: spacing.xl,
+    paddingRight: 6,
+    paddingVertical: 6,
+    marginBottom: spacing.sm,
+    minHeight: 64,
+    shadowColor: '#2F2B27',
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
+  },
+  ktext: {
+    flex: 1,
+  },
+  kdate: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  kline: {
+    fontSize: 15.5,
+    fontWeight: '600',
+    color: colors.ink,
+  },
+  kstrength: {
+    fontSize: 13.5,
+    fontStyle: 'italic',
+    color: colors.muted,
+  },
+  kx: {
+    width: minTouch,
+    height: minTouch,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+  },
+  kxText: {
+    fontSize: 19,
+    color: '#B7ACA0',
+    lineHeight: 24,
   },
   save: {
     backgroundColor: colors.coral,
