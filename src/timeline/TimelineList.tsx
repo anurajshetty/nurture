@@ -28,6 +28,8 @@ interface TimelineListProps {
   lookBack: LookBack | null;
   onDismissLookBack(): void;
   onRevisitLookBack(e: LocalEvent): void;
+  /** When present, appointment EventCards become pressable and call it with the event id (opens the appointment editor). */
+  onAppointmentPress?(eventId: string): void;
   onEndReached(): void;
   refreshing: boolean;
   onRefresh(): void;
@@ -51,6 +53,7 @@ export default function TimelineList({
   lookBack,
   onDismissLookBack,
   onRevisitLookBack,
+  onAppointmentPress,
   onEndReached,
   refreshing,
   onRefresh,
@@ -63,7 +66,9 @@ export default function TimelineList({
       testID="timeline-list"
       sections={sections}
       keyExtractor={(item) => item.id}
-      renderItem={({ item }) => <EventCard event={item} />}
+      renderItem={({ item }) => (
+        <EventCard event={item} onAppointmentPress={onAppointmentPress} />
+      )}
       renderSectionHeader={({ section }) => <WeekBandHeader section={section} />}
       stickySectionHeadersEnabled
       ListHeaderComponent={

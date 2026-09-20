@@ -1,24 +1,30 @@
 /**
  * report-summary — Supabase Edge Function (Deno).
  *
- * Sends an uploaded pregnancy health document to the Gemini API for a
- * short plain-language summary, and returns a short title plus an
- * auto-derived attachment name. The API key NEVER leaves this function:
- * it is read from the `GEMINI_API_KEY` env secret (Supabase dashboard →
- * nurture project → Edge Functions → Secrets).
+ * Sends a pregnancy health document to the Gemini API for a short
+ * plain-language summary, and returns a short title plus an auto-derived
+ * attachment name. The API key NEVER leaves this function: it is read
+ * from the `GEMINI_API_KEY` env secret (Supabase dashboard → nurture
+ * project → Edge Functions → Secrets).
+ *
+ * EPHEMERAL (Anuraj Sept 2026): the app sends the document bytes INLINE
+ * in the request body (`{ dataBase64, mimeType }`). The bytes are
+ * decoded, forwarded to Gemini, and dropped — NOTHING is written to
+ * Supabase Storage, and no Storage credentials are needed.
  *
  * Thin wrapper: env + CORS + HTTP status mapping live here; everything
- * else (validation, prompt, Storage download, Gemini call) is in lib.ts,
+ * else (validation, prompt, document decode, Gemini call) is in lib.ts,
  * which is unit-tested (`tests/report_summary.test.ts`).
  *
  * Deploy: `supabase functions deploy report-summary`
  * (from the repo root, with the Supabase CLI logged in to the nurture project).
+ * NOTE: deploying is Anuraj's step — this change ships the code only.
  */
 
 import {
   callGemini,
+  decodeRequestDocument,
   DocumentError,
-  fetchDocumentBytes,
   ProviderError,
   REPORT_DISCLAIMER,
   validateRequest,
@@ -57,14 +63,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Secret not set yet — the app degrades gracefully (see README).
     return json(503, { error: 'not_configured' });
   }
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
-  if (!supabaseUrl || !supabaseAnonKey) {
-    // Both are auto-provided in edge functions; missing means the runtime
-    // is broken.
-    console.error('report-summary missing_supabase_env');
-    return json(502, { error: 'provider_error' });
-  }
 
   // Privacy: the body is validated but NEVER logged, in any path.
   let body: unknown;
@@ -81,18 +79,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const startedAt = Date.now();
   try {
-    // Read the bytes from Storage server-side; the caller's Authorization
-    // header is forwarded so Storage RLS applies to this read.
-    const bytes = await fetchDocumentBytes(
-      {
-        supabaseUrl,
-        anonKey: supabaseAnonKey,
-        authHeader: req.headers.get('authorization'),
-        bucket: r.bucket,
-        storagePath: r.storagePath,
-      },
-      fetch,
-    );
+    // Ephemeral: decode the inline bytes (invalid/empty/too large →
+    // DocumentError → 422). Nothing is written to Storage.
+    const bytes = decodeRequestDocument(r.dataBase64);
     const todayLong = new Date().toLocaleDateString('en-US', {
       month: 'long',
       day: 'numeric',
@@ -106,8 +95,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json(200, { ...summary, disclaimer: REPORT_DISCLAIMER });
   } catch (e) {
     if (e instanceof DocumentError) {
-      // The object is missing, forbidden, empty, or too large — the app
-      // shows the "Couldn't read this one" card immediately.
+      // The inline payload is missing, corrupt, empty, or too large — the
+      // app shows the "Couldn't read this one" card immediately.
       console.error('report-summary unreadable');
       return json(422, { error: 'unreadable' });
     }

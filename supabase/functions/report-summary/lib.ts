@@ -1,21 +1,19 @@
 /**
  * report-summary — shared edge-function logic.
  *
- * Sends an uploaded pregnancy health document (lab report, ultrasound
- * printout, discharge summary) to the Gemini API for a short,
- * plain-language summary, plus a short title and an auto-derived
- * attachment name. The app uploads the file to her private Storage
- * bucket first; this function reads the bytes server-side from Storage
- * (forwarding the caller's Authorization header so RLS applies) — the
- * app never ships file bytes through the invoke call.
+ * EPHEMERAL (Anuraj, Sept 2026): the app sends the document bytes INLINE
+ * in the request body (`{ dataBase64, mimeType }`). The bytes are decoded,
+ * forwarded to Gemini, and dropped — NOTHING is written to Supabase
+ * Storage, and no Storage credentials are needed or accepted. There is no
+ * file backup anywhere in this flow.
  *
- * Deno-free on purpose: this module touches no Deno globals, so it can
- * be unit-tested under node with stubbed fetches. `index.ts` is the thin
+ * Deno-free on purpose: this module touches no Deno globals, so it can be
+ * unit-tested under node with stubbed fetches. `index.ts` is the thin
  * Deno wrapper (env, CORS, HTTP status mapping).
  *
  * PRIVACY CONTRACT (non-negotiable):
- * - The request schema accepts ONLY { eventId, bucket, storagePath,
- *   mimeType }. Anything else is rejected with 400.
+ * - The request schema accepts ONLY { dataBase64, mimeType }. Anything
+ *   else is rejected with 400.
  * - Nothing in the request body is ever logged — not even in error paths.
  * - The Gemini API key lives only in the `GEMINI_API_KEY` env secret; it
  *   is never returned to the caller and never logged.
@@ -34,10 +32,6 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MO
  */
 export const REPORT_DISCLAIMER = "This isn't medical advice — check with your care team.";
 
-/** Buckets the function is willing to read from (allowlist). */
-export const ALLOWED_BUCKETS = ['photos', 'files'] as const;
-export type ReportBucket = (typeof ALLOWED_BUCKETS)[number];
-
 /** Document types Gemini can read inline. Anything else → unsupported_type. */
 const SUPPORTED_MIME_TYPES = new Set([
   'image/jpeg',
@@ -46,80 +40,111 @@ const SUPPORTED_MIME_TYPES = new Set([
   'application/pdf',
 ]);
 
-/** The entire invoke request. Note what is absent: no file bytes, no names, no dates. */
-export interface ReportSummaryRequest {
-  /** The timeline event this summary belongs to (opaque id, never logged). */
-  eventId: string;
-  /** Storage bucket allowlist: 'photos' | 'files'. */
-  bucket: ReportBucket;
-  /** Object path inside the bucket, e.g. "reports/<uuid>.pdf". */
-  storagePath: string;
-  /** MIME of the uploaded file; must be one of the supported types. */
-  mimeType: string;
-}
+/** Hard cap on the decoded document: 12 MB. */
+export const MAX_DOCUMENT_BYTES = 12 * 1024 * 1024;
 
-/** The validated summary returned to the app (disclaimer appended by index.ts). */
-export interface ReportSummary {
-  /** 2–4 words naming the report, plain language. ≤50 chars. */
-  title: string;
-  /** The body, per Anuraj's content rule. ≤400 chars. */
-  summary: string;
-  /** Descriptive attachment name from the report's content + upload date. ≤60 chars. */
-  attachmentName: string;
-  /** True when the document flags anything abnormal/borderline or asks for a follow-up. */
-  needsAttention: boolean;
+/* ------------------------------------------------------------------ */
+/* Request validation — strict: unknown fields are rejected, and the   */
+/* body is never logged anywhere.                                      */
+/* ------------------------------------------------------------------ */
+
+/** The entire invoke body — file bytes inline, nothing else. */
+export interface ReportSummaryRequest {
+  /** Base64 of the document bytes, sent inline (ephemeral). */
+  dataBase64: string;
+  /** MIME of the document, e.g. 'application/pdf' or 'image/jpeg'. */
+  mimeType: string;
 }
 
 export type RequestProblem = 'invalid_json' | 'invalid_request' | 'unsupported_type';
 
-/* ------------------------------------------------------------------ */
-/* Request validation — strict: unknown fields are rejected, and the    */
-/* body is never logged anywhere.                                      */
-/* ------------------------------------------------------------------ */
+export type ValidateResult =
+  | { ok: true; value: ReportSummaryRequest }
+  | { ok: false; problem: RequestProblem };
 
-const ALLOWED_KEYS = new Set(['eventId', 'bucket', 'storagePath', 'mimeType']);
+const ALLOWED_KEYS = new Set(['dataBase64', 'mimeType']);
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-function isNonEmptyString(v: unknown, maxLen: number): v is string {
-  return typeof v === 'string' && v.length > 0 && v.length <= maxLen;
-}
-
-export function validateRequest(
-  body: unknown,
-): { ok: true; value: ReportSummaryRequest } | { ok: false; problem: RequestProblem } {
+export function validateRequest(body: unknown): ValidateResult {
   if (!isRecord(body)) {
     return { ok: false, problem: 'invalid_request' };
   }
   for (const key of Object.keys(body)) {
     if (!ALLOWED_KEYS.has(key)) return { ok: false, problem: 'invalid_request' };
   }
-  if (!isNonEmptyString(body.eventId, 80)) return { ok: false, problem: 'invalid_request' };
-  if (typeof body.bucket !== 'string' || !(ALLOWED_BUCKETS as readonly string[]).includes(body.bucket)) {
-    return { ok: false, problem: 'invalid_request' };
-  }
-  if (!isNonEmptyString(body.storagePath, 512)) return { ok: false, problem: 'invalid_request' };
-  // Never let a crafted path escape the bucket.
-  if (body.storagePath.includes('..') || body.storagePath.startsWith('/')) {
+  // Inline bytes: non-empty base64. The base64 TEXT itself must fit within
+  // the byte cap — conservative (base64 inflates ~4/3), so oversized
+  // payloads are rejected here, before any decode is attempted.
+  if (
+    typeof body.dataBase64 !== 'string' ||
+    body.dataBase64.length === 0 ||
+    body.dataBase64.length > MAX_DOCUMENT_BYTES
+  ) {
     return { ok: false, problem: 'invalid_request' };
   }
   if (typeof body.mimeType !== 'string' || body.mimeType.length === 0 || body.mimeType.length > 100) {
     return { ok: false, problem: 'invalid_request' };
   }
-  if (!SUPPORTED_MIME_TYPES.has(body.mimeType.toLowerCase())) {
+  const mimeType = body.mimeType.toLowerCase();
+  if (!SUPPORTED_MIME_TYPES.has(mimeType)) {
     return { ok: false, problem: 'unsupported_type' };
   }
-  return {
-    ok: true,
-    value: {
-      eventId: body.eventId,
-      bucket: body.bucket as ReportBucket,
-      storagePath: body.storagePath,
-      mimeType: body.mimeType.toLowerCase(),
-    },
-  };
+  return { ok: true, value: { dataBase64: body.dataBase64, mimeType } };
+}
+
+/* ------------------------------------------------------------------ */
+/* Inline document decode (ephemeral). No Storage, no fetch — the bytes */
+/* arrive in the request body and are dropped after the Gemini call.   */
+/* ------------------------------------------------------------------ */
+
+export class DocumentError extends Error {
+  readonly problem = 'unreadable' as const;
+  constructor() {
+    super('unreadable');
+    this.name = 'DocumentError';
+  }
+}
+
+const B64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const B64_REVERSE: Record<string, number> = {};
+for (let i = 0; i < B64_ALPHABET.length; i++) B64_REVERSE[B64_ALPHABET[i]] = i;
+
+/**
+ * Decodes the inline base64 document payload. Throws
+ * DocumentError('unreadable') when the payload is missing, corrupt,
+ * empty, or decodes past MAX_DOCUMENT_BYTES. The size guard runs on the
+ * string length BEFORE any buffer is allocated, so a hostile payload
+ * can't force a giant allocation.
+ */
+export function decodeRequestDocument(dataBase64: string): Uint8Array {
+  if (
+    typeof dataBase64 !== 'string' ||
+    dataBase64.length === 0 ||
+    dataBase64.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(dataBase64)
+  ) {
+    throw new DocumentError();
+  }
+  const padding = dataBase64.endsWith('==') ? 2 : dataBase64.endsWith('=') ? 1 : 0;
+  const decodedLen = (dataBase64.length / 4) * 3 - padding;
+  if (decodedLen <= 0 || decodedLen > MAX_DOCUMENT_BYTES) {
+    throw new DocumentError();
+  }
+  const out = new Uint8Array(decodedLen);
+  let o = 0;
+  for (let i = 0; i < dataBase64.length; i += 4) {
+    const c0 = B64_REVERSE[dataBase64[i]];
+    const c1 = B64_REVERSE[dataBase64[i + 1]];
+    const c2 = dataBase64[i + 2] === '=' ? 0 : B64_REVERSE[dataBase64[i + 2]];
+    const c3 = dataBase64[i + 3] === '=' ? 0 : B64_REVERSE[dataBase64[i + 3]];
+    out[o++] = (c0 << 2) | (c1 >> 4);
+    if (o < decodedLen) out[o++] = ((c1 & 15) << 4) | (c2 >> 2);
+    if (o < decodedLen) out[o++] = ((c2 & 3) << 6) | c3;
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -164,85 +189,6 @@ export function buildUserPrompt(todayLong: string): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* Storage download (server-side). The app never ships file bytes.     */
-/* ------------------------------------------------------------------ */
-
-export class DocumentError extends Error {
-  readonly problem = 'unreadable' as const;
-  constructor() {
-    super('unreadable');
-    this.name = 'DocumentError';
-  }
-}
-
-export interface StorageRef {
-  supabaseUrl: string;
-  /**
-   * The Supabase anon key (auto-provided as `SUPABASE_ANON_KEY`). Sent as
-   * the `apikey` header so the Storage API accepts the request; the
-   * caller's Authorization header is what RLS evaluates.
-   */
-  anonKey: string;
-  /** The caller's Authorization header, forwarded so Storage RLS applies. */
-  authHeader: string | null;
-  bucket: ReportBucket;
-  storagePath: string;
-}
-
-type FetchImpl = (
-  input: string,
-  init: { method: string; headers: Record<string, string>; body?: string; signal: AbortSignal },
-) => Promise<{
-  ok: boolean;
-  status: number;
-  text(): Promise<string>;
-  arrayBuffer(): Promise<ArrayBuffer>;
-}>;
-
-const MAX_DOCUMENT_BYTES = 12 * 1024 * 1024;
-
-/**
- * Reads the uploaded file from Supabase Storage server-side. Throws
- * DocumentError('unreadable') when the object is missing, forbidden,
- * empty, or too large — the caller maps it to HTTP 422
- * `{ error: 'unreadable' }` and the app shows the "Couldn't read this
- * one" card.
- */
-export async function fetchDocumentBytes(
-  ref: StorageRef,
-  fetchImpl: FetchImpl,
-): Promise<Uint8Array> {
-  const base = ref.supabaseUrl.replace(/\/+$/, '');
-  const url = `${base}/storage/v1/object/${encodeURIComponent(ref.bucket)}/${ref.storagePath
-    .split('/')
-    .map(encodeURIComponent)
-    .join('/')}`;
-  const headers: Record<string, string> = { apikey: ref.anonKey };
-  if (ref.authHeader) headers['Authorization'] = ref.authHeader;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-  let res;
-  try {
-    res = await fetchImpl(url, { method: 'GET', headers, signal: controller.signal });
-  } catch {
-    throw new DocumentError();
-  } finally {
-    clearTimeout(timeout);
-  }
-  if (!res.ok) throw new DocumentError();
-  let buffer: ArrayBuffer;
-  try {
-    buffer = await res.arrayBuffer();
-  } catch {
-    throw new DocumentError();
-  }
-  if (buffer.byteLength === 0 || buffer.byteLength > MAX_DOCUMENT_BYTES) {
-    throw new DocumentError();
-  }
-  return new Uint8Array(buffer);
-}
-
-/* ------------------------------------------------------------------ */
 /* Gemini call. `fetchImpl` is injectable so tests never hit the network. */
 /* ------------------------------------------------------------------ */
 
@@ -267,6 +213,13 @@ const RESPONSE_SCHEMA = {
   },
   required: ['title', 'summary', 'attachmentName', 'needsAttention'],
 };
+
+export interface ReportSummary {
+  title: string;
+  summary: string;
+  attachmentName: string;
+  needsAttention: boolean;
+}
 
 /** Base64-encodes bytes without btoa/Buffer, so it runs in Deno and node. */
 export function base64Encode(bytes: Uint8Array): string {
@@ -333,6 +286,11 @@ export function validateSummary(parsed: unknown): ReportSummary | null {
   };
 }
 
+type FetchImpl = (url: string, init: Record<string, unknown>) => Promise<{
+  ok: boolean;
+  text(): Promise<string>;
+}>;
+
 async function generateOnce(
   mimeType: string,
   documentB64: string,
@@ -343,7 +301,7 @@ async function generateOnce(
 ): Promise<ReportSummary> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
-  let res;
+  let res: { ok: boolean; text(): Promise<string> };
   try {
     res = await fetchImpl(GEMINI_URL, {
       method: 'POST',

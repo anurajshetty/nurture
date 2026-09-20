@@ -10,7 +10,7 @@
  * The mockup wins: sections are week bands only.
  */
 
-import { addDaysISO, daysBetween, todayISO } from '../onboarding/dates';
+import { addDaysISO, gestationalDays, pregnancyWeek, todayISO } from '../onboarding/dates';
 import type { LocalEvent } from '../lib/types';
 
 export interface TimelineSection {
@@ -27,47 +27,46 @@ export function pregnancyWeekRange(
   dueDate: string,
 ): { startISO: string; endISO: string } | null {
   if (!Number.isInteger(week) || week < 1) return null;
-  // Day 0 of the pregnancy is dueDate − 280 (the LMP date); week W starts
-  // (W−1)·7 days after that.
-  const startISO = addDaysISO(dueDate, -280 + (week - 1) * 7);
+  // Day 0 of the pregnancy is dueDate − 280 (the LMP date); under the one
+  // shared convention (pregnancyWeek in onboarding/dates), completed week W
+  // covers gestational days W·7 … W·7+6, so week W starts W·7 days after
+  // the LMP — e.g. week 37 starts 2026-09-17 for a 2026-10-08 due date.
+  const startISO = addDaysISO(dueDate, -280 + week * 7);
   if (!startISO) return null;
   const endISO = addDaysISO(startISO, 7);
   if (!endISO) return null;
   return { startISO, endISO };
 }
 
-/**
- * THE one week calculation for the Logs tab (Anuraj Sept 2026).
- *
- * The week pill label, the week-filter dropdown options, the week filter
- * itself, and the week-divider bands ALL funnel through this single
- * formula: day 0 of the pregnancy is the LMP date (dueDate − 280,
- * Naegele's rule); week W covers gestational days (W−1)·7 … W·7−1. The
- * raw 1-based week may be ≤0 or >42 — the public wrappers below apply
- * each caller's boundary rule on top of this one number, so the pill and
- * the dividers can never disagree again (the old Week-37-pill vs
- * Week-38-divider bug was two different formulas here).
- */
-function rawPregnancyWeek(dueDate: string, dayISO: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayISO)) return null;
-  const lmp = addDaysISO(dueDate, -280);
-  const days = lmp ? daysBetween(lmp, dayISO) : null;
-  if (days === null) return null;
-  return Math.floor(days / 7) + 1;
-}
+/* ------------------------------------------------------------------ */
+/* Pregnancy-week wrappers. There is exactly ONE completed-week          */
+/* calculation: pregnancyWeek() in onboarding/dates (completed weeks =  */
+/* floor((day − LMP) / 7), LMP = due − 280 days). All internal grouping, */
+/* range math, and filter matching funnel through it.                    */
+/*                                                                       */
+/* ALL user-facing "Week N" labels (pill, filter dropdown, divider      */
+/* bands) show the DISPLAY week = completed + 1 (Anuraj, Sept 2026) via  */
+/* displayWeek() in onboarding/dates and the display wrappers below —   */
+/* never the completed number on its own.                               */
+/* ------------------------------------------------------------------ */
 
 /**
- * 1-based pregnancy week for a due date and a YYYY-MM-DD calendar day —
- * the single shared formula. Out-of-range days clamp to the nearest band
- * (1…42). Null on bad input.
+ * Completed pregnancy week for a due date and a YYYY-MM-DD calendar day.
+ * Out-of-range days clamp to the nearest band (1…42) — including days
+ * before the LMP, so every card always lands somewhere warm, never
+ * nowhere. Null on bad input.
  */
 export function pregnancyWeekForDay(dueDate: string, dayISO: string): number | null {
-  const w = rawPregnancyWeek(dueDate, dayISO);
-  return w === null ? null : Math.max(1, Math.min(42, w));
+  const g = gestationalDays(dueDate, dayISO);
+  if (g === null) return null;
+  // pregnancyWeek is null exactly when g < 0 (pregnancy not yet begun);
+  // those days clamp to band 1 rather than vanishing.
+  const w = pregnancyWeek(dueDate, dayISO) ?? 0;
+  return Math.max(1, Math.min(42, w));
 }
 
 /**
- * 1-based pregnancy week an event belongs to, or null when the dates
+ * Completed pregnancy week an event belongs to, or null when the dates
  * don't parse. Events before week 1 (or after week 42) clamp to the
  * nearest band so every card always lands somewhere warm, never nowhere.
  */
@@ -77,15 +76,43 @@ export function pregnancyWeekForEvent(dueDate: string, occurredAt: string): numb
 }
 
 /**
- * The 1-based pregnancy week "she's in" for a due date — the SAME week
- * number the timeline dividers use (pregnancyWeekForEvent for an event
- * that occurred today). Null when dates don't parse or the pregnancy
- * hasn't begun.
+ * The completed pregnancy week "she's in" for a due date — the SAME week
+ * number the timeline dividers use internally (pregnancyWeekForEvent for
+ * an event that occurred today). Out-of-range days clamp to the 1…42
+ * band; null when dates don't parse or the pregnancy hasn't begun.
  */
 export function currentPregnancyWeek(dueDate: string, asOfISO: string = todayISO()): number | null {
-  const w = rawPregnancyWeek(dueDate, asOfISO);
-  if (w === null || w < 1) return null;
-  return Math.min(42, w);
+  const w = pregnancyWeek(dueDate, asOfISO);
+  return w === null ? null : Math.max(1, Math.min(42, w));
+}
+
+/**
+ * The user-facing DISPLAY week for a calendar day: the completed-week
+ * band + 1 (Anuraj, Sept 2026). Clamps on the same 1…42 band as
+ * pregnancyWeekForDay first, so labels always match a real band.
+ * Null on bad input.
+ */
+export function displayWeekForDay(dueDate: string, dayISO: string): number | null {
+  const w = pregnancyWeekForDay(dueDate, dayISO);
+  return w === null ? null : w + 1;
+}
+
+/**
+ * The user-facing display week "she's in" — the pill/dropdown number.
+ * Display = completed + 1, so the current-week pill and the dividers
+ * always read the same week.
+ */
+export function currentDisplayWeek(dueDate: string, asOfISO: string = todayISO()): number | null {
+  const w = currentPregnancyWeek(dueDate, asOfISO);
+  return w === null ? null : w + 1;
+}
+
+/**
+ * "Week 38" — the user-facing label for a completed-week number. Every
+ * "Week N" label in the app goes through this one formatting site.
+ */
+export function displayWeekLabel(completedWeek: number): string {
+  return `Week ${completedWeek + 1}`;
 }
 
 const MONTHS = [
@@ -149,7 +176,9 @@ function bandForEvent(event: LocalEvent, dueDate: string | null): BandInfo | nul
     if (week === null || !range) return null;
     return {
       key: `preg-${week}`,
-      title: `Week ${week}`,
+      // User-facing divider label: the DISPLAY week (completed + 1).
+      // Keys and ranges stay on the completed-week number.
+      title: displayWeekLabel(week),
       subtitle: formatWeekRange(range.startISO, range.endISO),
       sortKey: range.startISO,
     };

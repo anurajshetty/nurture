@@ -33,6 +33,7 @@ import {
   enqueueMediaUploads,
   purgeEventMedia,
 } from '../sync/media';
+import { PHOTOS_PERSIST_ENABLED } from '../sync/photoPersistence';
 import type { EventAttachment, EventInput, LocalEvent } from '../lib/types';
 import { useSync } from '../sync/SyncContext';
 import { refreshEndOfDayNudge } from '../notifications/endOfDay';
@@ -256,6 +257,9 @@ export default function Composer({
       void syncNow().catch(() => {});
       // Media backup runs on its own queue — text never waits for it.
       // On web this is the eager upload (blob: URIs die with the tab).
+      // DISABLED Sept 2026 (PHOTOS_PERSIST_ENABLED = false): drainMediaOutbox
+      // is a no-op — no sandbox copies, no uploads, no retries. Call kept so
+      // the pipeline can be re-enabled behind the kill switch.
       void drainMediaOutbox().catch(() => {});
     },
     [onSaved, showToast, syncNow, suppressSaveToast, onSaveComplete],
@@ -281,6 +285,10 @@ export default function Composer({
 
     // Queue photo/file bytes for cloud backup (Epic 2.3). Fire-and-forget:
     // the save above already returned and the toast is on its way.
+    // DISABLED Sept 2026 (PHOTOS_PERSIST_ENABLED = false): enqueueMediaUploads
+    // is a no-op — picked photos are attached as metadata only; the image
+    // data is never written to disk or sent anywhere. Call kept so the
+    // pipeline can be re-enabled behind the kill switch.
     if (atts.length > 0) {
       void enqueueMediaUploads(event.id).catch(() => {});
     }
@@ -312,6 +320,9 @@ export default function Composer({
     const id = toast.undoId;
     deleteEvent(id);
     // Cancel any queued media backup and remove already-uploaded bytes.
+    // NOTE Sept 2026: with PHOTOS_PERSIST_ENABLED = false there is nothing
+    // to cancel or upload — purgeEventMedia remains active as cleanup-only
+    // (drops stale media_outbox rows and any leftover sandbox copies).
     void purgeEventMedia(id).catch(() => {});
     onUnsaved(id);
     clearToastTimer();
@@ -366,6 +377,23 @@ export default function Composer({
     advanceProposal();
     afterSave(event, 'Saved to your story');
   }, [proposals, proposalIdx, appointmentDate, advanceProposal, afterSave]);
+
+  /**
+   * Photo-pause UX (Anuraj, Sept 2026 — mockup 13): the [+] stays VISIBLE
+   * but is a dummy while photo persistence is off. Tapping it shows
+   * "Photo uploads are paused for now" and attaches nothing — the attach
+   * sheet never opens and no picker runs.
+   *
+   * RESTORE: when photo persistence returns, point this back at the
+   * openAttach path (`setSheetOpen(true)`) and drop the paused branch.
+   */
+  const handleAttachPress = useCallback(() => {
+    if (!PHOTOS_PERSIST_ENABLED) {
+      showToast('Photo uploads are paused for now', null);
+      return;
+    }
+    setSheetOpen(true); // openAttach — restore point
+  }, [showToast]);
 
   const addAttachments = useCallback(
     async (pick: () => Promise<PendingAttachment[]>) => {
@@ -489,7 +517,7 @@ export default function Composer({
         ]}>
         <Pressable
           style={styles.circleBtn}
-          onPress={() => setSheetOpen(true)}
+          onPress={handleAttachPress}
           accessibilityRole="button"
           accessibilityLabel={photosOnly ? 'Add photo' : 'Add photo or file'}>
           <Feather name="plus" size={22} color={colors.ink} />

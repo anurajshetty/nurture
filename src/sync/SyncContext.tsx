@@ -67,6 +67,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         const result = await engineSyncNow();
         // Media backup drains on its own queue after text sync — text never
         // waits for media. Fire-and-forget; per-item failures retry later.
+        // DISABLED Sept 2026 (PHOTOS_PERSIST_ENABLED = false): drainMediaOutbox
+        // is a no-op — no sandbox copies, no uploads, no retries. Call kept so
+        // the pipeline can be re-enabled behind the kill switch.
         void drainMediaOutbox().catch(() => {});
         refresh();
         return result;

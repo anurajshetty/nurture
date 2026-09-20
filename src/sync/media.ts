@@ -1,38 +1,31 @@
 /**
- * Media cloud backup (Epic 2.3): photo/file bytes for the private
- * `photos` / `files` Supabase Storage buckets.
+ * Media cloud backup (Epic 2.3) — DISABLED Sept 2026.
  *
- * Design (matches the approved investigation):
- * - Text/data sync is untouched: `saveEvent` returns immediately and the
- *   media outbox drains separately — text never waits for media.
- * - Deterministic object paths `{user_id}/{event_id}/{attachment_id}.{ext}`
- *   (bucket stored alongside): re-uploads overwrite the same path, so
- *   retries are idempotent and can never duplicate.
- * - Native: picked files are copied from the picker cache into the app
- *   sandbox at save time (the OS may evict cache URIs), so retries survive
- *   restarts. Web: blob: URIs die with the tab, so uploads run eagerly
- *   right after save; a closed tab means a lost attachment, shown honestly
- *   as "not backed up".
- * - EXIF GPS is stripped from JPEGs at upload time (Anuraj: always).
- * - Reads use short-lived signed URLs; RLS stays enforced — no
- *   service-role key ever touches the device.
+ * Anuraj turned photo persistence OFF app-wide (storage constraint): NO
+ * photo gets uploaded or saved anywhere — not to Supabase Storage, not to
+ * the local sandbox, for reports OR log entries.
  *
- * This module never throws out of its public entry points' core loops;
- * per-item failures are recorded and retried later.
+ * Kill switch: PHOTOS_PERSIST_ENABLED in ./photoPersistence (false).
+ * enqueueMediaUploads / drainMediaOutbox below are gated on it.
+ *
+ * This module keeps its public signatures as no-ops so the composer save
+ * paths and sync context need no visible changes (the composer photo-UI
+ * hide ships separately after Anuraj approves the mockup). The only live
+ * behavior left is *deletion* (purge helpers used on undo / tombstone /
+ * account deletion) and signed-URL reads of already-stored bytes.
+ *
+ * Nothing in this module writes photo bytes anywhere. Ever.
  */
 
 import { Platform } from 'react-native';
-import * as Crypto from 'expo-crypto';
-import { Directory, File, Paths } from 'expo-file-system';
+import { Directory, Paths } from 'expo-file-system';
 import { supabase, isConfigured } from '../lib/supabase';
 import { getDb } from '../lib/db';
-import { getEvent, setEventAttachments } from './store';
-import { looksLikeJpeg, stripGpsFromJpeg } from '../composer/exif';
-import { bucketForKind, type EventAttachment } from '../lib/types';
-import { extensionFor, normalizeAttachment, storagePathFor } from './mediaShape';
+import { getEvent } from './store';
+import type { EventAttachment } from '../lib/types';
+import { normalizeAttachment } from './mediaShape';
+import { PHOTOS_PERSIST_ENABLED } from './photoPersistence';
 
-const MAX_ATTEMPTS = 8;
-const DRAIN_BATCH = 20;
 const SIGNED_URL_TTL_MS = 10 * 60 * 1000; // cache signed URLs for 10 minutes
 
 /** Raw media_outbox row as returned by SQLite. */
@@ -63,133 +56,17 @@ export function attachmentsOfEvent(eventId: string): EventAttachment[] {
 }
 
 /**
- * Copies a picked file into the app sandbox (native only) so later retries
- * survive picker-cache eviction and app restarts. Returns the sandbox URI,
- * or the original URI when the copy isn't possible.
+ * Photo persistence OFF (Sept 2026): this is a deliberate no-op. Nothing
+ * is copied into the sandbox, nothing is queued for upload, and nothing
+ * is marked 'pending'. The signature stays so composer save paths are
+ * untouched. Gated on the PHOTOS_PERSIST_ENABLED kill switch in
+ * ./photoPersistence — to re-enable, flip the flag AND restore this
+ * function's original body (removed Sept 2026; see git history).
  */
-async function sandboxCopy(eventId: string, attachment: EventAttachment, uri: string): Promise<string> {
-  if (Platform.OS === 'web') return uri;
-  try {
-    const root = new Directory(Paths.document);
-    let media: Directory;
-    try {
-      media = root.createDirectory('media');
-    } catch {
-      media = new Directory(Paths.document, 'media');
-    }
-    let eventDir: Directory;
-    try {
-      eventDir = media.createDirectory(eventId);
-    } catch {
-      eventDir = new Directory(media, eventId);
-    }
-    const dest = new File(eventDir, `${attachment.id}${extensionFor(attachment.name, attachment.mimeType)}`);
-    if (!dest.exists) {
-      await new File(uri).copy(dest);
-    }
-    return dest.uri;
-  } catch {
-    return uri;
-  }
+export async function enqueueMediaUploads(_eventId: string): Promise<void> {
+  // No-op: photos are never uploaded or persisted.
+  if (!PHOTOS_PERSIST_ENABLED) return;
 }
-
-/**
- * Queues an event's attachments for cloud backup. Called right after
- * `saveEvent` — it returns quickly and never touches the network.
- * Already-backed-up attachments are left alone.
- */
-export async function enqueueMediaUploads(eventId: string): Promise<void> {
-  const attachments = attachmentsOfEvent(eventId);
-  if (attachments.length === 0) return;
-  const db = getDb();
-  const now = new Date().toISOString();
-  const updated: EventAttachment[] = [];
-  for (const a of attachments) {
-    if (a.upload === 'done' && a.storage_path) {
-      updated.push(a);
-      continue;
-    }
-    const localUri = a.local_uri ? await sandboxCopy(eventId, a, a.local_uri) : undefined;
-    const next: EventAttachment = { ...a, local_uri: localUri, upload: 'pending' };
-    // Best-effort size for the manifest; never blocks the queue.
-    if (next.size == null && localUri && Platform.OS !== 'web') {
-      try {
-        const s = new File(localUri).size;
-        if (s > 0) next.size = s;
-      } catch {
-        // Size stays unknown — upload proceeds anyway.
-      }
-    }
-    db.runSync(
-      `INSERT OR REPLACE INTO media_outbox
-         (id, event_id, attachment_id, bucket, local_uri, storage_path, status, attempts, created_at)
-       VALUES (?, ?, ?, ?, ?, '', 'pending', 0, ?)`,
-      Crypto.randomUUID(),
-      eventId,
-      next.id,
-      bucketForKind(next.kind),
-      next.local_uri ?? '',
-      now,
-    );
-    updated.push(next);
-  }
-  // Rewrite the event payload with the normalized shape and mark it dirty
-  // so the next text sync carries the new attachment metadata.
-  setEventAttachments(eventId, updated);
-}
-
-/** Reads raw bytes for one outbox row (native file or web blob URL). */
-async function readBytes(row: MediaOutboxRow): Promise<Uint8Array> {
-  let buffer: ArrayBuffer;
-  if (Platform.OS === 'web') {
-    const res = await fetch(row.local_uri);
-    if (!res.ok) throw new Error(`blob fetch failed (${res.status})`);
-    buffer = await res.arrayBuffer();
-  } else {
-    const file = new File(row.local_uri);
-    if (!file.exists) throw new Error('local file missing');
-    buffer = await file.arrayBuffer();
-  }
-  const bytes = new Uint8Array(buffer);
-  // Anuraj: strip photo location metadata at upload time — always.
-  if (row.bucket === 'photos' && looksLikeJpeg(bytes)) {
-    return stripGpsFromJpeg(bytes);
-  }
-  return bytes;
-}
-
-/** Uploads one queued attachment; reconciles the event payload on success. */
-async function uploadOne(row: MediaOutboxRow, userId: string): Promise<void> {
-  const client = supabase!;
-  const db = getDb();
-  const event = getEvent(row.event_id);
-  if (!event || event.deletedAt) {
-    // Event gone or tombstoned: drop the queued bytes, never upload.
-    db.runSync('DELETE FROM media_outbox WHERE id = ?', row.id);
-    return;
-  }
-  const attachment = attachmentsOfEvent(row.event_id).find((a) => a.id === row.attachment_id);
-  if (!attachment) {
-    db.runSync('DELETE FROM media_outbox WHERE id = ?', row.id);
-    return;
-  }
-  const bytes = await readBytes(row);
-  const storagePath = storagePathFor(userId, row.event_id, attachment);
-  const { error } = await client.storage
-    .from(row.bucket)
-    .upload(storagePath, bytes, { contentType: attachment.mimeType, upsert: true });
-  if (error) throw new Error(error.message);
-  const done: EventAttachment = { ...attachment, upload: 'done', storage_path: storagePath };
-  db.withTransactionSync(() => {
-    db.runSync("UPDATE media_outbox SET status = 'done', storage_path = ? WHERE id = ?", storagePath, row.id);
-  });
-  // Reconcile the event payload so the server row (and other devices)
-  // learn the cloud path. Marks the event dirty + re-queues a text upsert.
-  const rest = attachmentsOfEvent(row.event_id).map((a) => (a.id === done.id ? done : a));
-  setEventAttachments(row.event_id, rest);
-}
-
-let draining = false;
 
 /** Summary of one media-drain pass. */
 export interface MediaDrainResult {
@@ -198,61 +75,25 @@ export interface MediaDrainResult {
 }
 
 /**
- * Uploads queued media (pending + lightly-failed). Runs after/parallel to
- * the text sync — it never blocks or delays text. No-ops when unconfigured
- * or signed out.
+ * Photo persistence OFF (Sept 2026): never uploads anything. Returns an
+ * empty result immediately. The signature stays so the sync context and
+ * composer call sites are untouched. Gated on the PHOTOS_PERSIST_ENABLED
+ * kill switch in ./photoPersistence — to re-enable, flip the flag AND
+ * restore this function's original body (removed Sept 2026; see git
+ * history).
  */
 export async function drainMediaOutbox(): Promise<MediaDrainResult> {
-  const result: MediaDrainResult = { uploaded: 0, errors: [] };
-  if (!isConfigured || !supabase || draining) return result;
-  draining = true;
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const userId = session?.user?.id;
-    if (!userId) return result;
-    const rows = getDb().getAllSync<MediaOutboxRow>(
-      `SELECT * FROM media_outbox
-       WHERE status IN ('pending', 'failed') AND attempts < ?
-       ORDER BY created_at ASC LIMIT ?`,
-      MAX_ATTEMPTS,
-      DRAIN_BATCH,
-    );
-    for (const row of rows) {
-      try {
-        await uploadOne(row, userId);
-        result.uploaded += 1;
-      } catch (e) {
-        getDb().runSync(
-          `UPDATE media_outbox
-           SET status = 'failed', attempts = attempts + 1 WHERE id = ?`,
-          row.id,
-        );
-        // Honest UI state: mark the attachment failed so the card can say
-        // "not backed up". A later drain retries it (attempts < max).
-        try {
-          const rest = attachmentsOfEvent(row.event_id).map((a) =>
-            a.id === row.attachment_id && a.upload !== 'done'
-              ? { ...a, upload: 'failed' as const }
-              : a,
-          );
-          setEventAttachments(row.event_id, rest);
-        } catch {
-          // Payload rewrite is best-effort; the outbox row drives retries.
-        }
-        result.errors.push(`${row.attachment_id}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-  } finally {
-    draining = false;
-  }
-  return result;
+  // No-op: photos are never uploaded or persisted.
+  if (!PHOTOS_PERSIST_ENABLED) return { uploaded: 0, errors: [] };
+  return { uploaded: 0, errors: [] };
 }
 
 /**
  * Cancels queued uploads for an event and removes anything already
  * uploaded (Undo path). Best-effort: never throws.
+ *
+ * With uploads disabled this is mostly cleanup of stale local rows and
+ * any sandbox copies the old flow left behind.
  */
 export async function purgeEventMedia(eventId: string): Promise<void> {
   try {
@@ -294,8 +135,9 @@ export async function purgeEventMedia(eventId: string): Promise<void> {
 
 /**
  * Deletes every stored object under `{user_id}/{event_id}/` in both
- * buckets. Called after the engine acknowledges an event tombstone, so
- * orphaned uploads can never linger. Best-effort: never throws.
+ * buckets. Kept for hygiene (stale bytes from before uploads were
+ * disabled); called from the sync engine after a tombstone is
+ * acknowledged. Best-effort: never throws.
  */
 export async function purgeEventMediaByPrefix(userId: string, eventId: string): Promise<void> {
   if (!isConfigured || !supabase) return;
@@ -369,6 +211,7 @@ const signedUrlCache = new Map<string, { url: string; exp: number }>();
 /**
  * Returns a short-lived signed URL for a stored object, or null when it
  * can't be minted (offline, signed out, unconfigured). Cached for 10 min.
+ * Read-only: never writes bytes.
  */
 export async function getSignedMediaUrl(bucket: string, storagePath: string): Promise<string | null> {
   if (!isConfigured || !supabase) return null;

@@ -190,7 +190,7 @@ function fakeHandle(legacy: boolean): SyncDbHandle & { columns: string[]; meta: 
   applySchema(fresh);
   ok(fresh.columns.includes('owner_name'), 'schema: fresh db has owner_name');
   ok(fresh.columns.includes('dob'), 'schema: fresh db has dob');
-  ok(fresh.meta.get('schema_version') === '4', 'schema: fresh db version is 4');
+  ok(fresh.meta.get('schema_version') === '5', 'schema: fresh db version is 5');
 
   // Legacy v3 database: migration adds both columns, bumps to 4.
   const legacy = fakeHandle(true);

@@ -72,13 +72,6 @@ import { getPartnerLink, type PartnerLink } from '../../src/partner/model';
 import PartnerSheet from '../../src/partner/PartnerSheet';
 
 
-const LEAD_OPTIONS = [
-  { minutes: 15, label: '15 min before' },
-  { minutes: 60, label: '1 hour before' },
-  { minutes: 1440, label: '1 day before' },
-  { minutes: 2880, label: '2 days before' },
-] as const;
-
 const NUDGE_MIN = 17 * 60; // 5:00 PM
 const NUDGE_MAX = 21 * 60; // 9:00 PM
 const NUDGE_STEP = 30;
@@ -282,7 +275,6 @@ export default function YouScreen() {
   const [endOfDayEnabled, setEndOfDayEnabled] = useState(true);
   const [endOfDayTime, setEndOfDayTime] = useState('20:30');
   const [appointmentReminders, setAppointmentReminders] = useState(true);
-  const [leadMinutes, setLeadMinutes] = useState(60);
   const [globalPauseUntil, setGlobalPauseUntil] = useState<string | null>(null);
   const [quietHours, setQuietHours] = useState({ start: '21:00', end: '08:00' });
 
@@ -454,17 +446,6 @@ export default function YouScreen() {
       }
     },
     [ensurePermission, showToast],
-  );
-
-  const handleLeadStep = useCallback(
-    (direction: 1 | -1) => {
-      const idx = LEAD_OPTIONS.findIndex((o) => o.minutes === leadMinutes);
-      const next =
-        LEAD_OPTIONS[(idx + direction + LEAD_OPTIONS.length) % LEAD_OPTIONS.length].minutes;
-      setLeadMinutes(next);
-      updatePrefs({ appointmentLeadMinutes: next }).catch(() => {});
-    },
-    [leadMinutes],
   );
 
   const handleNudgeToggle = useCallback(
@@ -733,9 +714,6 @@ export default function YouScreen() {
     setStopOpen(false);
   }, [showToast]);
 
-  const leadLabel =
-    LEAD_OPTIONS.find((o) => o.minutes === leadMinutes)?.label ?? '2 days before';
-
   // Epic 9 — expand-to-choose data rows for the "It's done." aftermath.
   // Tapping a row reveals its concrete options; tapping an option records the
   // decision and collapses the row into a quiet decided state (✓ + label).
@@ -927,21 +905,6 @@ export default function YouScreen() {
           }
         />
         <SettingsRow
-          icon="◍"
-          title="Remind me"
-          subtitle="How far ahead of each appointment."
-          trailing={
-            <TimeStepper
-              value={leadLabel}
-              onDecrease={() => handleLeadStep(-1)}
-              onIncrease={() => handleLeadStep(1)}
-              decreaseLabel="Less lead time"
-              increaseLabel="More lead time"
-              testID="lead-time-stepper"
-            />
-          }
-        />
-        <SettingsRow
           icon="☾"
           title="End-of-day nudge"
           subtitle={`One gentle nudge around ${formatClock(endOfDayTime)} — only on days you haven’t saved anything.`}
@@ -957,7 +920,6 @@ export default function YouScreen() {
         <SettingsRow
           icon="◐"
           title="Nudge time"
-          subtitle="Set it once — we never asked during onboarding."
           trailing={
             <TimeStepper
               value={formatClock(endOfDayTime)}

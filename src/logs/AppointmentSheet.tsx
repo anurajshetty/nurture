@@ -5,9 +5,11 @@
  * untitled becomes "Appointment"), When (date + time pills, default today
  * 10:30 AM), "With whom / where" (optional). Saved appointments use the
  * same event contract as the Composer's "Save as appointment?" proposal, so
- * they land in the Plan tab's reminder flow and the Week appointment card.
- * After saving, the app navigates to the appointment's Plan detail so the
- * new appointment visibly lands where she expects it.
+ * they land in the Logs feed's reminder flow and the Week appointment card.
+ * After saving, the app navigates to the appointment's Logs deep link
+ * (/logs?appointment=<id>) so the new appointment visibly lands where
+ * she expects it (the appointment editor opens there once the
+ * Logs-side param handling lands).
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -62,17 +64,19 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
 
   const save = useCallback(() => {
     const event = saveEvent(buildAppointmentInput({ what, date, time, where }));
-    // The Plan tab owns appointment reminders; scheduling here too means a
-    // reminder is set even if she never visits Plan. Safe to skip on failure.
+    // The tab shell refreshes appointment reminders on focus; scheduling
+    // here too means a reminder is set even without that. Safe to skip
+    // on failure.
     try {
       void refreshAppointmentReminders().catch(() => {});
     } catch {
       // Reminders stay as-is; the appointment itself is saved.
     }
     onSaved(event);
-    // Land in Plan on the new appointment's detail — same deep link the
-    // reminder flow uses, so the save visibly lands where she expects.
-    router.push({ pathname: '/plan', params: { appointment: event.id } });
+    // Land on the new appointment's Logs deep link — the same target the
+    // reminder flow uses (/logs?appointment=<id>), so the save visibly
+    // lands where she expects it.
+    router.push({ pathname: '/logs', params: { appointment: event.id } });
     onClose();
   }, [what, date, time, where, onSaved, onClose, router]);
 
@@ -83,7 +87,7 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
       accessibilityLabel="New appointment"
       testID="appointment-sheet">
       <Text style={styles.title}>New appointment</Text>
-      <Text style={styles.lede}>It will land in your Plan with your questions ready.</Text>
+      <Text style={styles.lede}>It will land in your Logs with your questions ready.</Text>
 
       <View style={styles.field}>
         <Text style={styles.label}>What’s it for?</Text>

@@ -1,21 +1,32 @@
 #!/usr/bin/env python3
 """
-Interactive browser test: the upcoming-appointment priority card on the
+Interactive browser test: the upcoming-appointment reminder cards on the
 Week screen (Anuraj, Sept 2026).
 
 Drives the REAL Willow web UI in real Chromium (390x844) against dist/
 served under /willow/ via Playwright route interception.
 
+Contract (mockup 16; locked copy Sept 2026 — supersedes the old soonest
++ "+N more" priority card): one card per appointment inside the ROLLING
+48-hour window (now <= t <= now+48h), soonest-first, rendered directly
+between the baby-size hero and the Highlights section. Past
+appointments never render. Each card shows the "Coming up" kicker, the
+warm `when` string, the title, and the locked "2 questions to ask"
+body (summary only — full notes are NOT shown). Tapping a card opens
+the appointment editor sheet for that appointment.
+
 Flows (all real UI, no stubs):
   1. Seed an appointment inside the window (tomorrow 10:30 local) ->
-     the card renders ABOVE the Highlights section with warm date words
-     ("Tomorrow at 10:30 AM") and the headline "A gentle nudge".
-  2. Tap the card -> lands on the Plan tab.
-  3. Seed a second in-window appointment -> "+1 more" line appears.
-  4. Seed an appointment outside the window (day+5) and clear the rest ->
-     no card renders.
-  5. Seed an in-window appointment but page to a past week -> the card is
-     suppressed.
+     exactly one card renders ABOVE the Highlights section: kicker
+     "Coming up", title, warm date words ("Tomorrow at 10:30 AM"), and
+     the "2 questions to ask" body.
+  2. Tap the card -> the appointment editor sheet opens.
+  3. Seed two in-window appointments -> two cards render soonest-first,
+     with NO "+N more" line.
+  4. Seed an appointment outside the window (day+5) and clear the rest
+     -> no card renders.
+  5. Seed an in-window appointment but page to a past week -> the cards
+     are suppressed on non-current weeks.
   6. No "{Name}"/"{name}" tokens and no "— or a" comparison phrasing
      anywhere on the Week screen.
   7. Warm greeting: set the baby name in the You tab -> Week greeting
@@ -31,6 +42,8 @@ import mimetypes
 import os
 import re
 import sys
+import json
+from datetime import date, timedelta
 
 from playwright.sync_api import sync_playwright
 
@@ -127,74 +140,103 @@ def main():
         page.evaluate(SEED_PREGNANCY_JS)
         page.wait_for_timeout(500)
 
+        # --- 0. the Week heading shows the DISPLAY week (completed + 1) ---
+        # Locked rule (Anuraj, Sept 2026): displayed = floor((today - LMP)/7) + 1,
+        # LMP = due - 280d. Computed from the real "today" so the check holds
+        # on any run date.
+        print("Checking the Week heading")
+        lmp = date(2026, 10, 8) - timedelta(days=280)
+        expected_display = (date.today() - lmp).days // 7 + 1
+        goto_week(page)
+        heading = page.get_by_test_id("week-prev").locator(
+            "xpath=following-sibling::*[1]").inner_text().strip()
+        print(f"    heading: {heading!r} (expected 'Week {expected_display}')")
+        check(f"Week heading shows the display week (Week {expected_display})",
+              heading == f"Week {expected_display}")
+
         # --- 1. in-window appointment renders above Highlights -----------
         print("Seeding tomorrow 10:30 appointment")
         page.evaluate(seed_appointments_js([(1, 10, 30, "Growth scan")]))
         goto_week(page)
 
-        card = page.get_by_test_id("week-appointment-card")
-        check("card renders for in-window appointment", card.count() == 1)
-        if card.count() == 1:
-            # The headline renders as an uppercase kicker by design; compare
+        cards = page.get_by_test_id("week-reminder-card")
+        check("one card renders for one in-window appointment",
+              cards.count() == 1)
+        if cards.count() == 1:
+            card = cards.first
+            # The kicker renders as an uppercase kicker by design; compare
             # case-insensitively.
-            check("card headline is warm (A gentle nudge)",
-                  "a gentle nudge" in card.inner_text().lower())
+            check("card kicker is 'Coming up' (locked copy, Sept 2026)",
+                  "coming up" in card.inner_text().lower())
             check("card shows appointment title",
                   "Growth scan" in card.inner_text())
-            when = page.get_by_test_id("week-appointment-when").inner_text()
+            when = card.get_by_test_id("week-reminder-card-when").inner_text()
             print(f"    when: {when!r}")
             check("warm date words (Tomorrow at h:MM AM/PM)",
                   re.fullmatch(r"Tomorrow at \d{1,2}:\d{2} (AM|PM)", when) is not None)
+            check("card body is the locked '2 questions to ask' summary",
+                  card.get_by_test_id("week-reminder-card-questions").inner_text().strip()
+                  == "2 questions to ask")
             # ordering: card above Highlights
             card_y = card.bounding_box()["y"]
             hl_y = page.get_by_test_id("week-highlights").bounding_box()["y"]
             check("card sits above Highlights section", card_y < hl_y)
 
-            # Screenshot: headline + appointment card at the top of Week.
+            # Screenshot: reminder card at the top of Week.
             page.evaluate("window.scrollTo(0, 0)")
             page.wait_for_timeout(500)
-            page.screenshot(path="/tmp/week-appointment-card.png")
-            print("    screenshot: /tmp/week-appointment-card.png")
+            page.screenshot(path="/tmp/week-reminder-cards.png")
+            print("    screenshot: /tmp/week-reminder-cards.png")
 
-            # --- 2. tap card -> Plan tab ---------------------------------
+            # --- 2. tap card -> appointment editor sheet ------------------
             print("Tapping the card")
             card.click()
-            page.wait_for_timeout(1500)
-            check("tap lands on the Plan tab",
-                  page.get_by_test_id("plan-screen").count() > 0)
+            page.get_by_test_id("appointment-editor").wait_for(timeout=10000)
+            check("tap opens the appointment editor sheet",
+                  page.get_by_test_id("appointment-editor").is_visible())
 
-        # --- 3. +N more --------------------------------------------------
-        print("Seeding a second in-window appointment")
+        # --- 3. two in-window appointments -> two cards, soonest-first --
+        # day+2 is NOT reliably inside the rolling 48h window (depends on
+        # the wall-clock time the test runs), so the second appointment
+        # goes later on day+1: always in-window and always after the
+        # first, verifying soonest-first ordering.
+        print("Seeding two in-window appointments")
         page.evaluate(seed_appointments_js([
+            (1, 15, 0, "Birth-plan chat"),
             (1, 10, 30, "Growth scan"),
-            (2, 9, 0, "Birth-plan chat"),
         ]))
         goto_week(page)
-        more = page.get_by_test_id("week-appointment-more")
-        check("+1 more line appears", more.count() == 1 and
-              more.inner_text().strip() == "+1 more")
+        cards = page.get_by_test_id("week-reminder-card")
+        check("one card per in-window appointment", cards.count() == 2)
+        if cards.count() == 2:
+            first = cards.nth(0).inner_text()
+            second = cards.nth(1).inner_text()
+            check("cards render soonest-first",
+                  "Growth scan" in first and "Birth-plan chat" in second)
+        check("no old '+N more' element remains",
+              page.get_by_test_id("week-appointment-more").count() == 0)
 
         # --- 4. outside the window -> no card -----------------------------
         print("Seeding an appointment outside the window (day+5)")
         page.evaluate(seed_appointments_js([(5, 9, 0, "Far-future visit")]))
         goto_week(page)
         check("no card for out-of-window appointment",
-              page.get_by_test_id("week-appointment-card").count() == 0)
+              page.get_by_test_id("week-reminder-card").count() == 0)
 
-        # --- 5. past week suppresses the card ----------------------------
+        # --- 5. past week suppresses the cards ---------------------------
         print("Seeding an in-window appointment, then paging back")
         page.evaluate(seed_appointments_js([(1, 15, 0, "Midwife visit")]))
         goto_week(page)
         check("card renders before paging",
-              page.get_by_test_id("week-appointment-card").count() == 1)
+              page.get_by_test_id("week-reminder-card").count() == 1)
         page.get_by_test_id("week-prev").click()
         page.wait_for_timeout(1500)
-        check("card suppressed on a past week",
-              page.get_by_test_id("week-appointment-card").count() == 0)
+        check("cards suppressed on a past week",
+              page.get_by_test_id("week-reminder-card").count() == 0)
         page.get_by_test_id("week-back-current").click()
         page.wait_for_timeout(1500)
         check("card returns on the current week",
-              page.get_by_test_id("week-appointment-card").count() == 1)
+              page.get_by_test_id("week-reminder-card").count() == 1)
 
         # --- 6. copy hygiene ----------------------------------------------
         body = page.locator("[data-testid='week-screen']").inner_text()
@@ -245,6 +287,18 @@ def main():
         print(f"    greeting (cleared): {greeting2!r}")
         check("greeting falls back when no name",
               greeting2 == "Hey, you're almost there.")
+
+        # --- 7b. Logs deep link ?appointment=<id> opens the editor -------
+        print("Seeding an appointment, then deep-linking to it on Logs")
+        appt_ids = json.loads(
+            page.evaluate(seed_appointments_js([(1, 11, 0, "Deep-link visit")])))
+        appt_id = appt_ids[0]
+        page.goto(f"{ORIGIN}/willow/logs?appointment={appt_id}&testhooks=1",
+                  wait_until="networkidle")
+        page.wait_for_function("() => !!window.__nurtureTest", timeout=45000)
+        page.wait_for_timeout(1500)
+        check("deep link ?appointment=<id> opens the appointment editor",
+              page.get_by_test_id("appointment-editor").is_visible())
 
         # --- 8. zero page errors ------------------------------------------
         check(f"zero page errors (got {len(errors)})", len(errors) == 0)

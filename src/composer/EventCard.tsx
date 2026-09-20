@@ -3,11 +3,12 @@
  *
  * One card per event: type dot + label, relative time, visibility, then
  * the content in the event's own shape (text, symptom chips, mood title,
- * weight line, photo tiles, file chips). Warm, quiet, no clinical chrome.
+ * weight line, photo placeholders, file chips). Warm, quiet, no clinical
+ * chrome.
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Card from '../components/Card';
 import {
   colors,
@@ -18,15 +19,15 @@ import {
   type as typeScale,
   type EventDotKind,
 } from '../theme/tokens';
-import { bucketForKind, type EventAttachment, type LocalEvent } from '../lib/types';
-import { getSignedMediaUrl } from '../sync/media';
+import { type EventAttachment, type LocalEvent } from '../lib/types';
 import { getEvent } from '../sync/store';
+import { readQuestions } from '../plan/questions';
 import {
   readReportSummaryState,
   REPORT_SUMMARY_DISCLAIMER,
-  summarizableAttachment,
-  summarizeReport,
-  writeReportSummaryState,
+  resumeReportSummary,
+  retryReportSummary,
+  subscribeReportSummary,
   type ReportSummaryState,
 } from '../reportSummary/client';
 
@@ -97,233 +98,89 @@ function attachmentsOf(data: Record<string, unknown>): EventAttachment[] {
 }
 
 /**
- * Resolves the viewable URI for an attachment: the device-local copy when
- * present, otherwise a short-lived signed URL for the cloud backup (e.g.
- * on a second device, or on web after a tab was closed).
+ * PHOTO PLACEHOLDER (Willow, Anuraj Sept 2026): photo persistence is OFF
+ * app-wide — no photo bytes are uploaded or saved anywhere, and the feed
+ * must never attempt to load them (no local URI, no signed URL). Photo
+ * attachments therefore render as this affordance-only tile: a warm
+ * picture placeholder with the photo's name as its accessibility label.
+ * `attachmentsOf` still reads the attachment metadata (kind/name); the
+ * bytes themselves are never touched.
  */
-function useAttachmentUri(a: EventAttachment): string | null {
-  const [uri, setUri] = useState<string | null>(a.local_uri ?? null);
-  useEffect(() => {
-    let live = true;
-    if (a.local_uri) {
-      setUri(a.local_uri);
-      return;
-    }
-    if (a.upload === 'done' && a.storage_path) {
-      setUri(null);
-      void getSignedMediaUrl(bucketForKind(a.kind), a.storage_path).then((signed) => {
-        if (live) setUri(signed);
-      });
-    } else {
-      setUri(null);
-    }
-    return () => {
-      live = false;
-    };
-  }, [a.local_uri, a.upload, a.storage_path, a.kind]);
-  return uri;
-}
-
-function MediaPhoto({ attachment }: { attachment: EventAttachment }) {
-  const uri = useAttachmentUri(attachment);
-  if (!uri) return null;
-  return <Image source={{ uri }} style={styles.photo} />;
-}
-
-/** One-line honest backup status for the card's attachments. */
-function backupStatus(atts: EventAttachment[]): string | null {
-  if (atts.some((a) => a.upload === 'failed')) return 'Not backed up yet';
-  if (atts.some((a) => a.upload === 'pending')) return 'Backing up…';
-  return null;
-}
-
-/* ------------------------------------------------------------------ */
-/* Report summary (Anuraj-approved Sept 2026).                          */
-/*                                                                     */
-/* Report-category timeline entries only. After a report's attachment   */
-/* upload reaches `upload: 'done'` with a `storage_path`, the entry     */
-/* shows "Reading your report…" while the app invokes the              */
-/* `report-summary` edge function, then renders the summary card        */
-/* (serif title, plain-language body, attachment row with the           */
-/* LLM-derived friendly name + Open ›, fixed disclaimer). On any        */
-/* failure the card says "Couldn't read this one — try a clearer        */
-/* photo." with Try again; the original attachment stays openable.      */
-/* The summary state lives on `event.data.reportSummary` so it          */
-/* survives reloads and syncs like any other payload change.            */
-/* ------------------------------------------------------------------ */
-
-/** Event ids with a summary request currently in flight (survives remounts). */
-const inflightSummaries = new Set<string>();
-
-/** Opens the original file: device-local copy, else a signed cloud URL. */
-async function openReportAttachment(att: EventAttachment): Promise<void> {
-  try {
-    let uri: string | null = att.local_uri ?? null;
-    if (!uri && att.upload === 'done' && att.storage_path) {
-      uri = await getSignedMediaUrl(bucketForKind(att.kind), att.storage_path);
-    }
-    if (uri) await Linking.openURL(uri);
-  } catch {
-    // Best-effort: opening never throws into the card.
-  }
-}
-
-function SummaryAttachmentRow({
-  attachment,
-  friendlyName,
-  caption,
-}: {
-  attachment: EventAttachment;
-  /** The LLM-derived name (ready state) or null to show the raw filename. */
-  friendlyName: string | null;
-  /** Overrides the "Auto-named from your report" caption (e.g. "Backing up…"). */
-  caption?: string | null;
-}) {
+function PhotoPlaceholder({ label }: { label: string }) {
   return (
-    <View style={styles.summaryAttRow}>
-      <View style={styles.summaryAttInfo}>
-        <Text style={styles.summaryAttName} numberOfLines={1}>
-          {friendlyName ?? attachment.name}
-        </Text>
-        {caption || friendlyName ? (
-          <Text style={styles.summaryAttCaption}>
-            {caption ?? 'Auto-named from your report'}
-          </Text>
-        ) : null}
-      </View>
-      <Pressable
-        onPress={() => void openReportAttachment(attachment)}
-        accessibilityRole="button"
-        accessibilityLabel={`Open ${friendlyName ?? attachment.name}`}
-        testID="report-summary-open"
-        style={({ pressed }) => [styles.summaryOpen, pressed && styles.summaryOpenPressed]}>
-        <Text style={styles.summaryOpenText}>Open ›</Text>
-      </Pressable>
+    <View
+      style={styles.photoPlaceholder}
+      accessibilityRole="image"
+      accessibilityLabel={label}
+      testID="event-card-photo-placeholder"
+    >
+      <Text style={styles.photoGlyph}>◎</Text>
+      <Text style={styles.photoLabel}>Photo</Text>
     </View>
   );
 }
 
+/* Backup-status line REMOVED (Sept 2026): photo persistence is OFF
+ * app-wide (PHOTOS_PERSIST_ENABLED = false), so nothing ever uploads and
+ * no "Backing up…" / "Not backed up yet" state may be shown — for photos
+ * or files. The media backup pipeline stays in place behind the kill
+ * switch in src/sync/photoPersistence.ts for later re-enabling. */
+
+/* ------------------------------------------------------------------ */
+/* Report summary (Willow, ephemeral — Anuraj Sept 2026).               */
+/*                                                                     */
+/* Report-category timeline entries are TEXT-ONLY. The picked file is   */
+/* read into memory solely for the summary call — nothing is persisted */
+/* (no attachment, no backup, no "Backing up…" anywhere).               */
+/*                                                                     */
+/* - 'summarizing': the interim feed entry ("Summarizing your report…") */
+/* - 'ready':       the summary card (serif title, plain-language body, */
+/*                  fixed disclaimer)                                   */
+/* - 'failed':      "Couldn't read this one — try a clearer photo."     */
+/*                  with Try again (re-sends the in-memory bytes; when  */
+/*                  they're gone — e.g. after a restart — the card says */
+/*                  to add the report again)                            */
+/*                                                                     */
+/* The summary state lives on `event.data.reportSummary` so it          */
+/* survives reloads and syncs like any other payload change. The card   */
+/* re-renders through `subscribeReportSummary` — no polling.            */
+/* ------------------------------------------------------------------ */
+
 function ReportSummarySection({ event }: { event: LocalEvent }) {
-  // A persisted 'reading' state is stale after an app relaunch (the request
-  // died with the JS runtime) — display it, but let the trigger below
-  // re-invoke since nothing is actually in flight.
-  const persisted = readReportSummaryState(event.data);
-  const [state, setState] = useState<ReportSummaryState | null>(() => persisted);
-  const [attachment, setAttachment] = useState<EventAttachment | null>(() =>
-    summarizableAttachment(attachmentsOf(event.data)),
+  const [state, setState] = useState<ReportSummaryState | null>(() =>
+    readReportSummaryState(event.data),
   );
-  const [rawAttachment, setRawAttachment] = useState<EventAttachment | null>(
-    () => attachmentsOf(event.data)[0] ?? null,
-  );
-
-  // Moves the section into the 'reading' state (persisted + set). The
-  // edge-function request itself fires from the effect below, AFTER React
-  // commits 'reading' — effects run post-commit, so "Reading your report…"
-  // is guaranteed to be painted before the network request starts.
-  // (Setting state and awaiting the fetch in the same tick lets React
-  // batch/skip the intermediate paint, so the loading indicator never
-  // appears.)
-  const beginReading = useCallback(
-    (att: EventAttachment) => {
-      const reading: ReportSummaryState = { status: 'reading' };
-      writeReportSummaryState(event.id, reading);
-      setAttachment(att);
-      setState(reading);
-    },
-    [event.id],
-  );
-
-  // Fires the summary request once 'reading' has committed (and only then).
-  useEffect(() => {
-    if (state?.status !== 'reading') return;
-    if (!attachment) return;
-    if (inflightSummaries.has(event.id)) return;
-    inflightSummaries.add(event.id);
-    const att = attachment;
-    let cancelled = false;
-    (async () => {
-      try {
-        const result = await summarizeReport({
-          eventId: event.id,
-          bucket: bucketForKind(att.kind),
-          storagePath: att.storage_path ?? '',
-          mimeType: att.mimeType ?? '',
-        });
-        if (cancelled) return;
-        const ready: ReportSummaryState = { status: 'ready', ...result };
-        writeReportSummaryState(event.id, ready);
-        setState(ready);
-      } catch {
-        if (cancelled) return;
-        const failed: ReportSummaryState = { status: 'failed' };
-        writeReportSummaryState(event.id, failed);
-        setState(failed);
-      } finally {
-        inflightSummaries.delete(event.id);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [state?.status, event.id, attachment]);
+  const [needsReadd, setNeedsReadd] = useState(false);
 
   useEffect(() => {
     if (event.type !== 'report') return;
-    let live = true;
-
-    // The card's props are a snapshot: re-read the event from the store so
-    // the trigger sees the attachment's upload completion even though the
-    // background media drain never re-renders this card.
-    const check = () => {
-      if (!live) return;
+    // Close the fast-completion race: the summary may have finished
+    // between the card's first render and this effect — re-read the
+    // persisted state first so the card never shows a stale
+    // "Summarizing…" over a finished summary.
+    const freshOnMount = getEvent(event.id);
+    setState(readReportSummaryState(freshOnMount?.data ?? event.data));
+    // Resume an in-flight summary after a remount (same session, bytes
+    // still stashed). With no stashed bytes the flow marks the entry
+    // 'failed' instead of hanging on "Summarizing…" forever.
+    resumeReportSummary(event.id);
+    return subscribeReportSummary((id) => {
+      if (id !== event.id) return;
       const fresh = getEvent(event.id);
-      const data = fresh?.data ?? event.data;
-      const stored = readReportSummaryState(data);
-      // Stale 'reading' (persisted by a request that died with the JS
-      // runtime) re-triggers below; a genuinely in-flight request doesn't.
-      const next =
-        stored?.status === 'reading' && !inflightSummaries.has(event.id) ? null : stored;
-      setState((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
-      const att = summarizableAttachment(attachmentsOf(data));
-      setAttachment((prev) => (prev?.id === att?.id ? prev : att));
-      const raw = attachmentsOf(data)[0] ?? null;
-      setRawAttachment((prev) => (prev?.id === raw?.id ? prev : raw));
-      // Trigger: attachment backed up, no summary state yet, nothing in flight.
-      // beginReading only sets state; the fetch effect fires after commit.
-      if (!next && att && !inflightSummaries.has(event.id)) {
-        beginReading(att);
-      }
-    };
-    check();
-    const timer = setInterval(check, 2500);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, [event.id, event.type, beginReading]);
+      setState(readReportSummaryState(fresh?.data ?? {}));
+      setNeedsReadd(false);
+    });
+  }, [event.id, event.type]);
 
   if (event.type !== 'report') return null;
-  // The section owns all attachment display for report entries (the card
-  // suppresses its generic photo/file/backup rendering for reports).
-  const displayAttachment = attachment ?? rawAttachment;
-  if (!displayAttachment) return null;
+  if (!state) return null;
 
-  if (!state) {
-    // Attachment exists but isn't backed up yet — honest backup status on
-    // the attachment row itself.
-    return (
-      <SummaryAttachmentRow
-        attachment={displayAttachment}
-        friendlyName={null}
-        caption={displayAttachment.upload === 'failed' ? 'Not backed up yet' : 'Backing up…'}
-      />
-    );
-  }
-
-  if (state.status === 'reading') {
+  if (state.status === 'summarizing') {
     return (
       <View style={styles.summaryLoading} testID="report-summary-loading">
-        <Text style={styles.summaryLoadingText}>Reading your report…</Text>
+        <Text style={styles.summaryLoadingText}>Summarizing your report…</Text>
+        {/* Fixed disclaimer — inside the card, always visible. */}
+        <Text style={styles.summaryDisclaimer}>{REPORT_SUMMARY_DISCLAIMER}</Text>
       </View>
     );
   }
@@ -332,11 +189,20 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
     return (
       <View testID="report-summary-failed">
         <Text style={styles.summaryFailedText}>Couldn&apos;t read this one — try a clearer photo.</Text>
+        {needsReadd ? (
+          <Text style={styles.summaryReaddText} testID="report-summary-readd">
+            Add the report again to try once more.
+          </Text>
+        ) : null}
         <Pressable
           onPress={() => {
-            // Try again re-invokes against the same backed-up attachment.
-            // beginReading only sets state; the fetch effect fires after commit.
-            if (attachment) beginReading(attachment);
+            // Try again re-sends the in-memory bytes. When they're gone
+            // (app restarted since), say so instead of pretending to retry.
+            if (retryReportSummary(event.id)) {
+              setNeedsReadd(false);
+            } else {
+              setNeedsReadd(true);
+            }
           }}
           accessibilityRole="button"
           accessibilityLabel="Try again"
@@ -344,18 +210,24 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
           style={({ pressed }) => [styles.retryBtn, pressed && styles.retryPressed]}>
           <Text style={styles.retryText}>Try again</Text>
         </Pressable>
-        <SummaryAttachmentRow attachment={displayAttachment} friendlyName={null} />
+        {/* Fixed disclaimer — inside the card, always visible. */}
+        <Text style={styles.summaryDisclaimer}>{REPORT_SUMMARY_DISCLAIMER}</Text>
       </View>
     );
   }
 
+  // Ready: text-only summary card. No attachment row, no Open › — report
+  // entries never carry files anymore.
   return (
     <View style={styles.summaryCard} testID="report-summary-card">
       <Text style={styles.summaryTitle} testID="report-summary-title">
         {state.title}
       </Text>
-      <Text style={styles.summaryBody}>{state.summary}</Text>
-      <SummaryAttachmentRow attachment={displayAttachment} friendlyName={state.attachmentName} />
+      {/* Long summaries clamp to 4 lines; no Read more/Show less toggle
+          (Anuraj's pending review — do not build until approved). */}
+      <Text style={styles.summaryBody} numberOfLines={4} ellipsizeMode="tail">
+        {state.summary}
+      </Text>
       {/* Fixed disclaimer — never model-written (Anuraj-approved spec). */}
       <Text style={styles.summaryDisclaimer}>{REPORT_SUMMARY_DISCLAIMER}</Text>
     </View>
@@ -368,15 +240,35 @@ function visibilityLabel(v: LocalEvent['visibility']): string {
   return '🔒 Only you';
 }
 
-export default function EventCard({ event }: { event: LocalEvent }) {
+export interface EventCardProps {
+  event: LocalEvent;
+  /**
+   * When present and the event is an appointment, the whole card is a
+   * pressable that calls it with the appointment's event id (opens the
+   * appointment editor). The card carries no reminder mention — just the
+   * title and the dynamic "{n} questions to ask" line.
+   */
+  onAppointmentPress?: (eventId: string) => void;
+}
+
+/** "1 question to ask" / "2 questions to ask" — proper pluralization. */
+function questionsLine(count: number): string {
+  return count === 1 ? '1 question to ask' : `${count} questions to ask`;
+}
+
+export default function EventCard({ event, onAppointmentPress }: EventCardProps) {
   const meta = metaFor(event.type);
   const data = event.data;
   const text = typeof data.text === 'string' ? data.text : typeof data.note === 'string' ? data.note : '';
   const atts = attachmentsOf(data);
-  // Report entries render their attachment exclusively through
-  // ReportSummarySection (friendly name + Open ›, honest backup status);
-  // the generic photo/file/backup rendering below is suppressed for them.
+  // Report entries are text-only: their whole rendering is the
+  // ReportSummarySection (interim / summary / error card). The generic
+  // text + photo/file/backup rendering below is suppressed for them —
+  // no raw filename, no attachment row, no "Backing up…".
   const isReport = event.type === 'report';
+  const isAppointment = event.type === 'appointment';
+  const appointmentQuestions = isAppointment ? readQuestions(event) : [];
+  const appointmentPressable = isAppointment && !!onAppointmentPress;
 
   let title: string | null = null;
   let chips: string[] = [];
@@ -392,10 +284,21 @@ export default function EventCard({ event }: { event: LocalEvent }) {
 
   const photos = atts.filter((a) => a.kind === 'photo');
   const files = atts.filter((a) => a.kind !== 'photo');
-  const status = backupStatus(atts);
+  // No backup-status line: photo persistence is OFF app-wide
+  // (PHOTOS_PERSIST_ENABLED = false), so nothing ever uploads and no
+  // "Backing up…" state may be shown — for photos or files.
 
   return (
-    <Card style={styles.card} testID={`event-card-${event.id}`}>
+    <Card
+      style={styles.card}
+      testID={`event-card-${event.id}`}
+      onPress={
+        appointmentPressable ? () => onAppointmentPress!(event.id) : undefined
+      }
+      accessibilityLabel={
+        appointmentPressable ? `Appointment. ${title ?? ''}. Tap to open.` : undefined
+      }
+    >
       <View style={styles.meta}>
         <View style={styles.typeRow}>
           <View style={[styles.dot, { backgroundColor: eventDots[meta.dot] }]}>
@@ -407,7 +310,12 @@ export default function EventCard({ event }: { event: LocalEvent }) {
         <Text style={styles.visibility}>{visibilityLabel(event.visibility)}</Text>
       </View>
       {title ? <Text style={styles.title}>{title}</Text> : null}
-      {text ? <Text style={styles.text}>{text}</Text> : null}
+      {isAppointment ? (
+        <Text style={styles.questions} testID={`event-card-questions-${event.id}`}>
+          {questionsLine(appointmentQuestions.length)}
+        </Text>
+      ) : null}
+      {!isReport && text ? <Text style={styles.text}>{text}</Text> : null}
       {chips.length > 0 ? (
         <View style={styles.chipRow}>
           {chips.map((c) => (
@@ -420,7 +328,10 @@ export default function EventCard({ event }: { event: LocalEvent }) {
       {!isReport && photos.length > 0 ? (
         <View style={styles.photoRow}>
           {photos.slice(0, 3).map((p, i) => (
-            <MediaPhoto key={p.id || i} attachment={p} />
+            <PhotoPlaceholder
+              key={p.id || i}
+              label={p.name ?? 'Photo'}
+            />
           ))}
         </View>
       ) : null}
@@ -434,7 +345,6 @@ export default function EventCard({ event }: { event: LocalEvent }) {
         </View>
       ) : null}
       {isReport ? <ReportSummarySection event={event} /> : null}
-      {!isReport && status ? <Text style={styles.backupStatus}>{status}</Text> : null}
     </Card>
   );
 }
@@ -493,6 +403,13 @@ const styles = StyleSheet.create({
     color: '#5C554D',
     lineHeight: 24,
   },
+  /* Appointment card: dynamic "{n} questions to ask" line. */
+  questions: {
+    ...typeScale.subhead,
+    fontWeight: '600',
+    color: colors.coralDeep,
+    marginBottom: spacing.xs,
+  },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -528,16 +445,29 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.sm,
   },
-  photo: {
+  /* Photo placeholder: affordance only — no bytes are ever loaded. */
+  photoPlaceholder: {
     width: 96,
     height: 96,
     borderRadius: 14,
     backgroundColor: colors.blush,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#CFC4B4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
   },
-  backupStatus: {
-    ...typeScale.footnote,
+  photoGlyph: {
+    fontSize: 26,
     color: colors.muted,
-    marginTop: spacing.sm,
+  },
+  photoLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: colors.muted,
   },
   /* Report summary (Anuraj-approved Sept 2026). */
   summaryLoading: {
@@ -570,42 +500,6 @@ const styles = StyleSheet.create({
     color: '#5C554D',
     lineHeight: 24,
   },
-  summaryAttRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: '#fff',
-    borderRadius: radii.docPreview,
-    borderWidth: 1,
-    borderColor: colors.line,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  summaryAttInfo: {
-    flex: 1,
-  },
-  summaryAttName: {
-    ...typeScale.subhead,
-    fontWeight: '700',
-    color: colors.ink,
-  },
-  summaryAttCaption: {
-    ...typeScale.footnote,
-    color: colors.muted,
-    marginTop: 2,
-  },
-  summaryOpen: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-  },
-  summaryOpenPressed: {
-    opacity: 0.6,
-  },
-  summaryOpenText: {
-    ...typeScale.subhead,
-    fontWeight: '700',
-    color: colors.coralDeep,
-  },
   summaryDisclaimer: {
     ...typeScale.footnote,
     color: colors.muted,
@@ -615,6 +509,11 @@ const styles = StyleSheet.create({
     ...typeScale.subhead,
     color: '#5C554D',
     marginTop: spacing.sm,
+  },
+  summaryReaddText: {
+    ...typeScale.footnote,
+    color: colors.muted,
+    marginTop: spacing.xs,
   },
   retryBtn: {
     alignSelf: 'flex-start',

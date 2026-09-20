@@ -375,19 +375,16 @@ def main():
         page.wait_for_timeout(500)
         check("appointment sheet closes after save",
               page.get_by_test_id("appointment-sheet").count() == 0)
-        # Saving navigates to the appointment's Plan detail — Anuraj's "it
-        # lands in Plan" requirement; the app itself pushes the route now.
+        # Saving opens the appointment in the Logs-tab editor (Plan tab was
+        # removed Sept 2026) — the app itself pushes /logs?appointment=<id>.
         try:
-            page.get_by_test_id("appointment-detail").wait_for(timeout=10000)
+            page.get_by_test_id("appointment-editor").wait_for(timeout=10000)
         except Exception:
-            check("appointment opens in Plan detail after save", False,
-                  "appointment-detail never appeared")
+            check("appointment opens in editor after save", False,
+                  "appointment-editor never appeared")
         else:
             body = page.evaluate("document.body.innerText")
-            # The existing Plan detail shows when/where (not the title —
-            # pre-existing Epic 6 behavior); the where proves the saved
-            # appointment is the one Plan opened.
-            check("appointment opens in Plan detail after save", "Dr. Izu" in body)
+            check("appointment opens in editor after save", "Dr. Izu" in body)
         event_id = page.evaluate(
             "() => new URL(window.location.href).searchParams.get('appointment')")
         check("appointment event id found", bool(event_id), f"id={event_id}")
@@ -453,21 +450,23 @@ def main():
             check("report lands in timeline", False)
         else:
             check("report lands in timeline", True)
-            # Find the report's own card by its attachment name (card order
-            # is time-dependent — a same-day appointment can sort above it).
+            # Find the report's own card by its summary state (ephemeral flow,
+            # Sept 2026: entries are text-only — no raw filename on the card).
+            # This suite doesn't stub the edge function, so the card lands in
+            # the loading or failed state.
             report_card = page.locator(
-                '[data-testid^="event-card-"]',
-                has_text="willow-test-report.pdf",
-            ).first
+                '[data-testid="report-summary-loading"],'
+                '[data-testid="report-summary-card"],'
+                '[data-testid="report-summary-failed"]').first
             try:
                 report_card.wait_for(timeout=8000)
             except Exception:
                 check("report card found", False)
             else:
                 check("report card found", True)
-                first_card = report_card.inner_text()
-                check("report renders as REPORT chip (not FILE)",
-                      "REPORT" in first_card and "FILE" not in first_card)
+                check("report renders with Report label (not FILE chip)",
+                      page.get_by_text("Report", exact=True).count() > 0
+                      and "FILE" not in page.evaluate("document.body.innerText"))
 
         # ---- D. Log entry: floating composer ----
         page.get_by_test_id("logs-add-button").click()
@@ -487,21 +486,22 @@ def main():
         field = page.get_by_role("textbox", name="Save a moment")
         check("composer field renders", field.count() == 1)
 
-        # [+] offers photos only.
+        # [+] is a dummy while photo persistence is paused (Anuraj, Sept
+        # 2026): tapping it toasts "Photo uploads are paused for now" and
+        # the attach sheet never opens — nothing attaches.
         page.get_by_role("button", name="Add photo").click()
         try:
             page.wait_for_function(
-                "() => document.body.innerText.includes('Add a photo')", timeout=5000)
+                "() => document.body.innerText.includes('Photo uploads are paused for now')",
+                timeout=5000)
         except Exception:
-            check("photo sheet opens with photo title", False)
+            check("paused toast shows on [+] tap", False)
         else:
-            check("photo sheet opens with photo title", True)
+            check("paused toast shows on [+] tap", True)
         sheet_text = page.evaluate("document.body.innerText")
-        check("photo sheet offers take a photo + library",
-              "Take a photo" in sheet_text and "Photo library" in sheet_text)
-        check("photo sheet has no files option", "Add files" not in sheet_text)
-        page.get_by_role("button", name="Dismiss", exact=True).click()
-        page.wait_for_timeout(500)
+        check("no attach sheet opens",
+              "Take a photo" not in sheet_text and "Photo library" not in sheet_text
+              and "Add a photo" not in sheet_text)
 
         # Text -> ink send arrow -> toast -> settles away.
         field.fill("Hello little one")
@@ -527,35 +527,12 @@ def main():
         check("saved text lands in timeline",
               page.get_by_text("Hello little one").count() >= 1)
 
-        # Photo-only -> blush mic shown, tapping it saves.
-        page.get_by_test_id("logs-add-button").click()
-        page.get_by_test_id("add-menu").wait_for(timeout=5000)
-        page.get_by_test_id("add-menu-pill-log").click()
-        page.get_by_test_id("floating-composer").wait_for(timeout=5000)
-        page.get_by_role("button", name="Add photo").click()
-        page.wait_for_function(
-            "() => document.body.innerText.includes('Photo library')", timeout=5000)
-        with page.expect_file_chooser() as fc2:
-            page.get_by_role("button", name="Photo library").click()
-        fc2.value.set_files(PHOTO_PNG)
-        try:
-            page.get_by_role("button", name="Remove willow-test-photo.png").wait_for(timeout=10000)
-        except Exception:
-            check("photo chip appears", False)
-        else:
-            check("photo chip appears", True)
-        mic_btn = page.get_by_role("button", name="Dictate a moment")
-        check("photo-only shows the mic (not send)", mic_btn.count() == 1)
-        mic_btn.click()
-        try:
-            page.get_by_test_id("floating-composer-toast").wait_for(timeout=8000)
-        except Exception:
-            check("photo-only mic tap saves", False)
-        else:
-            check("photo-only mic tap saves", True)
-        page.wait_for_timeout(3000)
-        check("composer settles away after photo save",
-              page.get_by_test_id("floating-composer").count() == 0)
+        # Photo-only save RETIRED (Sept 2026): photo persistence is OFF
+        # app-wide — the composer [+] is a dummy ("Photo uploads are paused
+        # for now") and no photo can attach, so there is no photo-only save
+        # path to exercise. Text-only save is covered above. When
+        # persistence returns, restore this block (attach via the [+] sheet,
+        # mic tap saves the photo-only moment).
 
         # Dictation -> transcript enters the field for review.
         page.get_by_test_id("logs-add-button").click()

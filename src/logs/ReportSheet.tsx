@@ -1,12 +1,17 @@
 /**
  * Add report sheet (Logs-tab Add button, Anuraj-approved Sept 2026).
  *
- * File selector + upload section for lab reports, ultrasound printouts,
- * discharge summaries. "Choose file" opens the document picker;
- * "Scan document" opens the camera (a photo of the paper). Each file is
- * saved as a private timeline event and its bytes are queued for cloud
- * backup through the same media outbox the composer uses — the ✓ means
- * "saved to your timeline", uploads finish in the background.
+ * File selector for lab reports, ultrasound printouts, discharge
+ * summaries. "Choose file" opens the document picker; "Scan document"
+ * opens the camera (a photo of the paper).
+ *
+ * EPHEMERAL (Anuraj Sept 19, 2026): the picked file is read into memory
+ * ONLY to send its bytes inline to the `report-summary` edge function
+ * for the AI summary. Nothing is persisted — no attachment on the
+ * event, no Storage upload, no media-outbox row, no "Backing up…"
+ * states. The feed entry is text-only: the interim
+ * "Summarizing your report…" entry, then the summary card (or the
+ * "Couldn't read this one" card with Try again).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -14,9 +19,10 @@ import { Feather } from '@expo/vector-icons';
 import BottomSheet from '../components/BottomSheet';
 import { colors, radii, spacing, type as typeScale } from '../theme/tokens';
 import { saveEvent } from '../sync/store';
-import { drainMediaOutbox, enqueueMediaUploads } from '../sync/media';
-import type { EventAttachment, EventInput, LocalEvent } from '../lib/types';
+import type { EventInput, LocalEvent } from '../lib/types';
 import { pickDocument, pickFromCamera, type PendingAttachment } from '../composer/attachments';
+import { readReportBytes, ReportBytesError } from '../reportSummary/bytes';
+import { stashReportBytes, startReportSummary } from '../reportSummary/client';
 
 const MAX_FILES = 10;
 
@@ -24,17 +30,6 @@ interface ReportRow {
   id: string;
   name: string;
   done: boolean;
-}
-
-function attachmentPayload(a: PendingAttachment): EventAttachment {
-  return {
-    id: a.id,
-    kind: a.kind === 'video' ? 'file' : a.kind,
-    name: a.name,
-    mimeType: a.mimeType,
-    local_uri: a.uri,
-    upload: 'pending',
-  };
 }
 
 export interface ReportSheetProps {
@@ -69,14 +64,19 @@ export default function ReportSheet({ visible, onClose, onSaved }: ReportSheetPr
     }
   }, [visible, progress]);
 
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+  }, []);
+
   const addPicked = useCallback(
     async (pick: () => Promise<PendingAttachment[]>) => {
       if (busy.current || rows.length >= MAX_FILES) return;
       busy.current = true;
       setSaving(true);
       progress.setValue(0);
-      // Gentle progress while the save lands; the ✓ fires when the event
-      // is in the store and its bytes are queued for backup.
+      // Gentle progress while the pick + byte read lands; the ✓ fires
+      // when the interim entry is in the store and the summary is on
+      // its way.
       Animated.timing(progress, {
         toValue: 0.9,
         duration: 600,
@@ -85,27 +85,38 @@ export default function ReportSheet({ visible, onClose, onSaved }: ReportSheetPr
       try {
         const picked = await pick();
         for (const a of picked.slice(0, MAX_FILES - rows.length)) {
-          const atts = [attachmentPayload(a)];
-          // Anuraj's entry-typing rule: Add report → ALWAYS a Report entry,
-          // whatever the attachment kind (photo of the paper or document file).
+          let bytes: { dataBase64: string; mimeType: string };
+          try {
+            // Ephemeral: bytes live in memory only, for the summary call.
+            // Photos are downscaled first; >10MB is refused, never sent.
+            bytes = await readReportBytes(a);
+          } catch (e) {
+            showToast(
+              e instanceof ReportBytesError
+                ? e.message
+                : 'Couldn’t read that file — try again?',
+            );
+            continue;
+          }
+          // Anuraj's entry-typing rule: Add report → ALWAYS a Report entry.
+          // Text-only: the filename for now, the LLM-derived name once the
+          // summary lands. No attachments — nothing to back up, ever.
           const type: EventInput['type'] = 'report';
           const event = saveEvent({
             type,
-            // The 'report' category powers the Reports filter chip (and,
-            // in the next phase, the Report summary card on the timeline).
-            data: { text: a.name, attachments: atts, category: 'report' },
+            data: { text: a.name, category: 'report', reportSummary: { status: 'summarizing' } },
             visibility: 'private',
           });
-          // Bytes upload on their own queue — the save above already returned.
-          // Same eager drain the composer uses (on web, blob: URIs die with
-          // the tab), so the bytes actually leave even if she closes the app.
-          void enqueueMediaUploads(event.id).catch(() => {});
-          void drainMediaOutbox().catch(() => {});
+          // Stash the bytes in memory (never persisted) and kick the
+          // ephemeral summary flow; the feed shows the interim entry
+          // until the summary (or the error card) replaces it.
+          stashReportBytes(event.id, bytes);
+          startReportSummary(event.id);
           onSaved(event);
           setRows((prev) => [...prev, { id: a.id, name: a.name, done: true }]);
         }
       } catch {
-        setToast('Couldn’t add that — try again?');
+        showToast('Couldn’t add that — try again?');
       } finally {
         Animated.timing(progress, {
           toValue: 1,
@@ -115,7 +126,7 @@ export default function ReportSheet({ visible, onClose, onSaved }: ReportSheetPr
         busy.current = false;
       }
     },
-    [rows.length, onSaved, progress],
+    [rows.length, onSaved, progress, showToast],
   );
 
   const done = useCallback(() => {
@@ -123,9 +134,9 @@ export default function ReportSheet({ visible, onClose, onSaved }: ReportSheetPr
       onClose();
       return;
     }
-    setToast('Report saved to your story');
+    showToast('Report saved to your story');
     toastTimer.current = setTimeout(onClose, 1500);
-  }, [rows.length, onClose]);
+  }, [rows.length, onClose, showToast]);
 
   const barWidth = progress.interpolate({
     inputRange: [0, 1],

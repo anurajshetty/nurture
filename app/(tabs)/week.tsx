@@ -41,6 +41,7 @@ import {
 import { addDaysISO, todayISO } from '../../src/onboarding/dates';
 import { sizeArtForWeek } from '../../src/week/sizeArt';
 import type { Pregnancy } from '../../src/lib/types';
+import AppointmentEditor from '../../src/logs/AppointmentEditor';
 import {
   MAX_WEEK,
   MIN_WEEK,
@@ -52,9 +53,9 @@ import {
 } from '../../src/week/content';
 import { getBabyName } from '../../src/briefing/context';
 import {
-  selectUpcomingAppointment,
-  type UpcomingAppointment,
-} from '../../src/week/appointments';
+  selectUpcomingAppointmentCards,
+  type UpcomingAppointmentCard,
+} from '../../src/briefing/upcomingAppointmentCards';
 
 /** Warm orb tones, cycled gently by week for subtle variety. */
 const ORB_TONES = ['#E8A94E', '#D98E3B', '#E5B25E', '#DDA44A', '#E9B558'];
@@ -62,6 +63,21 @@ const ORB_TONES = ['#E8A94E', '#D98E3B', '#E5B25E', '#DDA44A', '#E9B558'];
 function orbTone(week: number): string {
   return ORB_TONES[week % ORB_TONES.length];
 }
+
+/**
+ * Card body for the upcoming-appointment reminder (Anuraj, Sept 2026 —
+ * locked copy). Kept as a named constant so it stays findable; the
+ * "Coming up" kicker is locked separately.
+ */
+const APPOINTMENT_CARD_BODY = '2 questions to ask';
+
+/**
+ * The header shows the DISPLAY week = completed weeks + 1 (Anuraj, Sept
+ * 2026) — the displayWeek(dueDate, dayISO) contract the dates agent is
+ * adding to src/onboarding/dates. Swap the `week + 1` sites below to that
+ * import when it lands; the completed-week number (content lookups, size
+ * art, nav bounds) stays untouched.
+ */
 
 type LoadState =
   | { kind: 'loading' }
@@ -110,8 +126,10 @@ export default function WeekScreen() {
   const [draft, setDraft] = useState('');
   const [savedTick, setSavedTick] = useState(0);
   const [moments, setMoments] = useState(0);
-  const [upcoming, setUpcoming] = useState<UpcomingAppointment | null>(null);
+  const [reminderCards, setReminderCards] = useState<UpcomingAppointmentCard[]>([]);
   const [babyName, setBabyName] = useState<string | null>(null);
+  /** Appointment editor sheet, opened by tapping a "Coming up" card. */
+  const [editorId, setEditorId] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -131,9 +149,11 @@ export default function WeekScreen() {
           const appts = listEvents(200).filter(
             (e) => e.type === 'appointment',
           );
-          setUpcoming(selectUpcomingAppointment(appts, Date.now()));
+          setReminderCards(
+            selectUpcomingAppointmentCards(appts, Date.now()),
+          );
         } catch {
-          setUpcoming(null);
+          setReminderCards([]);
         }
       }
     }, []),
@@ -203,6 +223,10 @@ export default function WeekScreen() {
     babyName,
   );
   const isCurrent = week === currentWeek;
+  // Header shows the DISPLAY week (completed + 1); the content, size art,
+  // and nav bounds above stay on the completed-week number.
+  const displayWeekNum = week + 1;
+  const displayCurrentWeek = currentWeek + 1;
   const greeting = weekGreeting(week, babyName);
   const sizeArt = sizeArtForWeek(week);
 
@@ -235,7 +259,7 @@ export default function WeekScreen() {
           <Text style={styles.wnavGlyph}>‹</Text>
         </Pressable>
         <Text style={styles.weekTitle} accessibilityRole="header">
-          Week {week}
+          Week {displayWeekNum}
         </Text>
         <Pressable
           testID="week-next"
@@ -267,13 +291,13 @@ export default function WeekScreen() {
             setExpanded(null);
           }}
           accessibilityRole="button"
-          accessibilityLabel={`Back to week ${currentWeek}`}
+          accessibilityLabel={`Back to week ${displayCurrentWeek}`}
           style={({ pressed }) => [
             styles.backPill,
             pressed && styles.backPillPressed,
           ]}
         >
-          <Text style={styles.backPillText}>← Back to week {currentWeek}</Text>
+          <Text style={styles.backPillText}>← Back to week {displayCurrentWeek}</Text>
         </Pressable>
       ) : null}
 
@@ -316,27 +340,42 @@ export default function WeekScreen() {
         )}
       </View>
 
-      {/* Upcoming appointment — current week only */}
-      {isCurrent && upcoming ? (
-        <Card
-          testID="week-appointment-card"
-          onPress={() => router.push('/plan')}
-          accessibilityLabel={`A gentle nudge. ${upcoming.title}. ${upcoming.when}. Tap to open Plan.`}
-        >
-          <Text style={styles.apptHeadline}>A gentle nudge</Text>
-          <Text style={styles.apptTitle} testID="week-appointment-title">
-            {upcoming.title}
-          </Text>
-          <Text style={styles.apptWhen} testID="week-appointment-when">
-            {upcoming.when}
-          </Text>
-          {upcoming.more > 0 ? (
-            <Text style={styles.apptMore} testID="week-appointment-more">
-              +{upcoming.more} more
-            </Text>
-          ) : null}
-        </Card>
-      ) : null}
+      {/* Upcoming-appointment reminder cards — current week only.
+          One card per appointment in the rolling 48h window
+          (selectUpcomingAppointmentCards), soonest-first; each card
+          vanishes the moment its appointment time passes. The whole card
+          taps through to the appointment editor. */}
+      {isCurrent
+        ? reminderCards.map((card) => (
+            <Card
+              key={card.id}
+              testID="week-reminder-card"
+              style={styles.reminderCard}
+              onPress={() => setEditorId(card.id)}
+              accessibilityLabel={`Coming up. ${card.title}. ${card.when}. Tap to open the visit.`}
+            >
+              <Text style={styles.apptHeadline}>Coming up</Text>
+              <Text style={styles.apptTitle} testID="week-reminder-card-title">
+                {card.title}
+              </Text>
+              <Text style={styles.apptWhen} testID="week-reminder-card-when">
+                {card.when}
+              </Text>
+              <Text
+                style={styles.apptQuestions}
+                testID="week-reminder-card-questions"
+              >
+                {APPOINTMENT_CARD_BODY}
+              </Text>
+            </Card>
+          ))
+        : null}
+
+      <AppointmentEditor
+        eventId={editorId}
+        visible={editorId !== null}
+        onClose={() => setEditorId(null)}
+      />
 
       {/* Highlights */}
       <Kicker>Highlights this week</Kicker>
@@ -798,6 +837,17 @@ const styles = StyleSheet.create({
   apptMore: {
     fontSize: 13,
     color: colors.muted,
+    marginTop: spacing.xs,
+  },
+  /* "Coming up" reminder card: one per in-window appointment. */
+  reminderCard: {
+    minHeight: minTouch,
+    marginBottom: spacing.sm,
+  },
+  apptQuestions: {
+    ...typeScale.subhead,
+    fontWeight: '600',
+    color: colors.coralDeep,
     marginTop: spacing.xs,
   },
   storyCopy: {

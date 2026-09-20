@@ -1,11 +1,16 @@
-import { Tabs } from 'expo-router';
+import { useEffect } from 'react';
+import { Tabs, useFocusEffect, useRouter } from 'expo-router';
 import { StyleSheet, Text } from 'react-native';
 import { colors, spacing } from '../../src/theme/tokens';
+import {
+  installReminderSurfaces,
+  takeColdStartAppointmentResponse,
+} from '../../src/notifications/snooze';
+import { refreshAppointmentReminders } from '../../src/notifications/appointments';
 
 const TAB_GLYPHS = {
   week: '◍',
   logs: '☰',
-  plan: '▤',
   you: '☺',
 } as const;
 
@@ -21,13 +26,45 @@ function TabGlyph({ glyph, focused }: { glyph: string; focused: boolean }) {
 }
 
 /**
- * Tab shell: Week · Logs · Plan · You. Warm tab bar, coral-deep active
+ * Tab shell: Week · Logs · You. Warm tab bar, coral-deep active
  * tint, every target ≥48pt, no headers (each screen owns its title).
  * Week is the initial route, so it stays the default landing tab
  * (Anuraj, Sept 2026: the Home briefing screen was removed and Week
  * became the home/landing screen).
+ *
+ * The Plan tab was removed Sept 19, 2026 (Anuraj: tab bar is Week,
+ * Logs, You). The Epic 6 reminder plumbing that used to mount on the
+ * Plan screen (action-button categories, tap → view/snooze/pause/
+ * dismiss handling, cold-start deep links, scheduling refresh on
+ * focus) now mounts here so notification taps keep working without
+ * the Plan screen.
  */
 export default function TabsLayout() {
+  const router = useRouter();
+
+  // Epic 6 reminder surfaces: install once for the whole tab shell.
+  useEffect(() => {
+    // Deep link: notification taps and cold-start deep links land on
+    // /logs?appointment=<id> — the Logs tab opens the appointment
+    // editor for that event (AppointmentEditor, src/logs/).
+    const viewAppointment = (id: string) =>
+      router.push({ pathname: '/logs', params: { appointment: id } });
+    const cleanup = installReminderSurfaces({
+      onViewAppointment: viewAppointment,
+    });
+    void (async () => {
+      const id = await takeColdStartAppointmentResponse();
+      if (id) viewAppointment(id);
+    })();
+    return cleanup;
+    // Mount-only: the listener must survive re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useFocusEffect(() => {
+    void refreshAppointmentReminders();
+  });
+
   return (
     <Tabs
       initialRouteName="week"
@@ -55,15 +92,6 @@ export default function TabsLayout() {
           title: 'Logs',
           tabBarIcon: ({ focused }) => (
             <TabGlyph glyph={TAB_GLYPHS.logs} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="plan"
-        options={{
-          title: 'Plan',
-          tabBarIcon: ({ focused }) => (
-            <TabGlyph glyph={TAB_GLYPHS.plan} focused={focused} />
           ),
         }}
       />

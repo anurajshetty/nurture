@@ -14,7 +14,7 @@
 
 import { getMatrixRow } from '../briefing/matrix';
 import { SIZE_BY_WEEK } from '../briefing/delight';
-import { gestationalDays } from '../onboarding/dates';
+import { gestationalDays, pregnancyWeek } from '../onboarding/dates';
 
 /** Shape of SIZE_BY_WEEK entries (see src/briefing/delight.ts). */
 export interface SizeEntry {
@@ -54,18 +54,18 @@ export interface WeekContent {
 }
 
 /**
- * Gestational week (1-indexed) for a due date as of a YYYY-MM-DD day.
- * Returns null when the due date is missing/unparseable or the week falls
- * outside the 4–42 content contract.
+ * Completed gestational week for a due date as of a YYYY-MM-DD day — the
+ * one shared helper in onboarding/dates (pregnancyWeek). Returns null when
+ * the due date is missing/unparseable, the pregnancy hasn't begun, or the
+ * week falls outside the 4–42 content contract.
  */
 export function getWeekNumber(
   dueDate: string | null | undefined,
   todayISO: string,
 ): number | null {
   if (!dueDate) return null;
-  const g = gestationalDays(dueDate, todayISO);
-  if (g === null || g < 0) return null;
-  const week = Math.floor(g / 7);
+  const week = pregnancyWeek(dueDate, todayISO);
+  if (week === null) return null;
   if (week < MIN_WEEK || week > MAX_WEEK) return null;
   return week;
 }

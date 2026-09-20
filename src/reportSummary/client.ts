@@ -1,11 +1,11 @@
 /**
- * Edge-function caller for Report summaries (Anuraj-approved Sept 2026).
+ * Edge-function caller for Report summaries (Willow, ephemeral — Anuraj Sept 2026).
  *
  * `summarizeReport(input)` invokes the Supabase `report-summary` edge
- * function with ONLY `{ eventId, bucket, storagePath, mimeType }` — the
- * function reads the file bytes from Storage server-side, so the app
- * never ships document bytes through the invoke call and the Gemini key
- * never leaves the edge function.
+ * function with `{ dataBase64, mimeType }` — the picked file's bytes,
+ * read into memory ONLY for this call. NOTHING is persisted: no local DB
+ * blob, no Supabase Storage upload, no media-outbox row, no "Backing
+ * up…" states. The Gemini key never leaves the edge function.
  *
  * The response is validated strictly at runtime before it is trusted:
  * non-empty title/summary/attachmentName within the length caps, a
@@ -14,24 +14,47 @@
  *
  * Failures surface as a typed ReportSummaryError:
  * - 'not_configured'  — the edge function has no provider key yet
- *   (or no backend is wired up). Degrade gracefully: the entry keeps
- *   its attachment and offers Try again later.
+ *   (or no backend is wired up). Degrade gracefully: the card shows
+ *   "Couldn't read this one" with Try again.
  * - 'network'         — transport failure or the 20s timeout.
  * - 'invalid_response' — the function answered, but the outcome was
- *   unusable (bad schema, 4xx/422/502).
+ *   unusable (bad schema, 4xx/422/502), or the input failed validation.
  *
  * The supabase client is resolved lazily (and is injectable for tests) so
  * importing this module never touches native modules or the network.
  *
- * Summary-state persistence: `readReportSummaryState` /
- * `writeReportSummaryState` manage `event.data.reportSummary`
- * (`{status:'reading'} | {status:'ready',…} | {status:'failed'}`),
- * mirroring the store's dirty + outbox-upsert convention so the state
- * syncs like any other payload change.
+ * Ephemeral byte stash: `stashReportBytes` keeps the picked bytes in a
+ * module-level Map (memory only, cleared on success) so Try again can
+ * re-send without re-picking. A restart wipes the stash — a persisted
+ * 'summarizing' state with no stashed bytes degrades to 'failed'.
+ *
+ * Summary-state persistence: `writeReportSummaryState` manages
+ * `event.data.reportSummary` (`{status:'summarizing'} | {status:'ready',…}
+ * | {status:'failed'}`), mirroring the store's dirty + outbox-upsert
+ * convention so the state syncs like any other payload change. Listeners
+ * via `subscribeReportSummary` are notified after every write so cards
+ * re-render without polling.
  */
 
 import { getDb } from '../lib/db';
-import type { EventAttachment } from '../lib/types';
+import { getEvent } from '../sync/store';
+import {
+  REPORT_SUMMARY_DISCLAIMER,
+  readReportSummaryState,
+  runReportSummaryFlow,
+  type ReportBytes,
+  type ReportSummaryInput,
+  type ReportSummaryResult,
+  type ReportSummaryState,
+} from './flow';
+
+export {
+  REPORT_SUMMARY_DISCLAIMER,
+  readReportSummaryState,
+  type ReportSummaryInput,
+  type ReportSummaryResult,
+  type ReportSummaryState,
+};
 
 /** Name of the Supabase edge function that summarizes health documents. */
 export const REPORT_SUMMARY_FUNCTION_NAME = 'report-summary';
@@ -39,18 +62,21 @@ export const REPORT_SUMMARY_FUNCTION_NAME = 'report-summary';
 /** Hard timeout for the edge-function round trip. */
 export const REPORT_SUMMARY_FETCH_TIMEOUT_MS = 20_000;
 
-/**
- * Fixed disclaimer rendered under every summary. Matches the constant
- * the edge function appends (supabase/functions/report-summary/lib.ts)
- * — the model never writes it. Used as the app-side fallback when the
- * function is unreachable.
- */
-export const REPORT_SUMMARY_DISCLAIMER = "This isn't medical advice — check with your care team.";
-
 /* Length caps (Anuraj's rule: short and precise, never a long paragraph). */
 export const MAX_SUMMARY_TITLE_CHARS = 50;
 export const MAX_SUMMARY_BODY_CHARS = 400;
 export const MAX_ATTACHMENT_NAME_CHARS = 60;
+
+/** Document types the edge function can read inline. */
+const SUPPORTED_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+]);
+
+/** Sanity cap on the inline payload: 10MB of bytes ≈ 13.4M base64 chars. */
+const MAX_INLINE_CHARS = 20_000_000;
 
 export type ReportSummaryErrorCode = 'not_configured' | 'network' | 'invalid_response';
 
@@ -75,40 +101,6 @@ function toSummaryError(e: unknown, fallback: string): ReportSummaryError {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
-
-/* ------------------------------------------------------------------ */
-/* Request / response types.                                           */
-/* ------------------------------------------------------------------ */
-
-/** The entire invoke body — storage pointers only, never file bytes. */
-export interface ReportSummaryInput {
-  eventId: string;
-  bucket: 'photos' | 'files';
-  storagePath: string;
-  mimeType: string;
-}
-
-/** The validated summary returned by the function. */
-export interface ReportSummaryResult {
-  title: string;
-  summary: string;
-  attachmentName: string;
-  needsAttention: boolean;
-  disclaimer: string;
-}
-
-/** The lifecycle state persisted on `event.data.reportSummary`. */
-export type ReportSummaryState =
-  | { status: 'reading' }
-  | {
-      status: 'ready';
-      title: string;
-      summary: string;
-      attachmentName: string;
-      needsAttention: boolean;
-      disclaimer: string;
-    }
-  | { status: 'failed' };
 
 function summaryInvalid(reason: string): ReportSummaryError {
   return new ReportSummaryError('invalid_response', `Bad summary payload: ${reason}.`);
@@ -226,26 +218,23 @@ function isNotConfiguredError(error: unknown, data: unknown): boolean {
 }
 
 /**
- * Summarizes an uploaded report via the `report-summary` edge function.
- * Sends ONLY `{ eventId, bucket, storagePath, mimeType }` — never file
- * bytes, never identifiers beyond the storage pointers the function
- * needs. Throws ReportSummaryError on any failure.
+ * Summarizes a report via the `report-summary` edge function. Sends
+ * `{ dataBase64, mimeType }` — the in-memory document bytes, inline.
+ * Nothing is persisted by this call. Throws ReportSummaryError on any
+ * failure.
  */
 export async function summarizeReport(
   input: ReportSummaryInput,
   deps: SummarizeReportDeps = {},
 ): Promise<ReportSummaryResult> {
-  if (typeof input.eventId !== 'string' || input.eventId.length === 0) {
-    throw summaryInvalid('input.eventId must be a non-empty string');
+  if (typeof input.dataBase64 !== 'string' || input.dataBase64.length === 0) {
+    throw summaryInvalid('input.dataBase64 must be a non-empty string');
   }
-  if (input.bucket !== 'photos' && input.bucket !== 'files') {
-    throw summaryInvalid("input.bucket must be 'photos' or 'files'");
+  if (input.dataBase64.length > MAX_INLINE_CHARS) {
+    throw summaryInvalid('input.dataBase64 is larger than the inline cap');
   }
-  if (typeof input.storagePath !== 'string' || input.storagePath.length === 0) {
-    throw summaryInvalid('input.storagePath must be a non-empty string');
-  }
-  if (typeof input.mimeType !== 'string' || input.mimeType.length === 0) {
-    throw summaryInvalid('input.mimeType must be a non-empty string');
+  if (typeof input.mimeType !== 'string' || !SUPPORTED_MIME_TYPES.has(input.mimeType.toLowerCase())) {
+    throw summaryInvalid('input.mimeType must be a supported document type');
   }
 
   const { configured, invoke } = resolveTransport(deps);
@@ -279,7 +268,7 @@ export async function summarizeReport(
       if (isNotConfiguredError(settled.result.error, settled.result.data)) {
         throw new ReportSummaryError(
           'not_configured',
-          'Report summaries are not set up yet — the entry keeps its attachment.',
+          'Report summaries are not set up yet.',
         );
       }
       // The function answered with an HTTP error (400/422/502 …): the
@@ -294,60 +283,65 @@ export async function summarizeReport(
 }
 
 /* ------------------------------------------------------------------ */
+/* Ephemeral byte stash (memory only — never persisted).                */
+/* ------------------------------------------------------------------ */
+
+const reportByteStash = new Map<string, ReportBytes>();
+
+/** Stashes picked bytes in memory so the summary (and Try again) can send them. */
+export function stashReportBytes(eventId: string, bytes: ReportBytes): void {
+  reportByteStash.set(eventId, bytes);
+}
+
+/** True while stashed bytes are available for the event (same session only). */
+export function hasStashedReportBytes(eventId: string): boolean {
+  return reportByteStash.has(eventId);
+}
+
+/* ------------------------------------------------------------------ */
 /* Summary-state persistence on event.data.reportSummary.              */
 /*                                                                     */
 /* Mirrors src/sync/store.ts's payload-rewrite convention (dirty +      */
 /* outbox upsert) so the summary state syncs like any other payload     */
 /* change. Never throws — callers treat persistence as best-effort and  */
-/* keep their in-memory state regardless.                              */
+/* keep their in-memory state regardless. Every write notifies          */
+/* `subscribeReportSummary` listeners so cards re-render without polling.*/
 /* ------------------------------------------------------------------ */
 
-/** Reads `event.data.reportSummary`, returning null when absent or malformed. */
-export function readReportSummaryState(data: Record<string, unknown>): ReportSummaryState | null {
-  const raw = data.reportSummary;
-  if (!isRecord(raw)) return null;
-  if (raw.status === 'reading') return { status: 'reading' };
-  if (raw.status === 'failed') return { status: 'failed' };
-  if (raw.status === 'ready') {
-    if (
-      typeof raw.title !== 'string' ||
-      typeof raw.summary !== 'string' ||
-      typeof raw.attachmentName !== 'string' ||
-      typeof raw.needsAttention !== 'boolean'
-    ) {
-      return null;
-    }
-    return {
-      status: 'ready',
-      title: raw.title,
-      summary: raw.summary,
-      attachmentName: raw.attachmentName,
-      needsAttention: raw.needsAttention,
-      disclaimer:
-        typeof raw.disclaimer === 'string' && raw.disclaimer.length > 0
-          ? raw.disclaimer
-          : REPORT_SUMMARY_DISCLAIMER,
-    };
-  }
-  return null;
+type SummaryListener = (eventId: string) => void;
+const summaryListeners = new Set<SummaryListener>();
+
+/** Subscribe to summary-state writes for re-rendering. Returns unsubscribe. */
+export function subscribeReportSummary(listener: SummaryListener): () => void {
+  summaryListeners.add(listener);
+  return () => {
+    summaryListeners.delete(listener);
+  };
 }
 
-/**
- * Persists `event.data.reportSummary` for one event. Best-effort: never
- * throws, so a failed write can't break the card's in-memory state.
- */
-export function writeReportSummaryState(eventId: string, state: ReportSummaryState): void {
+function notifySummaryListeners(eventId: string): void {
+  for (const l of summaryListeners) {
+    try {
+      l(eventId);
+    } catch {
+      // A listener must never break persistence.
+    }
+  }
+}
+
+/** Rewrites one event's data payload (dirty + outbox upsert). Best-effort, never throws. */
+function patchEventData(eventId: string, patch: (data: Record<string, unknown>) => void): boolean {
   try {
     const db = getDb();
     const row = db.getFirstSync<{ data: string }>('SELECT data FROM events WHERE id = ?', eventId);
-    if (!row) return;
+    if (!row) return false;
     let data: Record<string, unknown> = {};
     try {
       data = JSON.parse(row.data) as Record<string, unknown>;
     } catch {
       data = {};
     }
-    data.reportSummary = state;
+    patch(data);
     const now = new Date().toISOString();
     const Crypto = require('expo-crypto') as { randomUUID(): string };
     db.withTransactionSync(() => {
@@ -364,21 +358,104 @@ export function writeReportSummaryState(eventId: string, state: ReportSummarySta
         now,
       );
     });
+    notifySummaryListeners(eventId);
+    return true;
   } catch {
-    // Best-effort: the card keeps its in-memory state.
+    return false;
   }
 }
 
 /**
- * The attachment the summary was (or will be) generated from: the first
- * attachment with `upload: 'done'` and a `storage_path`. The edge
- * function reads the bytes from that path server-side.
+ * Persists `event.data.reportSummary` for one event. Best-effort: never
+ * throws, so a failed write can't break the card's in-memory state.
  */
-export function summarizableAttachment(
-  attachments: EventAttachment[],
-): EventAttachment | null {
-  for (const a of attachments) {
-    if (a.upload === 'done' && a.storage_path) return a;
+export function writeReportSummaryState(eventId: string, state: ReportSummaryState): void {
+  patchEventData(eventId, (data) => {
+    data.reportSummary = state;
+  });
+}
+
+/**
+ * Smart entry naming: on a successful summary the feed entry takes the
+ * LLM-derived name (e.g. "Growth scan – Sep 19") instead of the raw
+ * upload filename. Best-effort, never throws.
+ */
+export function updateReportEntryName(eventId: string, name: string): void {
+  patchEventData(eventId, (data) => {
+    data.text = name;
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Flow wiring: store + stash + transport → the pure flow in flow.ts.   */
+/* ------------------------------------------------------------------ */
+
+function flowStoreFor(eventId: string) {
+  return {
+    readState: (): ReportSummaryState | null => {
+      const event = getEvent(eventId);
+      return event ? readReportSummaryState(event.data) : null;
+    },
+    writeState: (state: ReportSummaryState): void => {
+      writeReportSummaryState(eventId, state);
+    },
+    setEntryName: (name: string): void => {
+      updateReportEntryName(eventId, name);
+    },
+  };
+}
+
+function takeStashedBytes(eventId: string): ReportBytes | null {
+  // Peek, don't consume: Try again may need the bytes more than once.
+  return reportByteStash.get(eventId) ?? null;
+}
+
+/**
+ * Starts the ephemeral summary flow for a report event (called right
+ * after the event is saved and its bytes are stashed). Fire-and-forget:
+ * the card re-renders via `subscribeReportSummary` as states land.
+ */
+export function startReportSummary(eventId: string, deps: SummarizeReportDeps = {}): void {
+  void runReportSummaryFlow({
+    eventId,
+    store: flowStoreFor(eventId),
+    takeBytes: () => takeStashedBytes(eventId),
+    clearBytes: () => {
+      reportByteStash.delete(eventId);
+    },
+    summarize: (input) => summarizeReport(input, deps),
+  });
+}
+
+/**
+ * Re-runs the flow after a remount when the persisted state is still
+ * 'summarizing'. Same-session only in practice: with no stashed bytes
+ * the flow marks the entry 'failed' instead of hanging.
+ */
+export function resumeReportSummary(eventId: string, deps: SummarizeReportDeps = {}): void {
+  const event = getEvent(eventId);
+  const state = event ? readReportSummaryState(event.data) : null;
+  if (state?.status === 'summarizing') {
+    startReportSummary(eventId, deps);
   }
-  return null;
+}
+
+/**
+ * Try again from the failed card. Returns false when the bytes are gone
+ * (e.g. after a restart) — the card then tells her to add the report
+ * again instead of pretending to retry.
+ */
+export function retryReportSummary(eventId: string, deps: SummarizeReportDeps = {}): boolean {
+  if (!reportByteStash.has(eventId)) return false;
+  void runReportSummaryFlow({
+    eventId,
+    store: flowStoreFor(eventId),
+    takeBytes: () => takeStashedBytes(eventId),
+    clearBytes: () => {
+      reportByteStash.delete(eventId);
+    },
+    summarize: (input) => summarizeReport(input, deps),
+    force: true,
+  });
+  return true;
 }

@@ -78,14 +78,51 @@ export function gestationalDays(dueISO: string, asOfISO: string = todayISO()): n
   return remaining === null ? null : GESTATION_DAYS - remaining;
 }
 
+/**
+ * THE single shared pregnancy-week helper (Anuraj, Sept 2026).
+ *
+ * Completed gestational weeks as of `asOfISO` (defaults to today): week W
+ * covers gestational days W·7 … W·7+6 counted from the LMP (due − 280 days,
+ * Naegele's rule). For due 2026-10-08 (LMP 2026-01-01): 2026-09-17 → 37,
+ * 2026-09-24 → 38. No per-screen week math — every screen (briefing,
+ * Week tab, Logs pill/dividers/filter) routes through this one number.
+ * Returns null when a date is unparseable or the pregnancy hasn't begun.
+ */
+export function pregnancyWeek(dueISO: string, asOfISO: string = todayISO()): number | null {
+  const g = gestationalDays(dueISO, asOfISO);
+  if (g === null || g < 0) return null;
+  return Math.floor(g / 7);
+}
+
 /** { week, day } of pregnancy for a due date, or null when not yet pregnant by that date. */
 export function weekOf(
   dueISO: string,
   asOfISO: string = todayISO(),
 ): { week: number; day: number } | null {
+  const week = pregnancyWeek(dueISO, asOfISO);
+  if (week === null) return null;
   const g = gestationalDays(dueISO, asOfISO);
-  if (g === null || g < 0) return null;
-  return { week: Math.floor(g / 7), day: g % 7 };
+  if (g === null) return null; // unreachable — pregnancyWeek already parsed both dates
+  return { week, day: g % 7 };
+}
+
+/**
+ * THE user-facing display week (Anuraj, Sept 2026).
+ *
+ * Displayed week = completed weeks + 1: LMP = EDD − 280 days,
+ * completedWeeks = floor((today − LMP) / 7), displayed = completed + 1.
+ * For due 2026-10-08: 2026-09-19 → completed 37 → display 38.
+ *
+ * Every user-facing "Week N" label (Week tab heading, Logs pill, week
+ * filter dropdown, timeline dividers) funnels through this number — via
+ * the display wrappers in src/timeline/timeline.ts. Internal grouping,
+ * range math, and content lookups keep using pregnancyWeek() (completed
+ * weeks). Returns null when a date is unparseable or the pregnancy
+ * hasn't begun.
+ */
+export function displayWeek(dueISO: string, asOfISO: string = todayISO()): number | null {
+  const w = pregnancyWeek(dueISO, asOfISO);
+  return w === null ? null : w + 1;
 }
 
 /** "Jan 7, 2027" — warm, short, locale-aware. Falls back to the raw string. */

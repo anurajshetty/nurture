@@ -58,11 +58,11 @@ const DUE = '2026-10-08';
 // ---------- pregnancy week range ----------
 
 {
-  check('week 38 range', pregnancyWeekRange(38, DUE), {
+  check('week 37 range', pregnancyWeekRange(37, DUE), {
     startISO: '2026-09-17',
     endISO: '2026-09-24',
   });
-  check('week 1 starts on LMP', pregnancyWeekRange(1, DUE)?.startISO, '2026-01-01');
+  check('week 1 starts 7 days after LMP', pregnancyWeekRange(1, DUE)?.startISO, '2026-01-08');
   check('week 0 invalid', pregnancyWeekRange(0, DUE), null);
   check('non-integer invalid', pregnancyWeekRange(24.5, DUE), null);
 }
@@ -70,8 +70,8 @@ const DUE = '2026-10-08';
 // ---------- week of an event ----------
 
 {
-  check('Sep 18 → week 38', pregnancyWeekForEvent(DUE, '2026-09-18T09:12:00.000Z'), 38);
-  check('Sep 10 → week 37', pregnancyWeekForEvent(DUE, '2026-09-10T14:00:00.000Z'), 37);
+  check('Sep 18 → week 37', pregnancyWeekForEvent(DUE, '2026-09-18T09:12:00.000Z'), 37);
+  check('Sep 10 → week 36', pregnancyWeekForEvent(DUE, '2026-09-10T14:00:00.000Z'), 36);
   check('before week 1 clamps to 1', pregnancyWeekForEvent(DUE, '2025-06-01T00:00:00.000Z'), 1);
   check('past week 42 clamps to 42', pregnancyWeekForEvent(DUE, '2026-12-31T00:00:00.000Z'), 42);
 }
@@ -88,17 +88,17 @@ const DUE = '2026-10-08';
 
 {
   const events = [
-    mkEvent('c', '2026-09-10T14:00:00.000Z'), // week 37 — deliberately oldest-first
-    mkEvent('a', '2026-09-18T09:12:00.000Z'), // week 38
-    mkEvent('b', '2026-09-19T20:04:00.000Z'), // week 38
+    mkEvent('c', '2026-09-10T14:00:00.000Z'), // week 36 — deliberately oldest-first
+    mkEvent('a', '2026-09-18T09:12:00.000Z'), // week 37
+    mkEvent('b', '2026-09-19T20:04:00.000Z'), // week 37
   ];
   const sections = buildSections(events, DUE);
   check('two week bands', sections.length, 2);
-  check('newest band first', sections[0]?.key, 'preg-38');
-  check('band title', sections[0]?.title, 'Week 38');
+  check('newest band first', sections[0]?.key, 'preg-37');
+  check('band title (display week = completed + 1)', sections[0]?.title, 'Week 38');
   check('band range subtitle', sections[0]?.subtitle, 'Sep 17 – 23');
   check('newest event first in band', sections[0]?.data.map((e) => e.id), ['b', 'a']);
-  check('older band second', sections[1]?.key, 'preg-37');
+  check('older band second', sections[1]?.key, 'preg-36');
   check('older band subtitle', sections[1]?.subtitle, 'Sep 10 – 16');
   check('older band contents', sections[1]?.data.map((e) => e.id), ['c']);
 }

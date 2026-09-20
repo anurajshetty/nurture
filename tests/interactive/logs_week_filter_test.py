@@ -159,9 +159,12 @@ def main():
         check("divider weeks are distinct", len(set(weeks)) == 3, f"weeks={weeks}")
 
         # ---- 2. filter to the middle week ----
+        # NOTE (Sept 2026): option testIDs carry the INTERNAL completed-week
+        # number while labels show the display week (completed + 1), so
+        # select by the visible label — what a real user taps.
         target = weeks[1]
         open_dropdown()
-        page.get_by_test_id(f"week-filter-option-{target}").click()
+        page.get_by_test_id("week-filter-dropdown").get_by_text(f"Week {target}", exact=True).click()
         page.wait_for_timeout(700)
         check("picking a week closes the dropdown",
               page.get_by_test_id("week-filter-dropdown").count() == 0)
@@ -174,7 +177,7 @@ def main():
         # ---- 3. pick another week -> content changes to that exact week ----
         target2 = weeks[2]
         open_dropdown()
-        page.get_by_test_id(f"week-filter-option-{target2}").click()
+        page.get_by_test_id("week-filter-dropdown").get_by_text(f"Week {target2}", exact=True).click()
         page.wait_for_timeout(700)
         titles = page.evaluate(BAND_TITLES_JS)
         check("second pick shows exactly that week",
@@ -194,7 +197,7 @@ def main():
         # Seeds span only 3 weeks, so 5 below the top is guaranteed empty.
         empty_w = weeks[0] - 5
         open_dropdown()
-        page.get_by_test_id(f"week-filter-option-{empty_w}").click()
+        page.get_by_test_id("week-filter-dropdown").get_by_text(f"Week {empty_w}", exact=True).click()
         page.wait_for_timeout(700)
         empty = page.get_by_test_id("week-empty-state")
         check("empty week shows the warm empty state", empty.count() == 1)

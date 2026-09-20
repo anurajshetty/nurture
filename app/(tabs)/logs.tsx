@@ -20,7 +20,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import Screen from '../../src/components/Screen';
 import {
   colors,
@@ -46,6 +46,7 @@ import WeekFilterDropdown, {
 import {
   buildSections,
   currentPregnancyWeek,
+  displayWeekLabel,
   formatWeekRange,
   pregnancyWeekForEvent,
   pregnancyWeekRange,
@@ -57,6 +58,7 @@ import {
   lookBackWindow,
   type LookBack,
 } from '../../src/timeline/lookback';
+import AppointmentEditor from '../../src/logs/AppointmentEditor';
 
 /** One timeline page; keeps 9 months of daily data smooth. */
 const PAGE_SIZE = 60;
@@ -76,8 +78,9 @@ export default function LogsScreen() {
    * 'all' shows everything. Defaults to the current week per the
    * approved mockup 13-logs-add. The selected week always matches the
    * visible feed — the pill, the filter, and the dividers all funnel
-   * through the one shared formula in src/timeline/timeline.ts
-   * (pregnancyWeekForDay; the Week-37-vs-38 bug was two calculations).
+   * through the one shared formula in src/timeline/timeline.ts.
+   * Internal values are completed-week numbers (1…42); every label she
+   * sees shows the display week (completed + 1).
    */
   const [weekFilter, setWeekFilter] = useState<WeekFilterValue>(() => {
     const w = dueDate ? currentPregnancyWeek(dueDate) : null;
@@ -92,10 +95,34 @@ export default function LogsScreen() {
   const [weekFilterTouched, setWeekFilterTouched] = useState(false);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
 
+  /**
+   * Appointment editor (Anuraj, Sept 2026): appointments live in the Logs
+   * feed, and each appointment card opens the editor — via the card tap
+   * (onAppointmentPress on the timeline rows) or the ?appointment=<id>
+   * deep link. The editor itself (src/logs/AppointmentEditor) owns all
+   * state; this screen only mounts it and hands it an event id.
+   */
+  const [editorEventId, setEditorEventId] = useState<string | null>(null);
+  const [editorVisible, setEditorVisible] = useState(false);
+  const openAppointment = useCallback((eventId: string) => {
+    setEditorEventId(eventId);
+    setEditorVisible(true);
+  }, []);
+  const closeAppointmentEditor = useCallback(() => {
+    setEditorVisible(false);
+  }, []);
+  const { appointment: appointmentParam } =
+    useLocalSearchParams<{ appointment?: string | string[] }>();
+  useEffect(() => {
+    if (typeof appointmentParam === 'string' && appointmentParam.length > 0) {
+      openAppointment(appointmentParam);
+    }
+  }, [appointmentParam, openAppointment]);
+
   const sectionListRef = useRef<SectionList<LocalEvent, TimelineSection> | null>(null);
   const loadingMore = useRef(false);
 
-  /** 1-based current week — the same number the dividers use. */
+  /** Completed-week number (1…42) — the internal value the filter matches on. All labels show the display week (completed + 1). */
   const currentWeek = dueDate ? currentPregnancyWeek(dueDate) : null;
 
   // Default to the current week once the due date is known, until she
@@ -292,7 +319,7 @@ export default function LogsScreen() {
     const range = pregnancyWeekRange(weekFilter, dueDate);
     return (
       <View style={styles.empty} testID="week-empty-state">
-        <Text style={styles.emptyTitle}>Nothing logged for Week {weekFilter}</Text>
+        <Text style={styles.emptyTitle}>Nothing logged for {displayWeekLabel(weekFilter)}</Text>
         <Text style={styles.emptyBody}>
           {range ? formatWeekRange(range.startISO, range.endISO) : ''}
           {'\n'}Your story grows one small moment at a time — save one below.
@@ -310,8 +337,12 @@ export default function LogsScreen() {
     );
   }, [weekFilter, dueDate, sections, backToAllWeeks]);
 
-  /** Pill label: always the week the feed is showing ('All weeks' or Week N). */
-  const weekFilterLabel = weekFilter === 'all' ? 'All weeks' : `Week ${weekFilter}`;
+  /**
+   * Pill label: always the week the feed is showing ('All weeks' or the
+   * DISPLAY week — completed + 1). The filter value itself stays on the
+   * completed-week number so it matches the divider banding.
+   */
+  const weekFilterLabel = weekFilter === 'all' ? 'All weeks' : displayWeekLabel(weekFilter);
 
   return (
     <Screen scroll={false} testID="logs-screen" style={styles.root}>
@@ -346,6 +377,7 @@ export default function LogsScreen() {
             lookBack={filter === 'all' && weekFilter === 'all' ? lookBack : null}
             onDismissLookBack={dismissLookBack}
             onRevisitLookBack={scrollToEvent}
+            onAppointmentPress={openAppointment}
             onEndReached={loadMore}
             refreshing={refreshing}
             onRefresh={onRefresh}
@@ -355,6 +387,11 @@ export default function LogsScreen() {
         )}
       </View>
       <AddMenu onSaved={onSaved} onUnsaved={onUnsaved} />
+      <AppointmentEditor
+        eventId={editorEventId}
+        visible={editorVisible}
+        onClose={closeAppointmentEditor}
+      />
     </Screen>
   );
 }

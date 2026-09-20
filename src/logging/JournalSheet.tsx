@@ -298,6 +298,10 @@ export default function JournalSheet({ visible, onClose }: JournalSheetProps) {
       setAttachments([]);
       // Cloud backup of the bytes, fire-and-forget: the save above already
       // returned, text never waits for media (Epic 2.3 seam).
+      // DISABLED Sept 2026 (PHOTOS_PERSIST_ENABLED = false): enqueueMediaUploads
+      // is a no-op — picked photos are attached as metadata only; the image
+      // data is never written to disk or sent anywhere. Call kept so the
+      // pipeline can be re-enabled behind the kill switch.
       if (atts.length > 0) {
         void enqueueMediaUploads(event.id).catch(() => {});
       }

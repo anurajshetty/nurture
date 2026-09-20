@@ -1,11 +1,18 @@
 # report-summary — Supabase Edge Function
 
-Sends an uploaded pregnancy health document (lab report, ultrasound
-printout, discharge summary) to the Gemini API for a plain-language
-summary, and returns a short descriptive title plus an auto-derived
-attachment name. The API key lives **only here** as an Edge Function
-secret — it is never in the app, never in git, never in a response, and
-document content is never logged.
+Sends a pregnancy health document (lab report, ultrasound printout,
+discharge summary) to the Gemini API for a plain-language summary, and
+returns a short descriptive title plus an auto-derived attachment name.
+The API key lives **only here** as an Edge Function secret — it is never
+in the app, never in git, never in a response, and document content is
+never logged.
+
+**Ephemeral (Anuraj Sept 2026):** the app reads the picked file into
+memory and sends the bytes INLINE in the invoke body
+(`{ dataBase64, mimeType }`). The function decodes them, forwards them
+to Gemini, and drops them — nothing is written to Supabase Storage, and
+no Storage credentials are needed. The app never persists report bytes
+anywhere (no DB blob, no outbox row).
 
 Design authority: the card design comes from approved mockup
 `~/workspace/app-ideas/pregnancy-tracker/design/13-logs-add.html`
@@ -34,22 +41,21 @@ one" card with Try again (it never leaks the reason to her).
 
 ## Where the summary lives
 
-- The upload sheet stays minimal: upload → Done ("Report saved to your
-  story"). **No summary in the sheet.**
-- After upload, the app shows a "Reading your report…" state on the new
-  Report timeline entry, then calls this function.
+- The upload sheet stays minimal: pick → Done ("Report saved to your
+  story"). **No summary in the sheet, no attachment saved, no backup.**
+- The new Report timeline entry immediately shows the interim
+  "Summarizing your report…" state while the app calls this function
+  with the in-memory bytes.
 - The summary renders on the **Report-category log entry** at the top of
-  the timeline as a dedicated card:
+  the timeline as a dedicated, text-only card:
   - 📄 **Report** chip + timestamp + 🔒 Only you
   - Short title (serif, e.g. "Glucose results")
   - Plain-language summary body (see content rule)
-  - Attachment row: LLM-derived descriptive name (e.g. "Glucose screening
-    – Sep 19", never the raw filename), caption "Auto-named from your
-    report", **Open ›** opens the original file
   - Disclaimer (rendered by the app, not the LLM): "This isn't medical
     advice — check with your care team."
 - Failure: the card shows "Couldn't read this one — try a clearer
-  photo." with **Try again** (recovers on tap). Never a dead end.
+  photo." with **Try again** (re-sends the in-memory bytes; recovers on
+  tap). Never a dead end.
 
 ## Content rule (Anuraj's spec, Sept 2026 — verbatim intent)
 
@@ -134,16 +140,14 @@ Invoke: `supabase.functions.invoke('report-summary', { body })`
 Request — strict schema, **no other fields accepted** (extra → 400):
 
 ```json
-{ "eventId": "uuid", "bucket": "files", "storagePath": "reports/<uuid>.pdf", "mimeType": "application/pdf" }
+{ "dataBase64": "<base64 of the document bytes>", "mimeType": "application/pdf" }
 ```
 
-- `bucket` allowlist: `photos` | `files` only.
-- The function reads the file from Supabase Storage itself, sending the
-  `SUPABASE_ANON_KEY` as the `apikey` header and forwarding the caller's
-  Authorization header so Storage RLS applies; the app never ships file
-  bytes through the invoke call.
-- `storagePath` may not contain `..` or start with `/` (never escapes
-  the bucket).
+- `dataBase64`: the document bytes, base64-encoded, sent inline. The app
+  downscales photos and caps at 10MB client-side; the function rejects
+  empty, corrupt, or >12MB-decoded payloads with `unreadable` (422).
+- The bytes live only for the duration of the request: decoded,
+  forwarded to Gemini, dropped. Nothing is written to Storage.
 - `mimeType` must be `image/jpeg`, `image/png`, `image/webp`, or
   `application/pdf` — anything else → `unsupported_type` (400).
 
@@ -158,7 +162,7 @@ Errors:
 | 400 | `{ error: "invalid_request" }` | bad schema — fix the caller, don't retry blindly |
 | 400 | `{ error: "unsupported_type" }` | file type Gemini can't read inline |
 | 405 | `{ error: "method_not_allowed" }` | non-POST |
-| 422 | `{ error: "unreadable" }` | object missing/forbidden/empty/too large — app shows the "Couldn't read this one" card immediately |
+| 422 | `{ error: "unreadable" }` | inline payload missing/corrupt/empty/too large — app shows the "Couldn't read this one" card immediately |
 | 502 | `{ error: "provider_error" }` | Gemini failed — safe to retry later with backoff |
 | 503 | `{ error: "not_configured" }` | secret missing — app shows the "Couldn't read this one" card with Try again |
 
@@ -167,10 +171,10 @@ Errors:
 - `GEMINI_API_KEY` only as an Edge Function secret. Never in app code,
   never in git, never in logs, never in a response.
 - Never log document content, file bytes, titles, summaries, or
-  request fields (including `eventId`). Logs carry only
-  success/failure + latency with no identifiers.
-- The app uploads the file to her private Storage bucket first; the
-  function reads it server-side. No document bytes in client logs.
+  request fields. Logs carry only success/failure + latency with no
+  identifiers.
+- Document bytes arrive inline in the request body and are never written
+  to Storage or any other persistence — they exist only for the request.
 - Disclosure update ships with the DOB/privacy review, not
   independently.
 
@@ -178,8 +182,8 @@ Errors:
 
 - `index.ts` — Deno entry: env, CORS, HTTP status mapping (mirror
   `week-briefing/index.ts`).
-- `lib.ts` — validation, prompt (above), Storage download, Gemini call,
-  response validation. Deno-free so it unit-tests under node
+- `lib.ts` — validation, prompt (above), inline document decode, Gemini
+  call, response validation. Deno-free so it unit-tests under node
   (`tests/report_summary.test.ts`).
 
 ## Deploy (Anuraj's step)
@@ -193,6 +197,12 @@ project → Edge Functions → report-summary → Secrets (or Project
 Settings → Edge Functions → Manage secrets). No redeploy needed for
 secret changes.
 
+**Note (Sept 19, 2026):** the contract changed from
+`{ eventId, bucket, storagePath }` (Storage read) to
+`{ dataBase64, mimeType }` (bytes inline, ephemeral). Deploying this
+version of the function is Anuraj's step — the code is updated, the
+deploy is not done.
+
 ## End-to-end verification
 
 Live verification needs the secret set first (Anuraj's step above).
@@ -201,14 +211,12 @@ After deploy, in the Supabase dashboard → Edge Functions →
 
 ```json
 {
-  "eventId": "00000000-0000-0000-0000-000000000000",
-  "bucket": "files",
-  "storagePath": "reports/example.pdf",
+  "dataBase64": "<base64 of a small test PDF>",
   "mimeType": "application/pdf"
 }
 ```
 
 Expected: HTTP 200 with
 `{ title, summary, attachmentName, needsAttention, disclaimer }`,
-or HTTP 422 `{ "error": "unreadable" }` when the example path doesn't
-exist in Storage.
+or HTTP 422 `{ "error": "unreadable" }` when the payload is corrupt or
+too large.

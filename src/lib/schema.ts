@@ -16,7 +16,7 @@ export interface SyncDbHandle {
 }
 
 export const DB_NAME = 'nurture.db';
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -97,6 +97,18 @@ CREATE TABLE IF NOT EXISTS media_outbox (
 );
 `;
 
+/**
+ * One-off random id for migration outbox rows (uuid-shaped, unique enough
+ * for a single boot pass; avoids pulling expo-crypto into this shared
+ * schema module).
+ */
+function randomId(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.floor(Math.random() * 16);
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 /** Reads the stored schema version straight from the handle. */
 function readSchemaVersion(handle: SyncDbHandle): number {
   try {
@@ -144,6 +156,65 @@ function runMigrations(handle: SyncDbHandle): void {
       handle.execSync('ALTER TABLE pregnancies ADD COLUMN dob TEXT');
     }
     handle.runSync("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '4')");
+  }
+  if (current < 5) {
+    // v5 (Willow ephemeral reports, Sept 2026): report uploads no longer
+    // persist bytes anywhere — no attachment, no Storage object, no
+    // media-outbox row. Clean up the entries the old flow left behind:
+    //  - 'file' / 'photo' entries: tombstoned (the stuck "Backing up…"
+    //    cards). Tombstone, not hard delete — the 'delete' outbox op
+    //    tells the server and other devices the entry is gone.
+    //  - 'report' entries whose summary never completed ('summarizing' /
+    //    legacy 'reading' / 'failed' / missing state): tombstoned for the
+    //    same reason — their bytes are gone and can never be summarized.
+    //  - 'report' entries with a completed ('ready') summary: KEPT, but
+    //    stripped to text-only (attachments removed from data) to match
+    //    the new feed contract.
+    // Queued media-outbox rows for tombstoned events are dropped — there
+    // is nothing left to upload.
+    const rows = handle.getAllSync<{ id: string; type: string; data: string }>(
+      "SELECT id, type, data FROM events WHERE deleted_at IS NULL AND type IN ('file', 'photo', 'report')",
+    );
+    const now = new Date().toISOString();
+    for (const row of rows) {
+      let data: Record<string, unknown> = {};
+      try {
+        data = JSON.parse(row.data) as Record<string, unknown>;
+      } catch {
+        data = {};
+      }
+      const summaryStatus = (data.reportSummary as { status?: unknown } | undefined)?.status;
+      if (row.type === 'report' && summaryStatus === 'ready') {
+        // Keep the summary; drop the persisted file reference.
+        delete data.attachments;
+        handle.withTransactionSync(() => {
+          handle.runSync('UPDATE events SET data = ?, updated_at = ?, dirty = 1 WHERE id = ?', JSON.stringify(data), now, row.id);
+          handle.runSync(
+            `INSERT INTO outbox (id, event_id, op, attempts, created_at) VALUES (?, ?, 'upsert', 0, ?)`,
+            randomId(),
+            row.id,
+            now,
+          );
+        });
+        continue;
+      }
+      handle.withTransactionSync(() => {
+        handle.runSync(
+          'UPDATE events SET deleted_at = ?, updated_at = ?, dirty = 1 WHERE id = ?',
+          now,
+          now,
+          row.id,
+        );
+        handle.runSync(
+          `INSERT INTO outbox (id, event_id, op, attempts, created_at) VALUES (?, ?, 'delete', 0, ?)`,
+          randomId(),
+          row.id,
+          now,
+        );
+        handle.runSync('DELETE FROM media_outbox WHERE event_id = ?', row.id);
+      });
+    }
+    handle.runSync("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '5')");
   }
 }
 

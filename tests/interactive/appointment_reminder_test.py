@@ -44,7 +44,9 @@ from playwright.sync_api import sync_playwright
 REPO = os.path.expanduser("~/workspace/nurture-v12")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
-PLAN = ORIGIN + "/willow/plan?testhooks=1"
+# Plan tab was removed Sept 2026 (now Week.Logs.You); the
+# per-appointment reminder editor lives in the Logs-tab editor.
+LOGS = ORIGIN + "/willow/logs?testhooks=1"
 KEEP_OPEN = "--keep-open" in sys.argv
 
 # Seeds one appointment 3 days out at 10:30 local; returns its event id.
@@ -104,7 +106,7 @@ def main():
         ctx.route("**://nurture.test/**", serve_dist)
         page = ctx.new_page()
         page.on("pageerror", lambda e: page_errors.append(str(e)[:200]))
-        page.goto(PLAN, timeout=30000)
+        page.goto(LOGS, timeout=30000)
         try:
             page.wait_for_function("() => window.__nurtureTest !== undefined", timeout=30000)
         except Exception:
@@ -116,9 +118,9 @@ def main():
         check("appointment seeded", appt_id not in ("no-hooks", "no-id"), f"id={appt_id}")
 
         # Open the appointment detail via its deep link.
-        page.goto(f"{ORIGIN}/willow/plan?appointment={appt_id}&testhooks=1", timeout=30000)
+        page.goto(f"{ORIGIN}/willow/logs?appointment={appt_id}&testhooks=1", timeout=30000)
         try:
-            page.get_by_test_id("appointment-detail").wait_for(timeout=15000)
+            page.get_by_test_id("appointment-editor").wait_for(timeout=15000)
         except Exception:
             check("appointment detail opens", False)
             browser.close()
@@ -249,8 +251,8 @@ def main():
               f"b={appt_b} c={appt_c}")
 
         def open_detail(event_id):
-            page.goto(f"{ORIGIN}/willow/plan?appointment={event_id}&testhooks=1", timeout=30000)
-            page.get_by_test_id("appointment-detail").wait_for(timeout=15000)
+            page.goto(f"{ORIGIN}/willow/logs?appointment={event_id}&testhooks=1", timeout=30000)
+            page.get_by_test_id("appointment-editor").wait_for(timeout=15000)
 
         # B reads its own stored value, not the global default.
         open_detail(appt_b)
@@ -281,7 +283,7 @@ def main():
 
         # Fresh page loads re-read from storage: the per-appointment values
         # persisted.
-        page.goto(PLAN, timeout=30000)
+        page.goto(LOGS, timeout=30000)
         page.wait_for_function("() => window.__nurtureTest !== undefined", timeout=30000)
         open_detail(appt_id)
         check("A timing persisted across reload",

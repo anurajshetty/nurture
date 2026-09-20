@@ -24,7 +24,7 @@
  * importing this module in a test runner never touches native modules.
  */
 
-import { addDaysISO, gestationalDays, todayISO } from '../onboarding/dates';
+import { addDaysISO, gestationalDays, pregnancyWeek, todayISO } from '../onboarding/dates';
 import type { LocalEvent, Pregnancy } from '../lib/types';
 
 /**
@@ -136,7 +136,8 @@ export function buildBriefingContextFrom(deps: BriefingDeps): BriefingContext | 
   if (!due) return null;
   const g = gestationalDays(due, deps.today);
   if (g === null || g < 0) return null;
-  const week = Math.floor(g / 7);
+  const week = pregnancyWeek(due, deps.today); // the one shared helper — same number every screen shows
+  if (week === null) return null; // unreachable: g above already parsed both dates
   const day = (g % 7) + 1; // 1..7 (weekOf in dates.ts uses 0..6)
   if (week < 4 || week > 42) return null;
   const ctx: BriefingContext = {

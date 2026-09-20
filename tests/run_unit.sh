@@ -38,6 +38,9 @@ tsc1 tests/epic3_timeline.test.ts src/timeline/timeline.ts src/onboarding/dates.
 OUT=/tmp/nurture-tests-wf
 npx tsc --ignoreConfig tests/week_filter.test.ts src/timeline/timeline.ts src/onboarding/dates.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "week_filter" env TZ=UTC node $OUT/tests/week_filter.test.js
 
+OUT=/tmp/nurture-tests-ws
+npx tsc --ignoreConfig tests/week_logic_shared.test.ts src/onboarding/dates.ts src/timeline/timeline.ts src/week/content.ts src/briefing/context.ts src/briefing/matrix.ts src/briefing/delight.ts src/theme/tokens.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "week_logic_shared" env TZ=UTC node $OUT/tests/week_logic_shared.test.js
+
 OUT=/tmp/nurture-tests-f
 npx tsc --ignoreConfig tests/epic3_filters.test.ts src/timeline/TimelineFilters.tsx --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "epic3_filters" env NODE_PATH="$PWD/node_modules" node $OUT/tests/epic3_filters.test.js
 
@@ -57,7 +60,9 @@ OUT=/tmp/nurture-tests24
 npx tsc --ignoreConfig tests/epic2_4.test.ts src/composer/voice.ts --outDir $OUT --module commonjs --target es2022 --lib es2022,dom --skipLibCheck --esModuleInterop && run "epic2_4" node $OUT/tests/epic2_4.test.js
 
 OUT=/tmp/nurture-tests44
-tsc1 tests/epic4_media.test.ts src/logging/bumpPhotos.ts src/lib/types.ts && run "epic4_media" node $OUT/tests/epic4_media.test.js
+# epic4_media suite removed Sept 19, 2026: the photo-backup flow it covered
+# (src/logging/bumpPhotos.ts) was deleted when report/file uploads went
+# ephemeral — feed entries are text-only now.
 
 OUT=/tmp/nurture-delight-tests
 tsc1 tests/delight.test.ts src/briefing/delight.ts src/theme/tokens.ts && run "delight" node $OUT/tests/delight.test.js
@@ -71,6 +76,9 @@ tsc1 tests/week_appointments.test.ts src/week/appointments.ts && run "week_appoi
 OUT=/tmp/nurture-tests-week
 tsc1 tests/week_content.test.ts src/week/content.ts src/briefing/matrix.ts src/briefing/delight.ts src/briefing/context.ts src/briefing/types.ts src/theme/tokens.ts src/lib/types.ts src/onboarding/dates.ts && run "week_content" node $OUT/tests/week_content.test.js
 
+OUT=/tmp/nurture-tests-sizeart
+tsc1 tests/size_art_rotation.test.ts src/week/sizeArt.ts && run "size_art_rotation" node $OUT/tests/size_art_rotation.test.js
+
 OUT=/tmp/nurture-epic9-tests
 tsc1 tests/epic9.test.ts src/support/aftermath.ts src/support/gentleReads.ts src/support/afterwardsCopy.ts src/lib/types.ts && run "epic9" node $OUT/tests/epic9.test.js
 
@@ -81,6 +89,8 @@ OUT=/tmp/nurture-addmenu-tests
 tsc1 tests/add_menu.test.ts src/logs/appointmentInput.ts src/lib/types.ts && run "add_menu" env TZ=UTC node $OUT/tests/add_menu.test.js
 OUT=/tmp/nurture-rt-tests
 tsc1 tests/reminder_timing.test.ts src/notifications/reminderTiming.ts && run "reminder_timing" node $OUT/tests/reminder_timing.test.js
+OUT=/tmp/nurture-pp-tests
+tsc1 tests/photo_persistence.test.ts src/sync/photoPersistence.ts && run "photo_persistence" node $OUT/tests/photo_persistence.test.js
 
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

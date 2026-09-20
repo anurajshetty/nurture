@@ -4,21 +4,32 @@
  * The week pill is a FILTER, not a jump: tapping it opens this inline
  * panel ("All weeks" + Week N, newest first). A selected week shows only
  * that week's divider + entries; "All weeks" shows everything. The pill
- * label always matches the shown content — the old Week-37-pill vs
- * Week-38-divider bug came from the pill and the dividers using two
- * different week calculations (now unified via currentPregnancyWeek).
+ * label always matches the shown content — all labels show the DISPLAY
+ * week = completed + 1 (Anuraj, Sept 2026), and the pill, the dividers,
+ * and the options all read the same number via the timeline helpers.
  *
  * Panel is inline in the header flow (not a bottom sheet); the option
  * list scrolls with a 7-row cap so it stays compact even at week 40+.
+ *
+ * This component is presentational: the `currentWeek` prop is the one
+ * shared pregnancy-week number (pregnancyWeek in onboarding/dates, via
+ * currentPregnancyWeek in timeline/timeline), so the option labels can
+ * never drift from the week pill or the dividers.
  */
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, shadow, spacing } from '../theme/tokens';
+import { displayWeekLabel } from './timeline';
 
 export type WeekFilterValue = 'all' | number;
 
 type Props = {
   visible: boolean;
-  /** Current 1-based pregnancy week; null hides the week options. */
+  /**
+   * Current pregnancy week as a COMPLETED-week number (1…42); null hides
+   * the week options. The option labels show the DISPLAY week
+   * (completed + 1, via displayWeekLabel) so they match the pill and the
+   * timeline dividers.
+   */
   currentWeek: number | null;
   value: WeekFilterValue;
   onSelect: (v: WeekFilterValue) => void;
@@ -56,7 +67,7 @@ export default function WeekFilterDropdown({
         {weeks.map((w) => (
           <WeekOption
             key={w}
-            label={`Week ${w}`}
+            label={displayWeekLabel(w)}
             selected={value === w}
             onPress={() => onSelect(w)}
             testID={`week-filter-option-${w}`}
