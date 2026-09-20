@@ -16,7 +16,7 @@ export interface SyncDbHandle {
 }
 
 export const DB_NAME = 'nurture.db';
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -128,6 +128,41 @@ function readSchemaVersion(handle: SyncDbHandle): number {
 }
 
 /**
+ * Slots rows matched by `where` (with `params`) just below the latest
+ * legitimately-logged item, preserving their relative order by
+ * occurred_at ascending. The anchor is MAX(created_at) over rows whose
+ * created_at is not in the future; when nothing qualifies, now is used.
+ * Rows are assigned ISO timestamps one second apart strictly under the
+ * anchor — a future created_at is NEVER written.
+ *
+ * Used by the hardened v6 backfill (rows whose occurred_at is scheduled
+ * ahead) and the v7 repair (rows poisoned by the original v6 backfill).
+ */
+function slotPoisonedRows(
+  handle: SyncDbHandle,
+  where: string,
+  now: string,
+  ...params: unknown[]
+): void {
+  const rows = handle.getAllSync<{ id: string }>(
+    `SELECT id FROM events WHERE ${where} ORDER BY occurred_at ASC`,
+    ...params,
+  );
+  if (rows.length === 0) return;
+  const legit = handle.getFirstSync<{ m: string | null }>(
+    'SELECT MAX(created_at) AS m FROM events WHERE created_at <= ?',
+    now,
+  );
+  const parsed = legit?.m ? Date.parse(legit.m) : NaN;
+  const anchorMs = Number.isNaN(parsed) ? Date.parse(now) : parsed;
+  const n = rows.length;
+  for (let i = 0; i < n; i += 1) {
+    const ts = new Date(anchorMs - (n - i) * 1000).toISOString();
+    handle.runSync('UPDATE events SET created_at = ? WHERE id = ?', ts, rows[i].id);
+  }
+}
+
+/**
  * Applies pending schema migrations. The base SCHEMA_SQL is idempotent
  * (CREATE TABLE IF NOT EXISTS), so migrations only cover ALTER-style
  * changes for databases created by earlier app versions.
@@ -232,12 +267,42 @@ function runMigrations(handle: SyncDbHandle): void {
     // occurred_at — the closest knowable story position, and exactly the
     // order they already render in, so nothing visibly reshuffles on
     // upgrade.
+    //
+    // Hardened (Sept 2026, Anuraj's live-feed bug): appointments carry the
+    // SCHEDULED (often future) occurred_at, so a blind created_at =
+    // occurred_at backfill would write FUTURE created_at values and the
+    // poisoned appointments would sort above everything logged before that
+    // future time. The backfill therefore runs in two steps: past occurred_at
+    // copies straight over; rows still NULL (future occurred_at) are slotted
+    // just below the latest legitimately-logged item, preserving order. A
+    // future created_at is never written.
     const cols = handle.getAllSync<{ name: string }>('PRAGMA table_info(events)');
     if (!cols.some((c) => c.name === 'created_at')) {
       handle.execSync('ALTER TABLE events ADD COLUMN created_at TEXT');
     }
-    handle.runSync('UPDATE events SET created_at = occurred_at WHERE created_at IS NULL');
+    const now6 = new Date().toISOString();
+    handle.runSync(
+      'UPDATE events SET created_at = occurred_at WHERE created_at IS NULL AND occurred_at <= ?',
+      now6,
+    );
+    slotPoisonedRows(handle, 'created_at IS NULL', now6);
     handle.runSync("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '6')");
+  }
+  if (current < 7) {
+    // v7 (Willow, Sept 2026): repair poisoned created_at from the original
+    // v6 backfill (shipped before the hardening above). That backfill wrote
+    // created_at = occurred_at, and appointments carry the SCHEDULED
+    // (often future) occurred_at — so appointments logged before the
+    // migration sort above everything logged before that future time
+    // (Anuraj's Scan scheduled 10:30 AM outranked his moment logged 7:32
+    // AM). Nothing is legitimately logged in the future, so every row with
+    // created_at > now is poisoned: slot them just below the latest
+    // legitimately-logged item, preserving relative order by occurred_at.
+    // Rows whose poisoned created_at has already passed into the past
+    // can't be distinguished — leave them.
+    const now7 = new Date().toISOString();
+    slotPoisonedRows(handle, 'created_at > ?', now7, now7);
+    handle.runSync("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '7')");
   }
 }
 

@@ -99,6 +99,8 @@ OUT=/tmp/nurture-pp-tests
 tsc1 tests/photo_persistence.test.ts src/sync/photoPersistence.ts && run "photo_persistence" node $OUT/tests/photo_persistence.test.js
 OUT=/tmp/nurture-kicks-tests
 npx tsc --ignoreConfig tests/kicks.test.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "kicks" env TZ=UTC node $OUT/tests/kicks.test.js
+OUT=/tmp/nurture-createdat-tests
+npx tsc --ignoreConfig tests/created_at_repair.test.ts src/lib/schema.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "created_at_repair" node $OUT/tests/created_at_repair.test.js
 
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]
