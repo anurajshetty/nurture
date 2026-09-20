@@ -2,7 +2,8 @@
 """390x844 visual/interaction pass for the Willow evening batch.
 
 Covers the batch's visible surfaces:
-1. Week tab: "Coming up" card (kicker + "2 questions to ask"), tap -> editor.
+1. Week tab: "Coming up" card (kicker only — "2 questions to ask" removed
+   at Anuraj's request, Sept 2026), tap -> editor.
 2. Logs tab: report summary card shows exactly "This isn't medical advice.";
    interim "Summarizing your report..." entry shows it too.
 3. Logs composer: dummy [+] tap -> "Photo uploads are paused for now" toast,
@@ -87,7 +88,8 @@ def main():
         check("week: one 'Coming up' card renders", cards.count() == 1)
         card_text = cards.first.inner_text().lower() if cards.count() >= 1 else ""
         check("week: kicker is 'Coming up' (locked copy)", "coming up" in card_text)
-        check("week: body is '2 questions to ask' (locked copy)", "2 questions to ask" in card_text)
+        check("week: '2 questions to ask' line removed (Anuraj, Sept 2026)",
+              "2 questions to ask" not in card_text)
         check("week: no reminder-lead-time text on card",
               "reminder 2 days before" not in card_text)
         page.screenshot(path=os.path.join(SHOT_DIR, "week-coming-up.png"))
@@ -224,6 +226,95 @@ def main():
               page.evaluate("() => !document.body.innerHTML.includes('☺')"))
         # tab-bar close-up screenshot (bottom strip)
         page.screenshot(path=os.path.join(SHOT_DIR, "you-tab-icon.png"),
+                        clip={"x": 0, "y": 844 - 110, "width": 390, "height": 110})
+
+        # --- Tab bar icons: all three tabs, active + inactive tints ---
+        # Spec (mockup 15 tab bar, locked): Week = bullseye (2 concentric
+        # circles r=4/r=9), Logs = clock (circle r=9 + "M12 7v5l3 3"),
+        # You = v3 bowed mother. 24x24 viewBox, 2px round stroke;
+        # active tint #C85F3E (coralDeep), inactive #8A8078 (muted).
+        # Currently on the YOU tab: You active, Week + Logs inactive.
+        ICON_JS = """() => {
+          const norm = (c) => (c || '').toLowerCase().replace(/\\s+/g, '');
+          const isActive = (c) => norm(c) === '#c85f3e' || norm(c) === 'rgb(200,95,62)';
+          const isInactive = (c) => norm(c) === '#8a8078' || norm(c) === 'rgb(138,128,120)';
+          const svgs = Array.from(document.querySelectorAll('svg'))
+            .filter(s => s.getAttribute('viewBox') === '0 0 24 24')
+            .filter(s => { const r = s.getBoundingClientRect();
+                           return r.bottom > window.innerHeight - 140; });
+          const out = {};
+          for (const s of svgs) {
+            const circles = Array.from(s.querySelectorAll('circle'));
+            const paths = Array.from(s.querySelectorAll('path'));
+            const radii = circles.map(c => c.getAttribute('r')).sort().join(',');
+            const g = s.querySelector('g');
+            const stroke = g ? (g.getAttribute('stroke') ||
+                                getComputedStyle(g).stroke) : '';
+            const r = s.getBoundingClientRect();
+            const info = { stroke, w: r.width, h: r.height,
+                           active: isActive(stroke), inactive: isInactive(stroke) };
+            if (circles.length === 2 && paths.length === 0 && radii === '4,9')
+              out.week = info;
+            else if (circles.length === 1 && paths.length === 1 &&
+                     radii === '9' && paths[0].getAttribute('d') === 'M12 7v5l3 3')
+              out.logs = info;
+            else if (circles.length === 2 && paths.length === 3)
+              out.you = info;
+          }
+          return out;
+        }"""
+        icons = page.evaluate(ICON_JS)
+        check("tabbar: Week bullseye SVG found (2 concentric circles r=4/r=9)",
+              "week" in icons)
+        check("tabbar: Logs clock SVG found (circle r=9 + hands 'M12 7v5l3 3')",
+              "logs" in icons)
+        check("tabbar: You v3 icon present", "you" in icons)
+        for tab in ("week", "logs", "you"):
+            if tab in icons:
+                i = icons[tab]
+                check(f"tabbar: {tab} icon ~24px",
+                      20 <= (i.get("w") or 0) <= 28 and 20 <= (i.get("h") or 0) <= 28)
+        check("tabbar: on You tab, You icon is active tint (#C85F3E)",
+              icons.get("you", {}).get("active") is True)
+        check("tabbar: on You tab, Week icon is inactive tint (#8A8078)",
+              icons.get("week", {}).get("inactive") is True)
+        check("tabbar: on You tab, Logs icon is inactive tint (#8A8078)",
+              icons.get("logs", {}).get("inactive") is True)
+        check("tabbar: old text glyphs gone from tab bar (no ◍, no ☰, no ☺)",
+              page.evaluate("""() => {
+                const bar = document.body.innerHTML;
+                const tabHtml = Array.from(document.querySelectorAll('svg'))
+                  .filter(s => { const r = s.getBoundingClientRect();
+                                 return r.bottom > window.innerHeight - 140; })
+                  .map(s => { const b = s.closest('a,button,[role="tab"]');
+                               return b ? b.innerHTML : ''; }).join('');
+                return !['◍','☰','☺'].some(g => tabHtml.includes(g));
+              }"""))
+
+        # Week tab active: Week icon active, others inactive.
+        page.goto(WEEK, wait_until="networkidle")
+        page.wait_for_timeout(2000)
+        icons = page.evaluate(ICON_JS)
+        check("tabbar: on Week tab, Week icon is active tint",
+              icons.get("week", {}).get("active") is True)
+        check("tabbar: on Week tab, Logs icon is inactive tint",
+              icons.get("logs", {}).get("inactive") is True)
+        check("tabbar: on Week tab, You icon is inactive tint",
+              icons.get("you", {}).get("inactive") is True)
+        page.screenshot(path=os.path.join(SHOT_DIR, "week-tab-icon.png"),
+                        clip={"x": 0, "y": 844 - 110, "width": 390, "height": 110})
+
+        # Logs tab active: Logs icon active, others inactive.
+        page.goto(LOGS, wait_until="networkidle")
+        page.wait_for_timeout(2000)
+        icons = page.evaluate(ICON_JS)
+        check("tabbar: on Logs tab, Logs icon is active tint",
+              icons.get("logs", {}).get("active") is True)
+        check("tabbar: on Logs tab, Week icon is inactive tint",
+              icons.get("week", {}).get("inactive") is True)
+        check("tabbar: on Logs tab, You icon is inactive tint",
+              icons.get("you", {}).get("inactive") is True)
+        page.screenshot(path=os.path.join(SHOT_DIR, "logs-tab-icon.png"),
                         clip={"x": 0, "y": 844 - 110, "width": 390, "height": 110})
 
         check("zero page errors", len(errors) == 0)

@@ -1,19 +1,16 @@
 import { useEffect } from 'react';
 import { Tabs, useFocusEffect, useRouter, useSegments } from 'expo-router';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet } from 'react-native';
 import type { ColorValue } from 'react-native';
 import { colors, spacing } from '../../src/theme/tokens';
 import { YouTabIcon } from '../../src/components/YouTabIcon';
+import { WeekTabIcon } from '../../src/components/WeekTabIcon';
+import { LogsTabIcon } from '../../src/components/LogsTabIcon';
 import {
   installReminderSurfaces,
   takeColdStartAppointmentResponse,
 } from '../../src/notifications/snooze';
 import { refreshAppointmentReminders } from '../../src/notifications/appointments';
-
-const TAB_GLYPHS = {
-  week: '◍',
-  logs: '☰',
-} as const;
 
 type TabName = 'week' | 'logs' | 'you';
 
@@ -30,13 +27,14 @@ function useTabTint(tab: TabName): ColorValue {
   return here === tab ? colors.coralDeep : colors.muted;
 }
 
-function TabGlyph({ tab, glyph }: { tab: 'week' | 'logs'; glyph: string }) {
-  const color = useTabTint(tab);
-  return (
-    <Text style={[styles.glyph, { color }]} accessibilityElementsHidden>
-      {glyph}
-    </Text>
-  );
+function WeekTabBarIcon() {
+  const color = useTabTint('week');
+  return <WeekTabIcon color={color} />;
+}
+
+function LogsTabBarIcon() {
+  const color = useTabTint('logs');
+  return <LogsTabIcon color={color} />;
 }
 
 function YouTabBarIcon() {
@@ -100,14 +98,14 @@ export default function TabsLayout() {
         name="week"
         options={{
           title: 'Week',
-          tabBarIcon: () => <TabGlyph tab="week" glyph={TAB_GLYPHS.week} />,
+          tabBarIcon: () => <WeekTabBarIcon />,
         }}
       />
       <Tabs.Screen
         name="logs"
         options={{
           title: 'Logs',
-          tabBarIcon: () => <TabGlyph tab="logs" glyph={TAB_GLYPHS.logs} />,
+          tabBarIcon: () => <LogsTabBarIcon />,
         }}
       />
       <Tabs.Screen
@@ -137,9 +135,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     marginTop: 2,
-  },
-  glyph: {
-    fontSize: 22,
-    lineHeight: 26,
   },
 });

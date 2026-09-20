@@ -11,15 +11,15 @@ Contract (mockup 16; locked copy Sept 2026 — supersedes the old soonest
 48-hour window (now <= t <= now+48h), soonest-first, rendered directly
 between the baby-size hero and the Highlights section. Past
 appointments never render. Each card shows the "Coming up" kicker, the
-warm `when` string, the title, and the locked "2 questions to ask"
-body (summary only — full notes are NOT shown). Tapping a card opens
-the appointment editor sheet for that appointment.
+warm `when` string, and the title only — the "2 questions to ask" line
+was removed at Anuraj's request (Sept 2026); full notes are NOT shown.
+Tapping a card opens the appointment editor sheet for that appointment.
 
 Flows (all real UI, no stubs):
   1. Seed an appointment inside the window (tomorrow 10:30 local) ->
      exactly one card renders ABOVE the Highlights section: kicker
      "Coming up", title, warm date words ("Tomorrow at 10:30 AM"), and
-     the "2 questions to ask" body.
+     NO "2 questions to ask" line.
   2. Tap the card -> the appointment editor sheet opens.
   3. Seed two in-window appointments -> two cards render soonest-first,
      with NO "+N more" line.
@@ -174,9 +174,9 @@ def main():
             print(f"    when: {when!r}")
             check("warm date words (Tomorrow at h:MM AM/PM)",
                   re.fullmatch(r"Tomorrow at \d{1,2}:\d{2} (AM|PM)", when) is not None)
-            check("card body is the locked '2 questions to ask' summary",
-                  card.get_by_test_id("week-reminder-card-questions").inner_text().strip()
-                  == "2 questions to ask")
+            check("no '2 questions to ask' line (removed at Anuraj's request, Sept 2026)",
+                  card.get_by_test_id("week-reminder-card-questions").count() == 0
+                  and "2 questions to ask" not in card.inner_text())
             # ordering: card above Highlights
             card_y = card.bounding_box()["y"]
             hl_y = page.get_by_test_id("week-highlights").bounding_box()["y"]

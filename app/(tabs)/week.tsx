@@ -65,18 +65,15 @@ function orbTone(week: number): string {
 }
 
 /**
- * Card body for the upcoming-appointment reminder (Anuraj, Sept 2026 —
- * locked copy). Kept as a named constant so it stays findable; the
- * "Coming up" kicker is locked separately.
- */
-const APPOINTMENT_CARD_BODY = '2 questions to ask';
-
-/**
  * The header shows the DISPLAY week = completed weeks + 1 (Anuraj, Sept
  * 2026) — the displayWeek(dueDate, dayISO) contract the dates agent is
  * adding to src/onboarding/dates. Swap the `week + 1` sites below to that
  * import when it lands; the completed-week number (content lookups, size
  * art, nav bounds) stays untouched.
+ *
+ * "Coming up" card (Anuraj, Sept 2026): tight card — kicker, title, warm
+ * `when` string only. The "2 questions to ask" line was removed at his
+ * request; do not re-add it.
  */
 
 type LoadState =
@@ -361,12 +358,6 @@ export default function WeekScreen() {
               <Text style={styles.apptWhen} testID="week-reminder-card-when">
                 {card.when}
               </Text>
-              <Text
-                style={styles.apptQuestions}
-                testID="week-reminder-card-questions"
-              >
-                {APPOINTMENT_CARD_BODY}
-              </Text>
             </Card>
           ))
         : null}
@@ -560,7 +551,7 @@ const styles = StyleSheet.create({
   },
   weekTitle: {
     ...typeScale.display,
-    fontSize: 30,
+    fontSize: 26,
     color: colors.ink,
     marginHorizontal: spacing.md,
     minWidth: 140,
@@ -570,7 +561,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.muted,
     textAlign: 'center',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   greeting: {
     fontFamily: 'Georgia',
@@ -578,7 +569,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     color: colors.ink,
     textAlign: 'center',
-    marginTop: spacing.xs,
+    marginTop: 0,
     marginBottom: spacing.md,
     paddingHorizontal: spacing.lg,
   },
@@ -839,16 +830,10 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: spacing.xs,
   },
-  /* "Coming up" reminder card: one per in-window appointment. */
+  /* "Coming up" reminder card: tight — kicker, title, warm `when` only. */
   reminderCard: {
-    minHeight: minTouch,
+    padding: spacing.md,
     marginBottom: spacing.sm,
-  },
-  apptQuestions: {
-    ...typeScale.subhead,
-    fontWeight: '600',
-    color: colors.coralDeep,
-    marginTop: spacing.xs,
   },
   storyCopy: {
     fontSize: 14.5,
