@@ -162,10 +162,11 @@ def main():
         check("menu closes via x", page.get_by_test_id("add-menu").count() == 0)
         check("button labeled Add after close",
               add_btn.get_attribute("aria-label") == "Add")
-        # Close via the scrim.
+        # Close via the scrim (tap a clear spot above the fanned pills —
+        # the pills are large per the mockup and cover the screen center).
         add_btn.click()
         page.get_by_test_id("add-menu").wait_for(timeout=5000)
-        page.get_by_test_id("add-menu-scrim").click()
+        page.get_by_test_id("add-menu-scrim").click(position={"x": 195, "y": 100})
         page.wait_for_timeout(400)
         check("menu closes via scrim", page.get_by_test_id("add-menu").count() == 0)
 
@@ -264,10 +265,21 @@ def main():
             check("report lands in timeline", False)
         else:
             check("report lands in timeline", True)
-            first_card = page.evaluate(
-                "() => document.querySelector('[data-testid^=\"event-card-\"]').innerText")
-            check("report renders as REPORT chip (not FILE)",
-                  "REPORT" in first_card and "FILE" not in first_card)
+            # Find the report's own card by its attachment name (card order
+            # is time-dependent — a same-day appointment can sort above it).
+            report_card = page.locator(
+                '[data-testid^="event-card-"]',
+                has_text="willow-test-report.pdf",
+            ).first
+            try:
+                report_card.wait_for(timeout=8000)
+            except Exception:
+                check("report card found", False)
+            else:
+                check("report card found", True)
+                first_card = report_card.inner_text()
+                check("report renders as REPORT chip (not FILE)",
+                      "REPORT" in first_card and "FILE" not in first_card)
 
         # ---- D. Log entry: floating composer ----
         page.get_by_test_id("logs-add-button").click()

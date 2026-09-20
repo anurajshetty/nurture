@@ -1,11 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '../../src/components';
 import JournalSheet from '../../src/logging/JournalSheet';
-import { colors, eventDots, minTouch, spacing, type as typeScale } from '../../src/theme/tokens';
+import { colors, eventDots, minTouch, radii, spacing, type as typeScale } from '../../src/theme/tokens';
 import { getEvent } from '../../src/sync/store';
-import { getPrefs } from '../../src/notifications/prefs';
+import { getPrefs, updatePrefs } from '../../src/notifications/prefs';
+import ReminderTimingSheet from '../../src/notifications/ReminderTimingSheet';
+import {
+  DEFAULT_REMINDER_MINUTES,
+  formatLeadLabel,
+  formatReminderSetToast,
+} from '../../src/notifications/reminderTiming';
 import {
   installReminderSurfaces,
   takeColdStartAppointmentResponse,
@@ -33,20 +39,11 @@ import type { LocalEvent, Prefs } from '../../src/lib/types';
  * reminders. When the route carries `?appointment=<eventId>` (tapped from
  * a notification, or a cold start from one), the appointment detail renders
  * instead of the tiles: when/where up top, the question inbox with tappable
- * state chips, and the reminder row that points at
- * You → Notifications. The Journal tile below is untouched.
+ * state chips, and the reminder row that opens the timing editor sheet
+ * (approved mockup 14). The Journal tile below is untouched.
  */
 
-const LEAD_LABELS: Record<number, string> = {
-  15: '15 min before',
-  60: '1 hour before',
-  1440: '1 day before',
-  2880: '2 days before',
-};
-
-function leadLabel(minutes: number): string {
-  return LEAD_LABELS[minutes] ?? (minutes >= 60 ? `${Math.round(minutes / 60)} hours before` : `${minutes} min before`);
-}
+/** Reminder lead-time labels live in src/notifications/reminderTiming.ts. */
 
 function formatHour(hhmm: string): string {
   const h = Number(hhmm.split(':')[0]);
@@ -127,7 +124,6 @@ function AppointmentDetail({
   eventId: string;
   onBack: () => void;
 }) {
-  const router = useRouter();
   const [event, setEvent] = useState<LocalEvent | null>(() => {
     try {
       return getEvent(eventId);
@@ -138,6 +134,46 @@ function AppointmentDetail({
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
+  /** Reminder timing editor sheet (approved mockup 14). */
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((message: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(message);
+    toastTimer.current = setTimeout(() => setToast(null), 2400);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
+
+  /**
+   * The timing editor's apply: persist the new lead time, refresh the
+   * row, reschedule this device's reminders, and confirm with a toast.
+   * The sheet settles away on its own after the tap.
+   */
+  const handleApply = useCallback(
+    async (minutes: number) => {
+      try {
+        await updatePrefs({ appointmentLeadMinutes: minutes });
+        setPrefs(await getPrefs());
+        showToast(formatReminderSetToast(minutes));
+        void refreshAppointmentReminders();
+      } catch {
+        // Gentle fallback: the row keeps showing the last good value.
+        showToast('That didn’t go through — nothing changed.');
+        getPrefs()
+          .then(setPrefs)
+          .catch(() => {});
+      }
+    },
+    [showToast],
+  );
 
   const reload = useCallback(() => {
     try {
@@ -201,6 +237,22 @@ function AppointmentDetail({
   const quietNote = prefs
     ? `Quiet hours ${formatHour(prefs.quietHoursStart)} – ${formatHour(prefs.quietHoursEnd)}, always.`
     : 'Quiet hours 9 PM – 8 AM, always.';
+
+  // Sheet context line ("Growth scan · Tue, Sep 22 · 10:30 AM") so she
+  // always knows which visit the timing is for (approved mockup 14).
+  const rawTitle = event.data?.title;
+  const visitTitle =
+    typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle.trim() : 'Appointment';
+  const visitDay = (() => {
+    const d = new Date(event.occurredAt);
+    return Number.isNaN(d.getTime())
+      ? ''
+      : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  })();
+  const visitContext = `${visitTitle} · ${visitDay} · ${formatClock(event.occurredAt)}`;
+  const leadTitle = prefs
+    ? formatLeadLabel(prefs.appointmentLeadMinutes)
+    : formatLeadLabel(DEFAULT_REMINDER_MINUTES);
 
   return (
     <View testID="appointment-detail">
@@ -278,21 +330,33 @@ function AppointmentDetail({
 
       <Text style={styles.kicker}>Reminder</Text>
       <Pressable
-        onPress={() => router.push('/you')}
+        onPress={() => setSheetOpen(true)}
         accessibilityRole="button"
-        accessibilityLabel="Reminder settings"
+        accessibilityLabel={`Reminder, ${leadTitle} — tap to change`}
         testID="appointment-reminder-row"
         style={({ pressed }) => [styles.setrow, pressed && styles.tilePressed]}
       >
         <View style={styles.setrowText}>
-          <Text style={styles.setrowTitle}>{prefs ? leadLabel(prefs.appointmentLeadMinutes) : '2 days before'}</Text>
-          <Text style={styles.setrowSub}>Change it in You → Notifications</Text>
+          <Text style={styles.setrowTitle}>{leadTitle}</Text>
         </View>
         <Text style={styles.chev}>›</Text>
       </Pressable>
       <Text style={styles.note}>
         Running late? Your reminder can wait — snooze it straight from the notification. {quietNote}
       </Text>
+      <ReminderTimingSheet
+        visible={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        leadMinutes={prefs?.appointmentLeadMinutes ?? DEFAULT_REMINDER_MINUTES}
+        visitContext={visitContext}
+        quietNote={quietNote}
+        onApply={handleApply}
+      />
+      {toast ? (
+        <View style={styles.toast} testID="appointment-toast">
+          <Text style={styles.toastText}>{toast}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -628,5 +692,22 @@ const styles = StyleSheet.create({
     color: colors.muted,
     lineHeight: 20,
     marginTop: spacing.xs,
+  },
+  /* Confirmation toast after the timing editor applies ("Reminder set — …"). */
+  toast: {
+    position: 'absolute',
+    bottom: 120,
+    alignSelf: 'center',
+    backgroundColor: colors.ink,
+    borderRadius: radii.chip,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    maxWidth: '92%',
+  },
+  toastText: {
+    ...typeScale.subhead,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
 });

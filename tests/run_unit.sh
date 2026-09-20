@@ -76,6 +76,8 @@ tsc1 tests/onboarding_profile.test.ts src/onboarding/dates.ts src/onboarding/sha
 
 OUT=/tmp/nurture-addmenu-tests
 tsc1 tests/add_menu.test.ts src/logs/appointmentInput.ts src/lib/types.ts && run "add_menu" env TZ=UTC node $OUT/tests/add_menu.test.js
+OUT=/tmp/nurture-rt-tests
+tsc1 tests/reminder_timing.test.ts src/notifications/reminderTiming.ts && run "reminder_timing" node $OUT/tests/reminder_timing.test.js
 
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

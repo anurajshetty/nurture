@@ -26,10 +26,14 @@ type SheetKind = 'appointment' | 'report' | 'log' | null;
 
 function MenuPill({
   label,
+  icon,
+  iconBg,
   testID,
   onPress,
 }: {
   label: string;
+  icon: 'list' | 'file-text' | 'edit-3';
+  iconBg: string;
   testID: string;
   onPress: () => void;
 }) {
@@ -40,6 +44,11 @@ function MenuPill({
       accessibilityLabel={label}
       testID={testID}
       style={({ pressed }) => [styles.pill, pressed && styles.pillPressed]}>
+      <View
+        style={[styles.pillIcon, { backgroundColor: iconBg }]}
+        accessibilityElementsHidden>
+        <Feather name={icon} size={24} color="#fff" />
+      </View>
       <Text style={styles.pillText}>{label}</Text>
     </Pressable>
   );
@@ -75,9 +84,9 @@ export default function AddMenu({ onSaved, onUnsaved }: AddMenuProps) {
             testID="add-menu-scrim"
           />
           <View style={styles.pills} pointerEvents="box-none">
-            <MenuPill label="Appointment" testID="add-menu-pill-appointment" onPress={() => pick('appointment')} />
-            <MenuPill label="Add report" testID="add-menu-pill-report" onPress={() => pick('report')} />
-            <MenuPill label="Log entry" testID="add-menu-pill-log" onPress={() => pick('log')} />
+            <MenuPill label="Appointment" icon="list" iconBg="#8E7CC3" testID="add-menu-pill-appointment" onPress={() => pick('appointment')} />
+            <MenuPill label="Add report" icon="file-text" iconBg="#7FA8C9" testID="add-menu-pill-report" onPress={() => pick('report')} />
+            <MenuPill label="Log entry" icon="edit-3" iconBg="#93B192" testID="add-menu-pill-log" onPress={() => pick('log')} />
           </View>
         </View>
       ) : null}
@@ -132,17 +141,26 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 18,
     backgroundColor: '#fff',
     borderRadius: radii.chip,
-    paddingVertical: 16,
-    paddingHorizontal: 30,
-    minHeight: 58,
-    minWidth: 210,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingLeft: 16,
+    paddingRight: 28,
+    minHeight: 84,
+    minWidth: 250,
     borderWidth: 1,
     borderColor: colors.line,
     ...shadow.card,
+  },
+  pillIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pillPressed: {
     backgroundColor: colors.bg,
