@@ -12,7 +12,7 @@
  * - normal       → the week view, paged 4..currentWeek ("never ahead")
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -39,7 +39,8 @@ import {
   saveEvent,
 } from '../../src/sync/store';
 import { addDaysISO, todayISO } from '../../src/onboarding/dates';
-import { sizeArtForWeek } from '../../src/week/sizeArt';
+import { sizeArtVariantCount, sizeArtVariantForWeek, sizeArtVariantKey, nextSizeArtIndex, parseStoredSizeArtIndex } from '../../src/week/sizeArt';
+import { kvGet, kvSet } from '../../src/lib/db';
 import type { Pregnancy } from '../../src/lib/types';
 import AppointmentEditor from '../../src/logs/AppointmentEditor';
 import {
@@ -114,6 +115,48 @@ function Kicker({ children }: { children: string }) {
   return <Text style={styles.kicker}>{children}</Text>;
 }
 
+/**
+ * Per-load watercolor rotation (Anuraj, Sept 20, 2026): every Week-tab
+ * load advances to the next of the week's variants in sequence, persisted
+ * in the local KV store so it survives app restarts. The storage key
+ * includes the week, so a new week starts at variant 1. Never throws —
+ * a storage hiccup falls back to the first variant without advancing.
+ */
+function advanceSizeArt(week: number): number | null {
+  const count = sizeArtVariantCount(week);
+  if (count === 0) return null;
+  let stored: string | null = null;
+  try {
+    stored = kvGet(sizeArtVariantKey(week));
+  } catch {
+    return sizeArtVariantForWeek(week, 0);
+  }
+  const next = nextSizeArtIndex(count, stored);
+  try {
+    kvSet(sizeArtVariantKey(week), String(next));
+  } catch {
+    // Persist failed — still show the next variant for this load.
+  }
+  return sizeArtVariantForWeek(week, next);
+}
+
+/**
+ * Reads the week's current rotation position WITHOUT advancing it —
+ * used when paging between weeks (prev/next), which is not a tab load.
+ * A week with no stored position shows variant 1.
+ */
+function peekSizeArt(week: number): number | null {
+  const count = sizeArtVariantCount(week);
+  if (count === 0) return null;
+  let idx = 0;
+  try {
+    idx = parseStoredSizeArtIndex(count, kvGet(sizeArtVariantKey(week))) ?? 0;
+  } catch {
+    idx = 0;
+  }
+  return sizeArtVariantForWeek(week, idx);
+}
+
 export default function WeekScreen() {
   const router = useRouter();
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
@@ -127,6 +170,24 @@ export default function WeekScreen() {
   const [babyName, setBabyName] = useState<string | null>(null);
   /** Appointment editor sheet, opened by tapping a "Coming up" card. */
   const [editorId, setEditorId] = useState<string | null>(null);
+  /** Current watercolor variant for the size hero (per-load rotation). */
+  const [sizeArt, setSizeArt] = useState<number | null>(null);
+  /** Mirror of viewWeek for the focus callback below (stable [] deps). */
+  const viewWeekRef = useRef<number | null>(null);
+  useEffect(() => {
+    viewWeekRef.current = viewWeek;
+  }, [viewWeek]);
+
+  /**
+   * When the displayed week changes via prev/next paging, show that
+   * week's current rotation position. Paging is not a tab load, so the
+   * sequence does not advance here.
+   */
+  useEffect(() => {
+    if (state.kind !== 'ready') return;
+    const w = Math.min(viewWeek ?? state.currentWeek, state.currentWeek);
+    setSizeArt(peekSizeArt(w));
+  }, [state, viewWeek]);
 
   useFocusEffect(
     useCallback(() => {
@@ -136,6 +197,10 @@ export default function WeekScreen() {
         setViewWeek((v) =>
           v === null ? s.currentWeek : Math.min(v, s.currentWeek),
         );
+        // Advance the size-art rotation once per tab load, for the week
+        // actually displayed (mirrors the viewWeek clamp above).
+        const w = Math.min(viewWeekRef.current ?? s.currentWeek, s.currentWeek);
+        setSizeArt(advanceSizeArt(w));
         setMoments(countWeekMoments());
         try {
           setBabyName(getBabyName());
@@ -225,7 +290,6 @@ export default function WeekScreen() {
   const displayWeekNum = week + 1;
   const displayCurrentWeek = currentWeek + 1;
   const greeting = weekGreeting(week, babyName);
-  const sizeArt = sizeArtForWeek(week);
 
   const goWeek = (d: -1 | 1) => {
     setViewWeek((v) => {

@@ -13,12 +13,15 @@
  * Metro (including the web bundler) has no dynamic require: every asset
  * needs a static require() literal, so the table below is explicit.
  *
- * ROTATION (Anuraj, Sept 19, 2026): one picture per week per day —
- * pickDailyVariant() selects a variant deterministically from the
- * YYYY-MM-DD date (date-seeded djb2 hash), so the card never flickers
- * while scrolling and re-picks automatically on a new day. Weeks with
- * fewer than 3 pictures rotate among whatever exists; a week with no
- * art resolves to null (callers render without a picture — never crash).
+ * ROTATION (Anuraj, Sept 20, 2026): per-load rotation — every time the
+ * Week tab loads, the card advances to the next of the week's pictures in
+ * sequence (load 1 -> variant 1, load 2 -> variant 2, load 3 -> variant 3,
+ * load 4 -> variant 1, …). The position persists in the local key/value
+ * store under `willow.size_variant.<week>`, so the sequence advances
+ * across app restarts too; the key includes the week, so a new week
+ * always starts at variant 1. Weeks with fewer than 3 pictures rotate
+ * among whatever exists; a week with no art resolves to null (callers
+ * render without a picture — never crash).
  */
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -192,45 +195,61 @@ export function sizeArtForWeek(week: number): number | null {
 }
 
 /**
- * djb2 string hash — deterministic, dependency-free. Used only to spread
- * days across a week's variants.
+ * Number of bundled variants for a gestational week (0 when the week has
+ * no art). Weeks 1–11 have a single legacy picture; weeks 12–40 have the
+ * 3-variant designer watercolor set.
  */
-function hashDayKey(key: string): number {
-  let h = 5381;
-  for (let i = 0; i < key.length; i++) {
-    h = ((h << 5) + h + key.charCodeAt(i)) >>> 0;
-  }
-  return h;
+export function sizeArtVariantCount(week: number): number {
+  const variants = SIZE_ART[week];
+  return variants ? variants.length : 0;
 }
 
 /**
- * Pure daily pick from a variant list: deterministic on (week, dayKey),
- * so the same day always yields the same picture (no flicker while
- * scrolling) and a new day re-picks. Null on an empty list.
+ * The variant asset for a week at `index`, wrapping around the week's
+ * variant list (so index 3 on a 3-variant week yields the first picture).
+ * Null when the week has no art.
  */
-export function pickDailyVariant(
-  variants: readonly number[],
-  week: number,
-  dayKey: string,
-): number | null {
-  if (variants.length === 0) return null;
-  if (variants.length === 1) return variants[0];
-  const idx = hashDayKey(`${week}:${dayKey}`) % variants.length;
+export function sizeArtVariantForWeek(week: number, index: number): number | null {
+  const variants = SIZE_ART[week];
+  if (!variants || variants.length === 0) return null;
+  const idx = ((index % variants.length) + variants.length) % variants.length;
   return variants[idx];
 }
 
 /**
- * Illustration asset for a gestational week on a given day.
- *
- * Picks one of the week's pictures deterministically from `dayKey`
- * (a YYYY-MM-DD date string): the same day always yields the same
- * picture, so the card never flickers while scrolling, and a new day
- * re-picks automatically. With a single picture (the current state
- * until the designer delivers variants) it always returns that one.
- * Null when the week has no art.
+ * Storage key for the per-load rotation position. The key includes the
+ * week, so each week has its own sequence and a new week always starts
+ * at variant 1.
  */
-export function sizeArtForWeekAndDay(week: number, dayKey: string): number | null {
-  const variants = SIZE_ART[week];
-  if (!variants) return null;
-  return pickDailyVariant(variants, week, dayKey);
+export function sizeArtVariantKey(week: number): string {
+  return `willow.size_variant.${week}`;
+}
+
+/**
+ * Parses a stored rotation value; null when absent or corrupt.
+ * Only an exact canonical integer continues the sequence.
+ */
+export function parseStoredSizeArtIndex(
+  count: number,
+  storedRaw: string | null,
+): number | null {
+  if (count <= 0 || storedRaw === null) return null;
+  const trimmed = storedRaw.trim();
+  const n = Number.parseInt(trimmed, 10);
+  if (Number.isInteger(n) && n >= 0 && n < count && String(n) === trimmed) {
+    return n;
+  }
+  return null;
+}
+
+/**
+ * Pure next-index step for the per-load rotation: given the raw stored
+ * value (or null when never stored), returns the variant index to show
+ * on this load. Unparseable or out-of-range stored values restart the
+ * sequence at the first variant.
+ */
+export function nextSizeArtIndex(count: number, storedRaw: string | null): number {
+  if (count <= 0) return 0;
+  const prev = parseStoredSizeArtIndex(count, storedRaw) ?? -1;
+  return (prev + 1) % count;
 }

@@ -1,13 +1,20 @@
 /**
- * Size-art daily rotation tests (src/week/sizeArt.ts) — pure, no native
+ * Size-art per-load rotation tests (src/week/sizeArt.ts) — pure, no native
  * modules, no network.
+ *
+ * Rotation model (Anuraj, Sept 20, 2026): every Week-tab load advances to
+ * the next of the week's variants in sequence (load 1 -> variant 1,
+ * load 2 -> variant 2, load 3 -> variant 3, load 4 -> variant 1, ...).
+ * The position persists under `willow.size_variant.<week>` (see
+ * sizeArtVariantKey), so the sequence survives app restarts; the key
+ * includes the week, so a new week starts at variant 1.
  *
  * The real asset table needs image requires, which plain node can't load,
  * so the suite stubs image extensions before importing the module: each
  * distinct required path gets a unique numeric id (like Metro asset ids),
- * and tests the pure picker with synthetic variant lists plus the real
- * table's structure (weeks 1–11 single legacy .png; weeks 12–40 triple
- * bundled .jpg per design/size-images/MANIFEST.json).
+ * and tests the pure pickers with the real table's structure (weeks 1–11
+ * single legacy .png; weeks 12–40 triple bundled .jpg per
+ * design/size-images/MANIFEST.json).
  *
  * Run with:
  *   npx tsc tests/size_art_rotation.test.ts src/week/sizeArt.ts \
@@ -49,120 +56,129 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 };
 
 const {
-  pickDailyVariant,
   sizeArtForWeek,
-  sizeArtForWeekAndDay,
+  sizeArtVariantCount,
+  sizeArtVariantForWeek,
+  sizeArtVariantKey,
+  nextSizeArtIndex,
+  parseStoredSizeArtIndex,
 } = require('../src/week/sizeArt') as {
-  pickDailyVariant: (v: readonly number[], w: number, d: string) => number | null;
   sizeArtForWeek: (w: number) => number | null;
-  sizeArtForWeekAndDay: (w: number, d: string) => number | null;
+  sizeArtVariantCount: (w: number) => number;
+  sizeArtVariantForWeek: (w: number, i: number) => number | null;
+  sizeArtVariantKey: (w: number) => string;
+  nextSizeArtIndex: (count: number, stored: string | null) => number;
+  parseStoredSizeArtIndex: (count: number, stored: string | null) => number | null;
 };
 
-const day = (n: number) => `2026-09-${String(n).padStart(2, '0')}`;
-
 {
-  // Deterministic: same week + same day always yields the same picture
-  // (no flicker while scrolling / re-rendering).
-  const a = pickDailyVariant([11, 22, 33], 37, '2026-09-19');
-  const b = pickDailyVariant([11, 22, 33], 37, '2026-09-19');
-  ok(a === b, 'rotation: same day is stable across calls');
+  // Variant counts: weeks 1–11 single legacy picture, weeks 12–40 three
+  // bundled variants, unknown weeks zero.
+  let countsOk = true;
+  for (let w = 1; w <= 11; w++) if (sizeArtVariantCount(w) !== 1) countsOk = false;
+  for (let w = 12; w <= 40; w++) if (sizeArtVariantCount(w) !== 3) countsOk = false;
+  if (sizeArtVariantCount(0) !== 0) countsOk = false;
+  if (sizeArtVariantCount(41) !== 0) countsOk = false;
+  if (sizeArtVariantCount(99) !== 0) countsOk = false;
+  ok(countsOk, 'rotation: variant counts are 1 (weeks 1-11), 3 (weeks 12-40), 0 (unknown)');
 }
 
 {
-  // Result is always one of the week's variants.
-  const seen = new Set<number>();
-  for (let d = 1; d <= 30; d++) {
-    const v = pickDailyVariant([11, 22, 33], 37, day(d));
-    ok(v === 11 || v === 22 || v === 33, `rotation: day ${day(d)} picks a real variant`);
-    if (v !== null) seen.add(v);
+  // First load (nothing stored) shows variant 1 (index 0).
+  ok(nextSizeArtIndex(3, null) === 0, 'rotation: first load -> index 0');
+  ok(nextSizeArtIndex(1, null) === 0, 'rotation: single-variant week first load -> index 0');
+}
+
+{
+  // Sequence advances 0 -> 1 -> 2 -> 0 -> 1 ... across loads.
+  ok(nextSizeArtIndex(3, '0') === 1, 'rotation: load 2 -> index 1');
+  ok(nextSizeArtIndex(3, '1') === 2, 'rotation: load 3 -> index 2');
+  ok(nextSizeArtIndex(3, '2') === 0, 'rotation: load 4 wraps -> index 0');
+  ok(nextSizeArtIndex(3, '0') === 1, 'rotation: load 5 -> index 1');
+}
+
+{
+  // Corrupt / out-of-range stored values restart the sequence safely.
+  ok(nextSizeArtIndex(3, 'banana') === 0, 'rotation: garbage stored -> index 0');
+  ok(nextSizeArtIndex(3, '') === 0, 'rotation: empty stored -> index 0');
+  ok(nextSizeArtIndex(3, '-1') === 0, 'rotation: negative stored -> index 0');
+  ok(nextSizeArtIndex(3, '7') === 0, 'rotation: out-of-range stored -> index 0');
+  ok(nextSizeArtIndex(3, '1.5') === 0, 'rotation: fractional stored -> index 0');
+}
+
+{
+  // Single-variant weeks never advance.
+  ok(nextSizeArtIndex(1, '0') === 0, 'rotation: single variant stays at 0');
+}
+
+{
+  // Full simulated session: 5 consecutive loads of week 37 visit the
+  // variants in order 1,2,3,1,2.
+  const seen: Array<number | null> = [];
+  let stored: string | null = null;
+  for (let load = 0; load < 5; load++) {
+    const idx = nextSizeArtIndex(3, stored);
+    stored = String(idx);
+    seen.push(sizeArtVariantForWeek(37, idx));
   }
-  ok(seen.size > 1, 'rotation: spreads across variants over a month');
+  const distinct = new Set(seen);
+  ok(distinct.size === 3, 'rotation: 5 loads visit all 3 variants');
+  ok(seen[0] === seen[3], 'rotation: load 4 repeats load 1 (cycle)');
+  ok(seen[1] === seen[4], 'rotation: load 5 repeats load 2 (cycle)');
+  ok(seen[0] !== seen[1] && seen[1] !== seen[2], 'rotation: consecutive loads differ');
 }
 
 {
-  // Fewer than 3 pictures: rotate among whatever exists.
-  const v = pickDailyVariant([11, 22], 37, '2026-09-19');
-  ok(v === 11 || v === 22, 'rotation: 2-variant week picks one of the two');
+  // parseStoredSizeArtIndex: exact canonical integers parse, everything
+  // else is null (so paging/peeking falls back to variant 1).
+  ok(parseStoredSizeArtIndex(3, '0') === 0, 'parse: "0" -> 0');
+  ok(parseStoredSizeArtIndex(3, '2') === 2, 'parse: "2" -> 2');
+  ok(parseStoredSizeArtIndex(3, null) === null, 'parse: null -> null');
+  ok(parseStoredSizeArtIndex(3, 'banana') === null, 'parse: garbage -> null');
+  ok(parseStoredSizeArtIndex(3, '1.5') === null, 'parse: fraction -> null');
+  ok(parseStoredSizeArtIndex(3, ' 1') === 1, 'parse: surrounding whitespace trimmed');
+  ok(parseStoredSizeArtIndex(3, '3') === null, 'parse: out-of-range -> null');
+  ok(parseStoredSizeArtIndex(0, '0') === null, 'parse: zero count -> null');
 }
 
 {
-  // Single picture (legacy weeks 1–11): always it.
-  ok(pickDailyVariant([11], 37, '2026-09-19') === 11, 'rotation: single variant always wins');
-  ok(pickDailyVariant([11], 37, '2026-09-20') === 11, 'rotation: single variant stable next day');
+  // Paging between weeks does not advance: peeking the stored position
+  // replays the last shown variant, and a fresh week starts at variant 1.
+  // (Simulates the component's peek path: parse stored or fall back to 0.)
+  const peekIdx = (count: number, stored: string | null) =>
+    parseStoredSizeArtIndex(count, stored) ?? 0;
+  ok(peekIdx(3, '1') === 1, 'peek: stored "1" replays index 1 (no advance)');
+  ok(peekIdx(3, null) === 0, 'peek: fresh week starts at variant 1');
+  ok(peekIdx(3, 'oops') === 0, 'peek: corrupt stored falls back to variant 1');
 }
 
 {
-  // Empty list / unknown week: null, never throws (graceful fallback —
-  // callers render without a picture).
-  ok(pickDailyVariant([], 37, '2026-09-19') === null, 'rotation: empty list -> null');
+  // Storage keys include the week: a new week starts its own sequence.
+  ok(sizeArtVariantKey(37) === 'willow.size_variant.37', 'rotation: key format');
+  ok(sizeArtVariantKey(37) !== sizeArtVariantKey(38), 'rotation: keys differ per week');
+  ok(
+    nextSizeArtIndex(3, null) === 0,
+    'rotation: fresh key (new week) starts at variant 1',
+  );
+}
+
+{
+  // Variant lookup wraps and handles unknown weeks.
+  const first = sizeArtVariantForWeek(37, 0);
+  ok(first !== null, 'rotation: week 37 index 0 resolves');
+  ok(sizeArtVariantForWeek(37, 3) === first, 'rotation: index wraps to first variant');
+  ok(sizeArtVariantForWeek(37, 4) === sizeArtVariantForWeek(37, 1), 'rotation: index 4 == index 1');
+  ok(sizeArtVariantForWeek(99, 0) === null, 'rotation: unknown week -> null');
+  ok(sizeArtVariantForWeek(5, 0) === sizeArtVariantForWeek(5, 9), 'rotation: single-variant week wraps to itself');
+}
+
+{
+  // sizeArtForWeek (first-variant accessor) is unchanged: first variant
+  // for known weeks, null for unknown.
+  ok(sizeArtForWeek(37) === sizeArtVariantForWeek(37, 0), 'sizeArtForWeek: week 37 first variant');
+  ok(sizeArtForWeek(5) !== null, 'sizeArtForWeek: legacy week resolves');
   ok(sizeArtForWeek(99) === null, 'sizeArtForWeek: unknown week -> null');
-  ok(sizeArtForWeekAndDay(99, '2026-09-19') === null, 'sizeArtForWeekAndDay: unknown week -> null');
-  ok(sizeArtForWeekAndDay(0, '2026-09-19') === null, 'sizeArtForWeekAndDay: week 0 -> null');
-  ok(sizeArtForWeekAndDay(41, '2026-09-19') === null, 'sizeArtForWeekAndDay: week 41 -> null');
-}
-
-{
-  // Real table: weeks 1–11 keep exactly one legacy picture.
-  let allSingle = true;
-  for (let w = 1; w <= 11; w++) {
-    if (sizeArtForWeekAndDay(w, '2026-09-19') !== sizeArtForWeek(w) || sizeArtForWeek(w) === null) {
-      allSingle = false;
-    }
-  }
-  ok(allSingle, 'real table: weeks 1..11 each resolve their single legacy picture');
-}
-
-{
-  // Real table: weeks 12–40 each have exactly 3 bundled variants and the
-  // daily picker rotates among them, stable within a day.
-  let ok3 = true;
-  for (let w = 12; w <= 40; w++) {
-    const variants = new Set<number>();
-    for (let d = 1; d <= 90; d++) {
-      const v = sizeArtForWeekAndDay(w, day(d));
-      if (v === null) {
-        ok3 = false;
-        break;
-      }
-      variants.add(v);
-      // Stable all day: repeat call same day returns the same picture.
-      if (sizeArtForWeekAndDay(w, day(d)) !== v) {
-        ok3 = false;
-        break;
-      }
-    }
-    if (variants.size !== 3) ok3 = false;
-  }
-  ok(ok3, 'real table: weeks 12..40 each have 3 bundled variants, rotated stably by day');
-}
-
-{
-  // Real table: sizeArtForWeek returns the first (fallback) variant and
-  // the daily picker agrees with it on days that hash to index 0 — more
-  // directly, the first variant is always one of the daily picks.
-  let firstInRotation = true;
-  for (let w = 12; w <= 40; w++) {
-    const first = sizeArtForWeek(w);
-    let found = false;
-    for (let d = 1; d <= 90; d++) {
-      if (sizeArtForWeekAndDay(w, day(d)) === first) {
-        found = true;
-        break;
-      }
-    }
-    if (!found || first === null) firstInRotation = false;
-  }
-  ok(firstInRotation, 'real table: sizeArtForWeek first variant is reachable in daily rotation');
-}
-
-{
-  // Rotation spreads across distinct days (not stuck on one picture).
-  const seen = new Set<number>();
-  for (let d = 1; d <= 30; d++) {
-    const v = sizeArtForWeekAndDay(37, day(d));
-    if (v !== null) seen.add(v);
-  }
-  ok(seen.size > 1, 'real table: week 37 visits more than one picture over a month');
+  ok(sizeArtForWeek(0) === null, 'sizeArtForWeek: week 0 -> null');
 }
 
 console.log(`=== size_art_rotation: ${passed} passed, ${failed} failed ===`);
