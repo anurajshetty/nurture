@@ -1,15 +1,20 @@
 /**
  * Soft tone cue for the breathing pacer (Willow, Sept 2026).
  *
- * WebAudio: a gentle 392 Hz sine with a soft attack/decay envelope, exactly
- * as the design mockup's `softTone()` does. Independent of the haptic
- * pulse — either, both, or neither can be on. On native builds without
- * WebAudio this is a safe no-op (a native tone would need an audio
- * dependency — coordinator call).
+ * Web: WebAudio — a gentle 392 Hz sine with a soft attack/decay envelope,
+ * exactly as the design mockup's `softTone()` does. Independent of the haptic
+ * pulse — either, both, or neither can be on.
+ *
+ * Native (iOS/Android): the same 392 Hz / 0.55s envelope pre-rendered as
+ * `src/labor/assets/chime-breathing.wav` (see tools/gen_labor_chimes.py) and
+ * played through `expo-audio`. Best-effort, never throws.
  */
+import { Platform } from 'react-native';
+import { playNativeChime } from '../nativeChime';
+
 let ctx: AudioContext | null = null;
 
-export function playSoftTone(): void {
+function playWebSoftTone(): void {
   try {
     const AC =
       typeof window !== 'undefined'
@@ -34,4 +39,12 @@ export function playSoftTone(): void {
   } catch {
     /* never break the pacer */
   }
+}
+
+export function playSoftTone(): void {
+  if (Platform.OS !== 'web') {
+    playNativeChime(require('../assets/chime-breathing.wav') as number);
+    return;
+  }
+  playWebSoftTone();
 }

@@ -41,6 +41,7 @@ import {
   type as typeScale,
 } from '../../src/theme/tokens';
 import { LABOR_DISCLAIMER, TIMER_COPY as C } from '../../src/labor/copy';
+import { requestScreenWakeLock } from '../../src/labor/keepAwake';
 
 /* ------------------------------------------------------------------ */
 /* Pure logic (unit-tested).                                           */
@@ -311,43 +312,16 @@ function pal(night: boolean): Pal {
 
 /* ------------------------------------------------------------------ */
 /* Wake lock — the screen stays awake while timing (mockup behavior).  */
-/* Web: the Wake Lock API when available. Native follow-up: swap in   */
-/* expo-keep-awake (tracked in the section's build report).             */
+/* Shared labor implementation (`src/labor/keepAwake.ts`): Web Wake     */
+/* Lock API on web, expo-keep-awake on native.                          */
 /* ------------------------------------------------------------------ */
 
 function useWakeLock(active: boolean): void {
   useEffect(() => {
     if (!active) return;
-    if (typeof navigator === 'undefined' || typeof document === 'undefined')
-      return;
-    let lock: { release?: () => void } | null = null;
-    const request = async () => {
-      try {
-        const nav = navigator as unknown as {
-          wakeLock?: { request: (kind: string) => Promise<unknown> };
-        };
-        if (nav.wakeLock?.request) {
-          lock = (await nav.wakeLock.request('screen')) as {
-            release?: () => void;
-          };
-        }
-      } catch {
-        /* unavailable or denied — stay quiet, keep timing */
-      }
-    };
-    void request();
-    const onVis = () => {
-      if (document.visibilityState === 'visible') void request();
-    };
-    document.addEventListener('visibilitychange', onVis);
+    const release = requestScreenWakeLock();
     return () => {
-      document.removeEventListener('visibilitychange', onVis);
-      try {
-        lock?.release?.();
-      } catch {
-        /* ignore */
-      }
-      lock = null;
+      release();
     };
   }, [active]);
 }

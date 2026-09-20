@@ -61,6 +61,14 @@ nodeModule._load = function (request: string, ...rest: any[]) {
   if (request.includes('/components')) {
     return { Card: 'Card', Screen: 'Screen', BottomSheet: 'BottomSheet' };
   }
+  // contractions.tsx now pulls the shared wake-lock module, which imports
+  // expo-keep-awake — stub it; the timer math never touches it.
+  if (request === 'expo-keep-awake') {
+    return {
+      activateKeepAwakeAsync: async () => {},
+      deactivateKeepAwake: async () => {},
+    };
+  }
   return origLoad.call(this, request, ...rest);
 };
 

@@ -109,6 +109,8 @@ OUT=/tmp/nurture-pf-tests
 npx tsc --ignoreConfig tests/labor-pelvicfloor.test.ts src/labor/pelvicfloor/exercises.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "labor_pelvicfloor" node $OUT/tests/labor-pelvicfloor.test.js
 OUT=/tmp/nurture-labor-breath-tests
 npx tsc --ignoreConfig tests/labor-breathing.test.ts src/labor/breathing/patterns.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "labor_breathing" node $OUT/tests/labor-breathing.test.js
+OUT=/tmp/nurture-labor-native-tests
+npx tsc --ignoreConfig tests/labor-native-gaps.test.ts src/labor/keepAwake.ts src/labor/nativeChime.ts src/labor/breathing/tone.ts src/labor/pelvicfloor/device.ts src/lib/audio.d.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "labor_native_gaps" node $OUT/tests/labor-native-gaps.test.js
 
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

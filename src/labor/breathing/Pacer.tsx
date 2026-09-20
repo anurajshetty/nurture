@@ -32,7 +32,7 @@ import {
   type SeqPhase,
   type TickView,
 } from './patterns';
-import { requestScreenWakeLock } from './keepAwake';
+import { requestScreenWakeLock } from '../keepAwake';
 import { playSoftTone } from './tone';
 import { BellIcon, BuzzIcon, ChevronLeftIcon, MoonIcon, SunIcon } from './icons';
 import { colors, fontDisplay, minTouch, radii, spacing, type as typeScale } from '../../theme/tokens';

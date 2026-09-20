@@ -1,49 +1,24 @@
 /**
  * Pelvic-floor relaxation — device niceties for the guided session.
  *
- * The mockup calls for the screen to stay awake while she practices
- * ("Screen stays awake while you practice. Nothing to tap unless you
- * want to.") and offers a soft tone at each phase change.
+ * The mockup offers a soft tone at each phase change. The screen wake lock
+ * moved to the shared labor module (`src/labor/keepAwake.ts`) — Web Wake
+ * Lock API on web, `expo-keep-awake` on native.
  *
- * No new native dependencies: the wake lock uses the web Wake Lock API
- * where available (no-op elsewhere), and the tone is a short WebAudio
- * sine chime (no-op on native). Both are best-effort and never throw.
+ * The tone: web builds synthesize a 523.25 Hz (C5) sine with a gentle
+ * attack/decay envelope via WebAudio (code below, unchanged); native builds
+ * play the same envelope pre-rendered as
+ * `src/labor/assets/chime-pelvicfloor.wav` (see tools/gen_labor_chimes.py)
+ * through `expo-audio`. Both are best-effort and never throw.
  */
+import { Platform } from 'react-native';
+import { playNativeChime } from '../nativeChime';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-let heldLock: { release?: () => void } | null = null;
-
-/** Best-effort screen wake lock. Call on guided-session start. */
-export async function keepScreenAwake(): Promise<void> {
-  try {
-    if (typeof navigator === 'undefined') return;
-    const nav = navigator as any;
-    if (typeof nav.wakeLock?.request !== 'function') return;
-    heldLock = await nav.wakeLock.request('screen');
-  } catch {
-    heldLock = null;
-  }
-}
-
-/** Release the wake lock. Safe to call when none is held. */
-export function releaseScreenAwake(): void {
-  try {
-    heldLock?.release?.();
-  } catch {
-    /* ignore */
-  }
-  heldLock = null;
-}
-
 let audioCtx: any = null;
 
-/**
- * One soft chime (sine, gentle attack/decay). The session plays it at each
- * phase change when the "Soft tone" toggle is on. Web only — silent no-op
- * on native, where the toggle simply has no audible effect.
- */
-export function playSoftTone(): void {
+function playWebSoftTone(): void {
   try {
     if (typeof window === 'undefined') return;
     const w = window as any;
@@ -66,4 +41,16 @@ export function playSoftTone(): void {
   } catch {
     /* best-effort only */
   }
+}
+
+/**
+ * One soft chime (sine, gentle attack/decay). The session plays it at each
+ * phase change when the "Soft tone" toggle is on.
+ */
+export function playSoftTone(): void {
+  if (Platform.OS !== 'web') {
+    playNativeChime(require('../assets/chime-pelvicfloor.wav') as number);
+    return;
+  }
+  playWebSoftTone();
 }

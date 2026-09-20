@@ -47,7 +47,8 @@ import {
   type SessionState,
 } from '../../src/labor/pelvicfloor/exercises';
 import { ExerciseTileIcon } from '../../src/labor/pelvicfloor/icons';
-import { keepScreenAwake, playSoftTone, releaseScreenAwake } from '../../src/labor/pelvicfloor/device';
+import { playSoftTone } from '../../src/labor/pelvicfloor/device';
+import { requestScreenWakeLock } from '../../src/labor/keepAwake';
 
 /** Mockup --body (#5C554D); tokens carry ink/muted but no body color. */
 const BODY = '#5C554D';
@@ -101,6 +102,17 @@ export default function PelvicFloorScreen() {
   const pacerAnim = useRef(new Animated.Value(0)).current;
   const toneOnRef = useRef(toneOn);
   toneOnRef.current = toneOn;
+  const wakeReleaseRef = useRef<(() => void) | null>(null);
+
+  /** Release the held screen wake lock, if any. Safe to call any time. */
+  const releaseWakeLock = useCallback(() => {
+    try {
+      wakeReleaseRef.current?.();
+    } catch {
+      /* never break the session */
+    }
+    wakeReleaseRef.current = null;
+  }, []);
 
   const stopTimers = useCallback(() => {
     if (intervalRef.current) {
@@ -129,10 +141,10 @@ export default function PelvicFloorScreen() {
 
   const leaveExercise = useCallback(() => {
     stopTimers();
-    releaseScreenAwake();
+    releaseWakeLock();
     setSession(null);
     setView('guide');
-  }, [stopTimers]);
+  }, [releaseWakeLock, stopTimers]);
 
   const beginSession = useCallback(
     (s: SessionState) => {
@@ -141,7 +153,8 @@ export default function PelvicFloorScreen() {
       setSession(s);
       setView('exercise');
       runPacerFor(phase.grow, phase.secs);
-      void keepScreenAwake();
+      releaseWakeLock();
+      wakeReleaseRef.current = requestScreenWakeLock();
       intervalRef.current = setInterval(() => {
         setSession((prev) => {
           if (!prev || prev.status === 'done') return prev;
@@ -154,7 +167,7 @@ export default function PelvicFloorScreen() {
               intervalRef.current = null;
             }
             doneTimerRef.current = setTimeout(() => {
-              releaseScreenAwake();
+              releaseWakeLock();
               setSession(null);
               setView('guide');
             }, DONE_RETURN_MS);
@@ -167,7 +180,7 @@ export default function PelvicFloorScreen() {
         });
       }, 1000);
     },
-    [runPacerFor, stopTimers],
+    [releaseWakeLock, runPacerFor, stopTimers],
   );
 
   const startExercise = useCallback(
@@ -183,9 +196,9 @@ export default function PelvicFloorScreen() {
   useEffect(() => {
     return () => {
       stopTimers();
-      releaseScreenAwake();
+      releaseWakeLock();
     };
-  }, [stopTimers]);
+  }, [releaseWakeLock, stopTimers]);
 
   const pacerSize = pacerAnim.interpolate({
     inputRange: [0, 1],
