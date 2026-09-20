@@ -60,3 +60,5 @@ export function useMagicLinkHandler(): void {
     return () => sub.remove();
   }, []);
 }
+
+export { useAnonymousIdentity } from './auth/useAnonymousIdentity';

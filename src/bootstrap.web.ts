@@ -41,3 +41,5 @@ export function registerDefaultArchiveWriter(): void {
 export function useMagicLinkHandler(): void {
   // Intentionally empty on web.
 }
+
+export { useAnonymousIdentity } from './auth/useAnonymousIdentity';

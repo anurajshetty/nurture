@@ -6,7 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../src/auth/AuthContext';
 import { SyncProvider } from '../src/sync/SyncContext';
 import { useOnboarding } from '../src/onboarding/useOnboarding';
-import { registerDefaultArchiveWriter, useMagicLinkHandler } from '../src/bootstrap';
+import { registerDefaultArchiveWriter, useMagicLinkHandler, useAnonymousIdentity } from '../src/bootstrap';
 import { ensureDbReady } from '../src/lib/db';
 import { installTestHooks } from '../src/testhooks';
 import { refreshEndOfDayNudge } from '../src/notifications/endOfDay';
@@ -98,6 +98,10 @@ export default function RootLayout() {
     };
   }, []);
   useMagicLinkHandler();
+  // Invisible per-install identity (Anuraj, Sept 20, 2026): every boot
+  // ensures an anonymous Supabase session exists. No UI, no gating —
+  // Ask Willow's server-side quota is keyed on this identity.
+  useAnonymousIdentity();
 
   if (!dbReady) {
     return (

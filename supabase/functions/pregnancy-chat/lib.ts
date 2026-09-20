@@ -7,8 +7,10 @@
  *   - strict request-schema validation (unknown fields rejected)
  *   - server-side urgent-symptom pre-check (before quota)
  *   - per-person daily quota + short-window rate limit
- *   - a SHARED anonymous quota bucket (temporary: no sign-in required
- *     for now; the real auth story is decided later)
+ *   - per-identity anonymous quota (Anuraj, Sept 20, 2026): every
+ *     install signs in anonymously at boot, so anonymous callers spend
+ *     from their OWN daily bucket keyed on their identity — one install
+ *     can never burn another's
  *   - pregnancy/baby relevance + safety gates around Gemini
  *   - structured-output validation with one repair pass
  *   - the app-facing fixed copy (disclaimer, refusal, handoff)
@@ -23,19 +25,20 @@
  *  never model-written (Anuraj, Sept 2026). */
 export const CHAT_DISCLAIMER = "This isn't medical advice.";
 
-export const CHAT_MODEL = 'gemini-2.0-flash';
+export const CHAT_MODEL = 'gemini-3.6-flash';
 
 /** Server-configurable daily question cap. Nothing client-side hardcodes
  *  this: the function returns the effective dailyLimit in every response
  *  and the client displays exactly what the server says. */
 export const DAILY_LIMIT_DEFAULT = 10;
 /**
- * Temporary anonymous cap (Anuraj, Sept 20, 2026): sign-in is NOT
- * required to ask, so callers without a JWT share ONE small daily
- * bucket enforced atomically on the server (see README.md Step 1).
- * The endpoint URL is public, so this stays modest: anyone with the
- * URL can burn it, and the worst case is bounded to this many Gemini
- * calls per day. Configurable via CHAT_ANON_DAILY_LIMIT (1–100).
+ * Anonymous quota cap (Anuraj, Sept 20, 2026): every install signs in
+ * anonymously at boot, so each anonymous identity gets its OWN daily
+ * bucket (default 30) keyed on the identity's user id — one install can
+ * never burn another's. Callers with NO identity at all (no JWT) still
+ * share one small server-enforced fallback bucket, because the endpoint
+ * URL is public: anyone with it could otherwise burn unbounded Gemini
+ * calls. Configurable via CHAT_ANON_DAILY_LIMIT (1–100).
  */
 export const ANON_DAILY_LIMIT_DEFAULT = 30;
 /** Short-window rate limit: 5 questions per 60-second rolling window. */
@@ -200,9 +203,11 @@ export interface QuotaStore {
    * Questions remaining today WITHOUT consuming one. Used by the urgent
    * pre-check path (which never consumes) for its display line. Returns
    * null when the store can't be read — callers fall back to the daily
-   * limit for display rather than failing the handoff. userId is null
-   * for anonymous callers (Anuraj, Sept 20, 2026): the store decides
-   * its own keying (per-person RPC vs. the shared anonymous bucket).
+   * limit for display rather than failing the handoff. userId is the
+   * caller's identity (anonymous installs included — every install has
+   * one since Sept 20, 2026); null only when the caller presented no JWT
+   * at all. The store decides its own keying: the per-person RPC keyed
+   * on user_id vs. the shared anonymous fallback bucket.
    */
   peekRemaining(userId: string | null, day: string, dailyLimit: number): Promise<number | null>;
   /**
@@ -263,6 +268,37 @@ export function applyQuota(
   }
   row.count += 1;
   return { ok: true, row, remaining: dailyLimit - row.count };
+}
+
+/**
+ * Pick the quota plan for one caller (pure; unit-tested).
+ *
+ * - A real (non-anonymous) identity → per-person store + CHAT_DAILY_LIMIT.
+ * - An anonymous identity (every install since Sept 20, 2026) →
+ *   per-person store keyed on that identity + CHAT_ANON_DAILY_LIMIT
+ *   (30/day per install): the install spends from its OWN rows, under
+ *   its own JWT via the existing `auth.uid() = user_id` RLS policy.
+ * - No identity at all → the shared anonymous fallback bucket +
+ *   CHAT_ANON_DAILY_LIMIT. Tight and server-enforced: the endpoint URL
+ *   is public, so unauthenticated callers must stay capped.
+ */
+export interface QuotaPlan {
+  /** 'personal' = own rows under the caller's JWT; 'shared' = the anonymous fallback bucket. */
+  kind: 'personal' | 'shared';
+  dailyLimit: number;
+}
+
+export function resolveQuotaPlan(opts: {
+  userId: string | null;
+  isAnonymous: boolean;
+  /** CHAT_DAILY_LIMIT — cap for real (non-anonymous) identities. */
+  dailyLimit: number;
+  /** CHAT_ANON_DAILY_LIMIT — per-install cap AND shared-bucket cap. */
+  anonDailyLimit: number;
+}): QuotaPlan {
+  if (opts.userId === null) return { kind: 'shared', dailyLimit: opts.anonDailyLimit };
+  if (opts.isAnonymous) return { kind: 'personal', dailyLimit: opts.anonDailyLimit };
+  return { kind: 'personal', dailyLimit: opts.dailyLimit };
 }
 
 /**
@@ -499,15 +535,15 @@ export type HttpVerdict =
  * Handle one POST. `nowISO` is injected for tests; production passes the
  * current time.
  *
- * Auth (Anuraj, Sept 20, 2026 — temporary): sign-in is NOT required.
- * - userId non-null → the wrapper's per-person store + per-person
- *   dailyLimit (CHAT_DAILY_LIMIT, default 10).
- * - userId null → the wrapper's anonymous store (shared daily bucket)
- *   + anonymous dailyLimit (CHAT_ANON_DAILY_LIMIT, default 30).
- * lib.ts itself stays auth-agnostic: it never 401s, it just spends
- * from the store it was given. `quota` counts successful questions
- * only — pre-check handoffs and not-configured states never persist
- * a row.
+ * Auth (Anuraj, Sept 20, 2026): the wrapper (index.ts) resolves the
+ * quota plan per caller — real identities get the per-person store +
+ * CHAT_DAILY_LIMIT (default 10); anonymous identities (every install)
+ * get the per-person store keyed on their own id + CHAT_ANON_DAILY_LIMIT
+ * (default 30/install); no identity at all gets the shared anonymous
+ * fallback bucket. lib.ts itself stays auth-agnostic: it never 401s,
+ * it just spends from the store it was given. `quota` counts successful
+ * questions only — pre-check handoffs and not-configured states never
+ * persist a row.
  */
 export async function handleChatPost(opts: {
   body: unknown;

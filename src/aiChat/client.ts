@@ -7,8 +7,11 @@
  *   invalid_response, never rendered.
  * - Quota numbers (remaining / dailyLimit) come ONLY from the server;
  *   the client never hardcodes the 10/day cap.
- * - No sign-in gate: the server serves anonymous callers from a shared,
- *   tightly-capped quota bucket (Anuraj, Sept 20, 2026 — temporary).
+ * - No sign-in gate: every install holds an invisible anonymous Supabase
+ *   identity (issued at boot, Anuraj Sept 20, 2026), and the server keys
+ *   the quota per identity — 30/day per install, server-enforced.
+ *   Callers with no identity at all fall back to the server's small
+ *   shared anonymous bucket.
  * - Injectable seam mirrors src/reportSummary/client.ts: production
  *   goes through supabase functions.invoke (POST) + a plain GET for
  *   quota; the interactive suite sets `window.__askWillowTestTransport =

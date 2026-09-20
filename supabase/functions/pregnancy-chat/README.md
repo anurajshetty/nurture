@@ -6,6 +6,16 @@ steps; they need a signed-in dashboard owner.
 
 Project: **nurture** (`sgmjsqkmuzizrnrhwjvu`, West US).
 
+## Step 0 — Enable anonymous sign-ins (dashboard, one toggle)
+
+Dashboard → project **nurture** → left nav **Authentication** →
+**Sign In / Providers** → find **Anonymous** in the provider list →
+**Enable** it and Save.
+
+Without this, the app's boot-time `signInAnonymously()` call fails and
+every install falls back to the small shared anonymous bucket. No other
+auth settings change: no login screens, no email/SMS providers needed.
+
 ## Step 1 — Create the quota table + functions (one-time SQL)
 
 This is the one unavoidable database step: the daily question cap is
@@ -109,14 +119,15 @@ grant execute on function ai_chat_try_consume(uuid, date, int) to authenticated;
 grant execute on function ai_chat_refund(uuid, date) to authenticated;
 
 -- ================================================================
--- TEMPORARY anonymous bucket (Anuraj, Sept 20, 2026): sign-in is NOT
--- required to ask for now, so callers without a login share ONE small
--- daily bucket instead of being turned away. The endpoint URL is
--- public, so this stays modest (default 30 questions/day for ALL
--- anonymous callers combined, set CHAT_ANON_DAILY_LIMIT on the
--- function to change it) — anyone with the URL can burn it, and the
--- worst case is bounded to that many Gemini calls per day. Same atomic
--- consume + refund rules as the per-person path.
+-- Shared anonymous FALLBACK bucket (Anuraj, Sept 20, 2026): reached
+-- only by callers with NO identity at all. App installs always carry
+-- an anonymous identity (signed in at boot) and spend from their own
+-- per-identity rows instead — this bucket exists because the endpoint
+-- URL is public, so unauthenticated callers must stay capped. The cap
+-- (default 30, set CHAT_ANON_DAILY_LIMIT on the function to change it)
+-- stays modest: anyone with the URL can burn it, and the worst case is
+-- bounded to that many Gemini calls per day. Same atomic consume +
+-- refund rules as the per-person path.
 --
 -- Access goes ONLY through the security-definer RPCs below (granted to
 -- `anon`). The table has RLS enabled with NO permissive policies, so
@@ -243,23 +254,26 @@ Optional: to change the per-person daily question cap, add another
 secret named `CHAT_DAILY_LIMIT` with a whole number (1–100). Default is
 10; the app always shows whatever the server reports.
 
-Optional: to change the temporary shared anonymous bucket (the small
-daily cap for callers WITHOUT a login — Anuraj, Sept 20, 2026), add a
-secret named `CHAT_ANON_DAILY_LIMIT` with a whole number (1–100).
-Default is 30 questions/day **shared by all anonymous callers** — keep
-it modest, because the endpoint URL is public and anyone with it can
-burn the bucket.
+Optional: to change the per-install anonymous cap (the daily cap for
+each anonymous identity — Anuraj, Sept 20, 2026), add a secret named
+`CHAT_ANON_DAILY_LIMIT` with a whole number (1–100). Default is
+30 questions/day **per install**. The same number also caps the small
+shared fallback bucket used only by callers with no identity at all —
+keep it modest, because the endpoint URL is public and anyone with it
+can burn that bucket.
 
 ## Step 4 — Verify
 
 In the `pregnancy-chat` function page, use **Test** / **Invoke**:
 
 - Method **GET** → should return
-  `{"remaining": 10, "dailyLimit": 10, "configured": true}` (or the
-  configured limit) **when the test call carries a user token**, and
   `{"remaining": 30, "dailyLimit": 30, "configured": true}` (or the
-  configured anonymous cap) **when it carries no token**. No token no
-  longer means a 401 — anonymous callers get the shared bucket.
+  configured anonymous cap) **when the test call carries an anonymous
+  user's token** — each install gets its own 30/day. With a real
+  (non-anonymous) user token it returns
+  `{"remaining": 10, "dailyLimit": 10, "configured": true}` (or the
+  configured per-person limit). With no token at all it returns the
+  small shared fallback bucket. No token no longer means a 401.
 - Method **POST** with body
   `{"question": "Is light walking okay?", "context": {"week": 36, "stage": "third trimester", "dueDate": "2026-10-08", "babyName": null, "recentLogs": [], "reportSummaries": [], "history": []}}`
   → 200 with `{"kind": "answer", "text": "…", "disclaimer": "This isn't medical advice.", "remaining": 9, "dailyLimit": 10}`.
@@ -280,21 +294,24 @@ says Ask Willow isn't available yet, and nothing crashes.
 - Enforces 10 questions/day per signed-in person (server-configurable)
   plus a 5-per-minute rolling window — atomically on the server, so the
   cap can't be slipped past and one person can never touch another's
-  counter. Callers WITHOUT a login share ONE small daily bucket
-  (default 30/day for all anonymous callers combined,
-  server-configurable via `CHAT_ANON_DAILY_LIMIT`) — temporary until the
-  auth story is decided; tight because the endpoint URL is public.
-  Anonymous spend goes only through the `ai_chat_*_anon` RPCs (the
-  bucket table has no anon RLS policies), and stores no identifiers.
-  If the quota store itself is unreachable, the request fails closed
-  rather than silently over-admitting. A provider failure refunds the
-  question. Urgent-symptom handoffs bypass quota and never consume it.
+  counter. Every app install signs in anonymously at boot (invisible,
+  Anuraj Sept 20, 2026) and gets its OWN 30/day bucket keyed on its
+  identity (server-configurable via `CHAT_ANON_DAILY_LIMIT`) — one
+  install can never burn another's. Callers with NO identity at all
+  share one small daily fallback bucket (same cap) — tight because the
+  endpoint URL is public. That fallback spend goes only through the
+  `ai_chat_*_anon` RPCs (the bucket table has no anon RLS policies),
+  and stores no identifiers. If the quota store itself is unreachable,
+  the request fails closed rather than silently over-admitting. A
+  provider failure refunds the question. Urgent-symptom handoffs bypass
+  quota and never consume it.
 - Stores NO conversations: only the per-day counter rows above. History
   lives on her phone only.
 
 ## Changing the daily limits later
 
 Edge Functions → `pregnancy-chat` → Secrets → edit `CHAT_DAILY_LIMIT`
-(per-person cap) or `CHAT_ANON_DAILY_LIMIT` (shared anonymous bucket) →
-Save. Takes effect immediately; the app reads the new number from the
-server and shows it without an app update.
+(per-person cap) or `CHAT_ANON_DAILY_LIMIT` (per-install anonymous cap,
+and the shared no-identity fallback bucket) → Save. Takes effect
+immediately; the app reads the new number from the server and shows it
+without an app update.

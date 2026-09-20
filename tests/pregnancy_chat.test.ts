@@ -4,14 +4,17 @@
  *
  * Locked product rules under test (Anuraj, Sept 20, 2026):
  * - Strict schema: unknown fields anywhere → invalid_request (422).
- * - No sign-in gate: null userId → anonymous, served from the shared
- *   anonymous bucket (temporary; the real auth story is decided later).
+ * - No sign-in gate: every install carries an invisible anonymous
+ *   identity (issued at boot); anonymous identities spend from their
+ *   OWN 30/day rows (CHAT_ANON_DAILY_LIMIT) — one install can never
+ *   burn another's. Callers with no identity at all use the small
+ *   shared fallback bucket.
  * - Urgent-symptom pre-check runs BEFORE quota: the care-team handoff
  *   always works and never consumes quota.
  * - 10 questions/day per signed-in person, server-configurable;
- *   30 questions/day shared by ALL anonymous callers
- *   (CHAT_ANON_DAILY_LIMIT); a 5-per-minute short window; nothing
- *   client-side hardcodes the cap.
+ *   30 questions/day per anonymous install (CHAT_ANON_DAILY_LIMIT),
+ *   each keyed on its own identity; a 5-per-minute short window;
+ *   nothing client-side hardcodes the cap.
  * - Structured Gemini output is validated, with ONE repair pass.
  * - No conversation storage; quota rows are counters only.
  *
@@ -37,6 +40,7 @@ import {
   handleChatPost,
   parseDailyLimit,
   parseModelJson,
+  resolveQuotaPlan,
   urgentPrecheck,
   validateChatRequest,
   type ChatContext,
@@ -189,6 +193,62 @@ const T61 = '2026-09-20T12:01:01.000Z';
   // Server-configurable: limit 3 applies when set.
   const v = applyQuota({ count: 3, windowStart: T0, windowCount: 1 }, T61, 3);
   check(!v.ok && v.kind === 'daily', 'quota: configured limit of 3 enforced');
+}
+
+// ------------------------------------------------------ quota-plan routing
+// (Anuraj, Sept 20, 2026): anonymous installs get their OWN 30/day
+// rows; one install can never burn another's.
+
+{
+  // Real identity → per-person store, CHAT_DAILY_LIMIT.
+  const p = resolveQuotaPlan({
+    userId: 'user-uuid-1',
+    isAnonymous: false,
+    dailyLimit: 10,
+    anonDailyLimit: 30,
+  });
+  check(p.kind === 'personal' && p.dailyLimit === 10, 'plan: real identity → personal 10/day');
+}
+{
+  // Anonymous identity (every install) → per-person store keyed on the
+  // identity, CHAT_ANON_DAILY_LIMIT — its OWN 30/day rows.
+  const p = resolveQuotaPlan({
+    userId: 'anon-uuid-1',
+    isAnonymous: true,
+    dailyLimit: 10,
+    anonDailyLimit: 30,
+  });
+  check(p.kind === 'personal' && p.dailyLimit === 30, 'plan: anonymous identity → personal 30/day');
+}
+{
+  // Two anonymous installs resolve to independent personal plans —
+  // keyed on their own ids downstream, never the shared bucket.
+  const a = resolveQuotaPlan({ userId: 'anon-A', isAnonymous: true, dailyLimit: 10, anonDailyLimit: 30 });
+  const b = resolveQuotaPlan({ userId: 'anon-B', isAnonymous: true, dailyLimit: 10, anonDailyLimit: 30 });
+  check(
+    a.kind === 'personal' && b.kind === 'personal' && a.dailyLimit === 30 && b.dailyLimit === 30,
+    'plan: two anonymous installs each get their own 30/day',
+  );
+}
+{
+  // No identity at all → the shared fallback bucket (tight cap).
+  const p = resolveQuotaPlan({
+    userId: null,
+    isAnonymous: false,
+    dailyLimit: 10,
+    anonDailyLimit: 30,
+  });
+  check(p.kind === 'shared' && p.dailyLimit === 30, 'plan: no identity → shared fallback bucket');
+}
+{
+  // Configured caps flow through: anonymous cap 5 → 5/install.
+  const p = resolveQuotaPlan({
+    userId: 'anon-uuid-2',
+    isAnonymous: true,
+    dailyLimit: 10,
+    anonDailyLimit: 5,
+  });
+  check(p.kind === 'personal' && p.dailyLimit === 5, 'plan: configured anonymous cap applies per install');
 }
 
 // ------------------------------------------------------ daily-limit parse
