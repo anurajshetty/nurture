@@ -13,16 +13,22 @@ Locked behaviors under test:
       trace; at week 19 both appear (pill stacked 12pt above the ask
       pill, same right edge).
   (b) pill opens the counting screen (full-screen, always-visible x);
-      card opens "Her pattern" (NOT the counter).
+      card opens the WEEK-SCOPED list ("This week's kicks", NOT the
+      counter); the list's empty state carries the coral "Start counting"
+      button.
   (c) counting: giant tap zone counts; elapsed timer counts up; pause
       freezes the clock; resume restarts it; end early is allowed with no
       scolding; the summary opens automatically at 10 movements; strength
       is optional; save persists a kick_session event; discard saves
       nothing; the x exits with "Session ended — nothing was saved."
-  (d) Home card retires permanently after the first saved session; the
-      pill stays.
-  (e) history: gentle pattern line (no grades/streaks/verdicts), session
-      rows, reminder starts OFF; only "Yes, remind me" enables it —
+  (d) round 4 (mockup 21 rev2): the Home card NEVER retires — it persists
+      below the "Coming up" cards and above "Highlights this week".
+      State A (no sessions): "Start recording kicks" invitation. State B:
+      "N sessions this week · M movements" + a gentle week-scoped pattern
+      note when 2+ sessions; no per-session rows. The pill stays.
+  (e) history: week-scoped rows (sessions from other weeks hidden);
+      gentle pattern line (no grades/streaks/verdicts), session rows,
+      reminder starts OFF; only "Yes, remind me" enables it —
       "Not now" and sheet dismissal leave it off; one-tap pause turns it
       off again; the choice persists.
   (f) feed card: time + "N movements in X minutes" + strength note; the
@@ -57,6 +63,10 @@ TODAY = datetime.date.today()
 # Displayed week = completed weeks + 1. Completed 18 -> displayed 19.
 DUE_19 = (TODAY + datetime.timedelta(days=154)).isoformat()
 DUE_18 = (TODAY + datetime.timedelta(days=161)).isoformat()
+# Mid-week variant: today sits mid-displayed-week so sessions seeded a few
+# days back still fall inside the CURRENT displayed week (DUE_19 lands
+# exactly on a week boundary).
+DUE_MIDWEEK = (TODAY + datetime.timedelta(days=150)).isoformat()
 
 FLAG = "This one felt different from your usual \u2014 worth mentioning at your visit."
 CARE_FEED = "If movements feel less than usual, call your care team \u2014 don\u2019t wait on it."
@@ -165,17 +175,31 @@ def run():
                   "A7: same right edge as ask pill")
             check(kb["y"] + kb["height"] <= ab["y"] + 1,
                   "A8: kicks pill stacked above ask pill")
-        # Card opens the history list, NOT the counter.
+        # Card opens the week-scoped list, NOT the counter.
         page.get_by_test_id("week-kick-card").click()
         page.get_by_test_id("kick-history-screen").wait_for(timeout=5000)
         check(page.get_by_test_id("kick-counting-screen").count() == 0,
-              "A9: card opens history, not the counter")
-        check(PATTERN_FALLBACK in page.get_by_test_id("kick-pattern-card").inner_text(),
-              "A10: empty pattern fallback line")
-        page.get_by_test_id("kick-history-back").click()
-        page.wait_for_timeout(400)
+              "A9: card opens the week list, not the counter")
+        check("This week's kicks" in
+              page.get_by_test_id("kick-history-screen").inner_text(),
+              "A9b: week-scoped list title")
+        # Empty state: the working invitation lives in the LIST, not the card.
+        check("No kicks logged yet" in
+              page.get_by_test_id("kick-history-empty").inner_text(),
+              "A10: empty state, no sessions this week")
+        page.get_by_test_id("kick-start-counting").click()
+        page.get_by_test_id("kick-counting-screen").wait_for(timeout=5000)
+        check(True, "A10b: empty-state Start counting opens the counter")
+        page.get_by_test_id("kick-exit").click()
+        page.get_by_test_id("kick-toast").wait_for(timeout=5000)
+        page.get_by_test_id("kick-counting-screen").wait_for(
+            state="detached", timeout=10000)
         check(page.get_by_test_id("kick-history-screen").count() == 0,
-              "A11: history back closes the screen")
+              "A10c: exiting the counter lands back on the week screen")
+        # Discarding the session keeps the State A invitation.
+        check("Start recording kicks" in
+              page.get_by_test_id("week-kick-card").inner_text(),
+              "A11: discarded session keeps State A")
 
         # ---------------- Context A2: reminder opt-in ----------------
         print("Context A2: reminder opt-in only")
@@ -265,10 +289,20 @@ def run():
               "C9: save closes the counter")
         check(page.evaluate("() => window.__nurtureTest.countEventsOfType('kick_session')") == 1,
               "C9b: save persists exactly one session")
-        check(page.get_by_test_id("week-kick-card").count() == 0,
-              "C10: Home card retires after first saved session")
+        # Round 4: the card NEVER retires — it flips to the State B summary.
+        check(page.get_by_test_id("week-kick-card").count() == 1,
+              "C10: Home card persists after first saved session")
+        page.get_by_test_id("week-kick-card").get_by_text(
+            "1 session this week").wait_for(timeout=8000)
+        card_text = page.get_by_test_id("week-kick-card").inner_text()
+        check("This week's kicks" in card_text,
+              "C10b: State B title")
+        check("1 session this week \u00b7 3 movements" in card_text,
+              "C10c: State B summary line")
+        check("She's most active" not in card_text,
+              "C10d: no pattern note with a single session")
         check(page.get_by_test_id("kicks-fab").count() == 1,
-              "C11: pill stays after the card retires")
+              "C11: pill stays too")
         # Discard saves nothing.
         page.get_by_test_id("kicks-fab").click()
         page.get_by_test_id("kick-counting-screen").wait_for(timeout=5000)
@@ -310,7 +344,7 @@ def run():
         # ---------------- Context D: history rows + feed cards ----------------
         print("Context D: history rows, feed cards, save link")
         ctx, page = new_page()
-        seed_common(page, DUE_19)
+        seed_common(page, DUE_MIDWEEK)
         ids = page.evaluate(
             """() => {
                 const T = window.__nurtureTest;
@@ -332,6 +366,8 @@ def run():
                 out.ord = s('ord', 10, 1050, 'strong', now - 1800000);
                 // Weaker: fluttery against a strong usual.
                 out.weak = s('weak', 6, 1000, 'fluttery', now - 900000);
+                // Previous displayed week: hidden from the week-scoped list.
+                out.old = s('old', 10, 900, 'strong', now - 10*day);
                 // Immediate next appointment (Oct-ish), then a later one.
                 out.appt1 = T.seedEvent({ type: 'appointment',
                   occurredAt: iso(now + 12*day),
@@ -339,16 +375,43 @@ def run():
                 out.appt2 = T.seedEvent({ type: 'appointment',
                   occurredAt: iso(now + 40*day),
                   data: { title: 'Growth scan' } }).id;
+                // Within 48h: renders the "Coming up" card above the kick card.
+                out.appt0 = T.seedEvent({ type: 'appointment',
+                  occurredAt: iso(now + 24*3600000),
+                  data: { title: 'Checkup with Dr. Izu' } }).id;
                 return out;
             }"""
         )
-        # History rows via the card (seeded after render, before refocus —
-        # the card doesn't re-check until tab focus).
+        # The card persists (round 4) with the week summary; placement is
+        # below the "Coming up" card and above "Highlights this week".
         page.goto(WEEK, wait_until="domcontentloaded")
         page.get_by_test_id("week-screen").wait_for(timeout=15000)
         page.wait_for_timeout(500)
-        check(page.get_by_test_id("week-kick-card").count() == 0,
-              "D1: card retired once sessions exist")
+        check(page.get_by_test_id("week-kick-card").count() == 1,
+              "D1: card persists once sessions exist")
+        card_text = page.get_by_test_id("week-kick-card").inner_text()
+        check("6 sessions this week \u00b7 56 movements" in card_text,
+              "D1b: State B summary counts this week only")
+        coming = page.get_by_test_id("week-reminder-card").first.bounding_box()
+        kick = page.get_by_test_id("week-kick-card").bounding_box()
+        hl = page.get_by_test_id("week-highlights").bounding_box()
+        check(coming is not None and kick is not None and hl is not None,
+              "D1c: placement boxes exist")
+        if coming and kick and hl:
+            check(coming["y"] + coming["height"] <= kick["y"] + 1,
+                  "D1d: kick card sits below the Coming up card")
+            check(kick["y"] + kick["height"] <= hl["y"] + 1,
+                  "D1e: kick card sits above Highlights this week")
+        # The week-scoped list shows this week's rows, not last week's.
+        page.get_by_test_id("week-kick-card").click()
+        page.get_by_test_id("kick-history-screen").wait_for(timeout=5000)
+        for key in ("p1", "p2", "p3", "dev", "ord", "weak"):
+            check(page.get_by_test_id(f"kick-row-{ids[key]}").count() == 1,
+                  f"D1f: this week's row {key} shown")
+        check(page.get_by_test_id(f"kick-row-{ids['old']}").count() == 0,
+              "D1g: previous week's session hidden from the week list")
+        page.get_by_test_id("kick-history-back").click()
+        page.wait_for_timeout(400)
         page.goto(LOGS, wait_until="domcontentloaded")
         page.wait_for_timeout(1200)
 
@@ -397,7 +460,9 @@ def run():
               "D14: attached session never re-offers the link")
 
         # The appointment sheet shows the KICKS section with the row.
-        appt_card = page.get_by_test_id(f"event-card-{ids['appt1']}")
+        # (The feed card attaches to the NEXT appointment — appt0 at +24h,
+        # not appt1.)
+        appt_card = page.get_by_test_id(f"event-card-{ids['appt0']}")
         appt_card.scroll_into_view_if_needed()
         appt_card.click()
         page.get_by_test_id("appointment-editor").wait_for(timeout=8000)
@@ -421,7 +486,7 @@ def run():
         # ---------------- Context E: full next appointment hides link ------
         print("Context E: five-session cap + empty sheet")
         ctx, page = new_page()
-        seed_common(page, DUE_19)
+        seed_common(page, DUE_MIDWEEK)
         e_ids = page.evaluate(
             """() => {
                 const T = window.__nurtureTest;
@@ -471,6 +536,91 @@ def run():
               "E3: no KICKS section when nothing attached")
         check(page.get_by_test_id("question-add").count() == 1,
               "E4: questions UI unchanged with zero kicks")
+        ctx.close()
+
+        # ---------------- Context F: State A/B styling parity ----------------
+        print("Context F: identical card styling in both states")
+        ctx, page = new_page()
+        seed_common(page, DUE_19)
+        page.goto(WEEK, wait_until="domcontentloaded")
+        page.get_by_test_id("week-screen").wait_for(timeout=15000)
+        page.wait_for_timeout(500)
+
+        def card_styles(title_text, body_text):
+            """Computed kicker/title/body/link colors + top border."""
+            return page.evaluate(
+                """([titleText, bodyText]) => {
+                  const card = document.querySelector(
+                    '[data-testid="week-kick-card"]');
+                  if (!card) return null;
+                  const leaves = [...card.querySelectorAll('div')]
+                    .filter((d) => d.childElementCount === 0);
+                  const find = (t) => leaves.find(
+                    (d) => d.textContent === t);
+                  const color = (t) => {
+                    const el = find(t);
+                    return el ? getComputedStyle(el).color : null;
+                  };
+                  const cs = getComputedStyle(card);
+                  return {
+                    kicker: color('Kick counting'),
+                    title: color(titleText),
+                    body: color(bodyText),
+                    link: color("See this week's counts ›"),
+                    borderTopColor: cs.borderTopColor,
+                    borderTopWidth: cs.borderTopWidth,
+                  };
+                }""",
+                [title_text, body_text],
+            )
+
+        # App tokens: coralDeep #C85F3E, ink #2F2B27, body #5C554D,
+        # sage #93B192. (The card copy uses straight apostrophes —
+        # &apos; decodes to U+0027, matching the rest of the app.)
+        CORAL_DEEP = "rgb(200, 95, 62)"
+        INK = "rgb(47, 43, 39)"
+        BODY = "rgb(92, 85, 77)"
+        SAGE = "rgb(147, 177, 146)"
+        state_a_body = ("She's getting big enough for her movements to form a "
+                        "pattern. When she's usually active, tap the kicks "
+                        "button below and count along \u2014 one quiet session "
+                        "at a time.")
+        a = card_styles("Start recording kicks", state_a_body)
+        check(a is not None, "F1: State A styles readable")
+        check(a["kicker"] == CORAL_DEEP, f"F2: State A kicker coralDeep ({a['kicker']})")
+        check(a["title"] == INK, f"F3: State A title ink ({a['title']})")
+        check(a["body"] == BODY, f"F4: State A body #5C554D ({a['body']})")
+        check(a["link"] == CORAL_DEEP, f"F5: State A link coralDeep ({a['link']})")
+        check(a["borderTopColor"] == SAGE and a["borderTopWidth"] == "4px",
+              f"F6: State A sage top border ({a['borderTopColor']} {a['borderTopWidth']})")
+        # Two evening sessions this week -> State B + the gentle pattern note.
+        page.evaluate(
+            """() => {
+                const T = window.__nurtureTest;
+                const d = (h, m) => {
+                  const x = new Date();
+                  x.setHours(h, m, 0, 0);
+                  return x.toISOString();
+                };
+                for (const [hh, mm] of [[19, 30], [20, 15]]) {
+                  T.seedEvent({ type: 'kick_session', occurredAt: d(hh, mm),
+                    data: { movements: 10, durationSec: 1000,
+                      durationMin: 17, strength: 'strong' } });
+                }
+              }"""
+        )
+        page.goto(WEEK, wait_until="domcontentloaded")
+        page.get_by_test_id("week-screen").wait_for(timeout=15000)
+        page.wait_for_timeout(500)
+        card_text = page.get_by_test_id("week-kick-card").inner_text()
+        check("2 sessions this week \u00b7 20 movements" in card_text,
+              "F7: State B summary after two sessions")
+        check("She's most active in the evening." in card_text,
+              "F8: gentle week-scoped pattern note with 2+ sessions")
+        b = card_styles("This week's kicks",
+                        "2 sessions this week \u00b7 20 movements")
+        check(b is not None, "F9: State B styles readable")
+        check(b == a, f"F10: State A vs State B styling identical ({b} vs {a})")
         ctx.close()
 
     print(f"\ninteractive: {passed} passed, {failed} failed; page errors: {len(errors)}")

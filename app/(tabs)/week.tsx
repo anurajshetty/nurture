@@ -49,8 +49,12 @@ import { KicksFab } from '../../src/kicks/KicksFab';
 import { KickHomeCard } from '../../src/kicks/KickHomeCard';
 import KickCountingScreen from '../../src/kicks/KickCountingScreen';
 import KickHistoryScreen from '../../src/kicks/KickHistoryScreen';
-import { hasKickSessions } from '../../src/kicks/store';
-import { kicksVisibleForDisplayedWeek } from '../../src/kicks/session';
+import { listKickSessions } from '../../src/kicks/store';
+import {
+  kicksVisibleForDisplayedWeek,
+  sessionsInDisplayedWeek,
+} from '../../src/kicks/session';
+import { displayWeekRange } from '../../src/onboarding/dates';
 import { hasAskedFirstQuestion } from '../../src/aiChat/history';
 import {
   MAX_WEEK,
@@ -203,17 +207,28 @@ export default function WeekScreen() {
     setChatVisible(true);
   }, []);
   /**
-   * Kick counter (Willow, Anuraj approved Sept 20, 2026): the floating
-   * kicks pill + Home card appear from displayed week 19. The pill opens
-   * the counting screen; the card opens the weekly session list ("Her
-   * pattern") and retires permanently after her first saved session.
+   * Kick counter (Willow, round 4 — Anuraj approved Sept 20, 2026): the
+   * floating kicks pill + persistent Home card appear from displayed week
+   * 19. The pill opens the counting screen; the card opens the
+   * week-scoped session list ("This week's kicks") — never the counter —
+   * and NEVER retires (it persists in both states).
    */
   const [countingVisible, setCountingVisible] = useState(false);
   const [historyVisible, setHistoryVisible] = useState(false);
-  const [hasKicks, setHasKicks] = useState(false);
   const closeCounting = useCallback(() => setCountingVisible(false), []);
   const closeHistory = useCallback(() => setHistoryVisible(false), []);
-  const handleKickSaved = useCallback(() => setHasKicks(true), []);
+  /**
+   * saveKickSession writes synchronously before onClose flips
+   * countingVisible, so the card's week summary (re-read below) refreshes
+   * on the close re-render — nothing to do here beyond the stable handle.
+   */
+  const handleKickSaved = useCallback(() => {}, []);
+  /** The card opens the week-scoped list, then the list's empty state can
+   *  open the counter (the card itself never does). */
+  const openCountingFromHistory = useCallback(() => {
+    setHistoryVisible(false);
+    setCountingVisible(true);
+  }, []);
   /** Mirror of viewWeek for the focus callback below (stable [] deps). */
   const viewWeekRef = useRef<number | null>(null);
   useEffect(() => {
@@ -247,11 +262,6 @@ export default function WeekScreen() {
         const w = Math.min(viewWeekRef.current ?? s.currentWeek, s.currentWeek);
         setSizeArt(pickSizeArt(w + 1));
         setMoments(countWeekMoments());
-        try {
-          setHasKicks(hasKickSessions());
-        } catch {
-          setHasKicks(false);
-        }
         try {
           setBabyName(getBabyName());
         } catch {
@@ -341,6 +351,20 @@ export default function WeekScreen() {
   // on the completed-week number.
   const displayWeekNum = week + 1;
   const displayCurrentWeek = currentWeek + 1;
+  /**
+   * Kick Home card, round 4 (Anuraj, Sept 20, 2026): the DISPLAYED week's
+   * sessions — State A (invitation) when empty, State B (week summary)
+   * when she has logged. Re-read from the store on every render (a single
+   * indexed query; the save lands synchronously before the counting screen
+   * closes, so the close re-render flips the card immediately). A plain
+   * call on purpose — this must stay below the early returns, where hooks
+   * are not allowed.
+   */
+  const kickWeekSessions = sessionsInDisplayedWeek(
+    listKickSessions(),
+    pregnancy.dueDate ?? '',
+    displayWeekNum,
+  );
   const greeting = weekGreeting(week, babyName);
 
   const goWeek = (d: -1 | 1) => {
@@ -488,14 +512,21 @@ export default function WeekScreen() {
         onClose={() => setEditorId(null)}
       />
 
+      {/* Kick counter Home card (round 4, Anuraj approved Sept 20, 2026):
+          displayed week 19+, below the "Coming up" appointment cards and
+          above "Highlights this week". The card NEVER retires — State A
+          (invitation) until her first session, State B (week summary)
+          after. Tapping it opens the week-scoped session list — never the
+          counter. */}
+      {kicksVisibleForDisplayedWeek(displayWeekNum) ? (
+        <KickHomeCard
+          weekSessions={kickWeekSessions}
+          onPress={() => setHistoryVisible(true)}
+        />
+      ) : null}
+
       {/* Highlights */}
       <Kicker>Highlights this week</Kicker>
-      {/* Kick counter Home card (Anuraj, Sept 2026): displayed week 19+,
-          directly below the Highlights kicker. Opens the weekly session
-          list — not the counter — and retires after her first session. */}
-      {kicksVisibleForDisplayedWeek(displayWeekNum) && !hasKicks ? (
-        <KickHomeCard onPress={() => setHistoryVisible(true)} />
-      ) : null}
       <Card testID="week-highlights">
         {content.highlights.map((h, i) => (
           <View
@@ -643,7 +674,14 @@ export default function WeekScreen() {
         onClose={closeCounting}
         onSaved={handleKickSaved}
       />
-      <KickHistoryScreen visible={historyVisible} onClose={closeHistory} />
+      <KickHistoryScreen
+        visible={historyVisible}
+        onClose={closeHistory}
+        weekRange={
+          displayWeekRange(pregnancy.dueDate ?? '', displayWeekNum) ?? undefined
+        }
+        onStartCounting={openCountingFromHistory}
+      />
       <ConsentSheet
         visible={consentVisible}
         onNotNow={closeConsent}

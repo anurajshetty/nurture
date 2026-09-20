@@ -7,6 +7,14 @@
  * evening reminder row. The reminder starts OFF; only "Yes, remind me"
  * enables it — "Not now", the sheet close, and scrim dismissal all leave
  * it off.
+ *
+ * Round 4 (mockup 21 rev2, Anuraj approved Sept 20, 2026): the Home card
+ * opens this screen WEEK-SCOPED via the `weekRange` prop — title "This
+ * week's kicks", only that week's sessions, and an empty state whose coral
+ * "Start counting" button opens the counter (the card itself never opens
+ * the counter). Deviation notes still compare against her full prior
+ * history (all-time priors), so the approved deviation math is unchanged —
+ * only the displayed rows are week-filtered.
  */
 
 import { useEffect, useState } from 'react';
@@ -18,6 +26,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle, Ellipse, G, Path } from 'react-native-svg';
 import BottomSheet from '../components/BottomSheet';
 import Toggle from '../components/Toggle';
 import { colors, radii, spacing, type as typeScale } from '../theme/tokens';
@@ -39,6 +48,35 @@ import { KICK_CARE_LINE } from './KickCountingScreen';
 export interface KickHistoryScreenProps {
   visible: boolean;
   onClose: () => void;
+  /**
+   * When set, the list is scoped to one displayed week: the title becomes
+   * "This week's kicks", only sessions in [startISO, endISO) are shown,
+   * and an empty week gets the "Start counting" invitation.
+   */
+  weekRange?: { startISO: string; endISO: string };
+  /** Opens the counting screen (the week list's empty-state invitation). */
+  onStartCounting?: () => void;
+}
+
+/** A baby foot: five toes, a sole, two motion lines. Coral on blush. */
+function FootMarkCoral({ size = 34 }: { size?: number }) {
+  const c = colors.coralDeep;
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessible={false}>
+      <G fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round">
+        <Path d="M3.4 9.4l2.9.9" />
+        <Path d="M2.8 14.1l2.9.3" />
+      </G>
+      <G fill={c}>
+        <Circle cx={9} cy={7.2} r={2.1} />
+        <Circle cx={12.3} cy={5.7} r={1.7} />
+        <Circle cx={15.6} cy={5.5} r={1.6} />
+        <Circle cx={18.7} cy={6.5} r={1.4} />
+        <Circle cx={21.1} cy={8} r={1.2} />
+        <Ellipse cx={13.4} cy={15.6} rx={5.1} ry={5.6} />
+      </G>
+    </Svg>
+  );
 }
 
 function SessionRow({
@@ -115,15 +153,17 @@ function ReminderOptInSheet({
 export default function KickHistoryScreen({
   visible,
   onClose,
+  weekRange,
+  onStartCounting,
 }: KickHistoryScreenProps) {
   const insets = useSafeAreaInsets();
-  const [sessions, setSessions] = useState<KickSession[]>([]);
+  const [allSessions, setAllSessions] = useState<KickSession[]>([]);
   const [reminderOn, setReminderOn] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
-    setSessions(listKickSessions());
+    setAllSessions(listKickSessions());
     setReminderOn(isKickReminderEnabled());
     setSheetVisible(false);
     // Reconcile scheduling with the persisted choice (and stop it on its
@@ -133,6 +173,14 @@ export default function KickHistoryScreen({
 
   if (!visible) return null;
 
+  // Week-scoped view: only this week's rows. Deviation priors stay
+  // all-time so the approved deviation math is unchanged.
+  const sessions = weekRange
+    ? allSessions.filter((s) => {
+        const day = s.occurredAt.slice(0, 10);
+        return day >= weekRange.startISO && day < weekRange.endISO;
+      })
+    : allSessions;
   const patternLine = patternSummaryLine(sessions);
 
   const handleToggle = (next: boolean) => {
@@ -173,7 +221,9 @@ export default function KickHistoryScreen({
         >
           <Text style={styles.backText}>‹ Week</Text>
         </Pressable>
-        <Text style={styles.title}>Her pattern</Text>
+        <Text style={styles.title}>
+          {weekRange ? "This week's kicks" : 'Her pattern'}
+        </Text>
         <View style={styles.back} />
       </View>
 
@@ -181,21 +231,50 @@ export default function KickHistoryScreen({
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.patternCard} testID="kick-pattern-card">
-          <Text style={styles.patternEyebrow}>What we&apos;re learning</Text>
-          <Text style={styles.patternLine}>
-            {patternLine ??
-              'A couple more sessions and we’ll start seeing her pattern.'}
-          </Text>
-        </View>
+        {weekRange && sessions.length === 0 ? (
+          <View style={styles.empty} testID="kick-history-empty">
+            <View style={styles.emptyTile}>
+              <FootMarkCoral />
+            </View>
+            <Text style={styles.emptyTitle}>No kicks logged yet</Text>
+            <Text style={styles.emptyBody}>
+              When she&apos;s usually active, settle in and tap the kicks
+              button below — one quiet session at a time.
+            </Text>
+            <Pressable
+              testID="kick-start-counting"
+              accessibilityRole="button"
+              accessibilityLabel="Start counting"
+              onPress={onStartCounting}
+              style={({ pressed }) => [
+                styles.startBtn,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.startText}>Start counting</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            <View style={styles.patternCard} testID="kick-pattern-card">
+              <Text style={styles.patternEyebrow}>
+                What we&apos;re learning
+              </Text>
+              <Text style={styles.patternLine}>
+                {patternLine ??
+                  'A couple more sessions and we’ll start seeing her pattern.'}
+              </Text>
+            </View>
 
-        {sessions.map((s) => (
-          <SessionRow
-            key={s.id}
-            session={s}
-            prior={recentKickSessions(sessions, s.id, undefined, s.occurredAt)}
-          />
-        ))}
+            {sessions.map((s) => (
+              <SessionRow
+                key={s.id}
+                session={s}
+                prior={recentKickSessions(allSessions, s.id, undefined, s.occurredAt)}
+              />
+            ))}
+          </>
+        )}
 
         <View style={styles.reminderCard} testID="kick-reminder-card">
           <View style={styles.reminderRow}>
@@ -290,6 +369,51 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 25,
     color: colors.ink,
+  },
+  /** Week-scoped empty state (mockup 21 rev2): the working invitation —
+   *  gentle copy plus a coral "Start counting" button. The card itself
+   *  never opens the counter; this button is the list's, not the card's. */
+  empty: {
+    alignItems: 'center',
+    paddingTop: 56,
+    paddingHorizontal: spacing.xl,
+  },
+  emptyTile: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    backgroundColor: colors.blush,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+  },
+  emptyTitle: {
+    fontFamily: 'Georgia',
+    fontSize: 21,
+    fontWeight: '600',
+    color: colors.ink,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
+  emptyBody: {
+    fontSize: 14.5,
+    color: '#5C554D',
+    lineHeight: 23,
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+  },
+  startBtn: {
+    alignSelf: 'stretch',
+    backgroundColor: colors.coral,
+    borderRadius: 999,
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   row: {
     backgroundColor: colors.card,

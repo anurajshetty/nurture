@@ -45,6 +45,7 @@ import {
   patternSummaryLine,
   recentKickSessions,
   usualStrength,
+  weekPatternNote,
 } from '../src/kicks/pattern';
 import {
   formatDurationLong,
@@ -52,11 +53,14 @@ import {
   formatElapsed,
   formatMovementsLine,
   formatStrengthNote,
+  formatWeekSummary,
   KICKS_MIN_WEEK,
   kicksVisibleForDisplayedWeek,
   readKickSession,
   readKickSessionFromData,
+  sessionsInDisplayedWeek,
 } from '../src/kicks/session';
+import { addDaysISO, displayWeekRange, toISODate } from '../src/onboarding/dates';
 import type { KickSession } from '../src/kicks/types';
 import type { LocalEvent } from '../src/lib/types';
 
@@ -424,6 +428,149 @@ check(
   'reminder: web → no-op',
   decideKickReminderSchedule({ ...decideBase, platformOS: 'web' }),
   false,
+);
+
+/* ------------------------------------------------------------------ */
+/* Round 4 — persistent Home card (mockup 21 rev2)                     */
+/* ------------------------------------------------------------------ */
+
+// Due 2026-10-08 → LMP 2026-01-01; displayed week 38 = [2026-09-17, 2026-09-24).
+check(
+  'displayWeekRange: week 38',
+  displayWeekRange('2026-10-08', 38),
+  { startISO: '2026-09-17', endISO: '2026-09-24' },
+);
+check(
+  'displayWeekRange: week 1 starts on the LMP',
+  displayWeekRange('2026-10-08', 1),
+  { startISO: '2026-01-01', endISO: '2026-01-08' },
+);
+check(
+  'displayWeekRange: bad due date → null',
+  displayWeekRange('not-a-date', 38),
+  null,
+);
+check(
+  'displayWeekRange: week 0 → null',
+  displayWeekRange('2026-10-08', 0),
+  null,
+);
+
+const week38sessions = [
+  kick('in1', 10, 900, 'strong', '2026-09-17T00:00:00'), // start, inclusive
+  kick('in2', 10, 900, 'strong', '2026-09-23T23:59:00'),
+  kick('out-end', 10, 900, 'strong', '2026-09-24T00:00:00'), // end, exclusive
+  kick('out-start', 10, 900, 'strong', '2026-09-16T23:59:00'),
+];
+check(
+  'sessionsInDisplayedWeek: only the week’s sessions (start-inclusive, end-exclusive)',
+  sessionsInDisplayedWeek(week38sessions, '2026-10-08', 38).map((s) => s.id),
+  ['in1', 'in2'],
+);
+check(
+  'sessionsInDisplayedWeek: invalid week → []',
+  sessionsInDisplayedWeek(week38sessions, '2026-10-08', 0),
+  [],
+);
+
+// Device-local calendar: the week filter must use the LOCAL calendar day,
+// not the UTC date embedded in the ISO string. (Under the harness's TZ=UTC
+// the two agree and this is a trivial pass; on any other device timezone it
+// discriminates: the old .slice(0, 10) compared the UTC date and dropped
+// late-night sessions from their week.)
+{
+  const probe = new Date();
+  const behindUtc = probe.getTimezoneOffset() > 0; // e.g. America/Los_Angeles
+  const aheadOfUtc = probe.getTimezoneOffset() < 0;
+  if (behindUtc || aheadOfUtc) {
+    // An instant whose UTC date and local date fall on different days.
+    const instant = new Date();
+    if (behindUtc) instant.setUTCHours(0, 30, 0, 0); // 00:30 UTC → local "yesterday"
+    else instant.setUTCHours(23, 30, 0, 0); // 23:30 UTC → local "tomorrow"
+    const localDay = toISODate(instant);
+    const utcDay = instant.toISOString().slice(0, 10);
+    check(
+      'sessionsInDisplayedWeek: setup — UTC and local days differ here',
+      utcDay !== localDay,
+      true,
+    );
+    const due =
+      addDaysISO(localDay, behindUtc ? 22 : 14) ?? '2026-10-08';
+    // behindUtc: week 38 = [localDay+1, localDay+8) → session EXCLUDED
+    //   (old code saw utcDay = localDay+1 and kept it).
+    // aheadOfUtc: week 38 = [localDay-7, localDay) → session EXCLUDED
+    //   (old code saw utcDay = localDay-1 and kept it).
+    check(
+      'sessionsInDisplayedWeek: late-night session uses the local day, not UTC',
+      sessionsInDisplayedWeek(
+        [kick('late', 10, 900, 'strong', instant.toISOString())],
+        due,
+        38,
+      ).map((s) => s.id),
+      [],
+    );
+  } else {
+    check(
+      'sessionsInDisplayedWeek: UTC runner — local day is the UTC date',
+      sessionsInDisplayedWeek(
+        [kick('late', 10, 900, 'strong', '2026-09-23T23:30:00.000Z')],
+        '2026-10-08',
+        38,
+      ).map((s) => s.id),
+      ['late'],
+    );
+  }
+}
+
+check(
+  'formatWeekSummary: 3 sessions',
+  formatWeekSummary([
+    kick('a', 10, 900, 'strong', '2026-09-19T19:00:00'),
+    kick('b', 10, 900, 'strong', '2026-09-20T19:00:00'),
+    kick('c', 10, 900, 'strong', '2026-09-21T19:00:00'),
+  ]),
+  '3 sessions this week · 30 movements',
+);
+check(
+  'formatWeekSummary: 1 session, singular',
+  formatWeekSummary([kick('a', 10, 900, 'strong', '2026-09-19T19:00:00')]),
+  '1 session this week · 10 movements',
+);
+check(
+  'formatWeekSummary: 1 movement, singular',
+  formatWeekSummary([kick('a', 1, 60, null, '2026-09-19T19:00:00')]),
+  '1 session this week · 1 movement',
+);
+
+check(
+  'weekPatternNote: 2+ sessions, clear mode',
+  weekPatternNote([
+    kick('a', 10, 900, 'strong', '2026-09-19T19:00:00'),
+    kick('b', 10, 900, 'strong', '2026-09-20T19:30:00'),
+    kick('c', 10, 900, 'strong', '2026-09-21T08:00:00'),
+  ]),
+  "She's most active in the evening.",
+);
+check(
+  'weekPatternNote: <2 sessions → null',
+  weekPatternNote([kick('a', 10, 900, 'strong', '2026-09-19T19:00:00')]),
+  null,
+);
+check(
+  'weekPatternNote: tied day-parts → null',
+  weekPatternNote([
+    kick('a', 10, 900, null, '2026-09-19T08:00:00'),
+    kick('b', 10, 1200, null, '2026-09-19T20:00:00'),
+  ]),
+  null,
+);
+check(
+  'weekPatternNote: morning mode',
+  weekPatternNote([
+    kick('a', 10, 900, null, '2026-09-19T08:00:00'),
+    kick('b', 10, 900, null, '2026-09-20T09:00:00'),
+  ]),
+  "She's most active in the morning.",
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);

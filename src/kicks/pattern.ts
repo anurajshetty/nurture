@@ -169,6 +169,47 @@ const DAY_PART_PLURAL: Record<DayPart, string> = {
 };
 
 /**
+ * The most common day part among the sessions, or null when there is a
+ * tie for first (no clear "most active" time). Pure.
+ */
+function modeDayPart(
+  sessions: readonly KickSession[],
+): DayPart | null {
+  const counts = new Map<DayPart, number>();
+  for (const s of sessions) {
+    const part = dayPartOf(s.occurredAt);
+    if (part) counts.set(part, (counts.get(part) ?? 0) + 1);
+  }
+  let best: DayPart | null = null;
+  let bestN = 0;
+  let tied = false;
+  for (const [part, n] of counts) {
+    if (n > bestN) {
+      bestN = n;
+      best = part;
+      tied = false;
+    } else if (n === bestN) {
+      tied = true;
+    }
+  }
+  return tied ? null : best;
+}
+
+/**
+ * "She's most active in the evening." — the gentle week-scoped pattern
+ * note for the Home card (mockup 21 rev2). Needs ≥2 sessions with a clear
+ * (untied) most-active time of day; null otherwise, so the card shows
+ * just the counts line. No verdicts, no streaks. Pure.
+ */
+export function weekPatternNote(
+  sessions: readonly KickSession[],
+): string | null {
+  if (sessions.length < 2) return null;
+  const best = modeDayPart(sessions);
+  return best ? `She's most active in the ${best}.` : null;
+}
+
+/**
  * "Usually about 15–20 minutes, most evenings." — the gentle pattern
  * summary. Needs ≥2 sessions with a duration; returns null before that
  * (the caller shows a warm "not yet" line). No verdicts, no streaks.
@@ -188,24 +229,7 @@ export function patternSummaryLine(
   const durationPart =
     lo === hi ? `about ${lo} minutes` : `about ${lo}–${hi} minutes`;
 
-  const counts = new Map<DayPart, number>();
-  for (const s of recent) {
-    const part = dayPartOf(s.occurredAt);
-    if (part) counts.set(part, (counts.get(part) ?? 0) + 1);
-  }
-  let best: DayPart | null = null;
-  let bestN = 0;
-  let tied = false;
-  for (const [part, n] of counts) {
-    if (n > bestN) {
-      bestN = n;
-      best = part;
-      tied = false;
-    } else if (n === bestN) {
-      tied = true;
-    }
-  }
-  const timePart =
-    best && !tied ? `, most ${DAY_PART_PLURAL[best]}` : '';
+  const best = modeDayPart(recent);
+  const timePart = best ? `, most ${DAY_PART_PLURAL[best]}` : '';
   return `Usually ${durationPart}${timePart}.`;
 }

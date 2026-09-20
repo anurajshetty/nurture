@@ -154,6 +154,26 @@ export function displayWeek(dueISO: string, asOfISO: string = todayISO()): numbe
   return w === null ? null : w + 1;
 }
 
+/**
+ * Calendar-date range [startISO, endISO) for a DISPLAYED week number N
+ * (completed weeks + 1): LMP + (N−1)·7 days through LMP + N·7 days, where
+ * LMP = due − 280 days (Naegele's rule). For due 2026-10-08, displayed
+ * week 38 → 2026-09-17 … 2026-09-24. Null when a date is unparseable or
+ * the week number is not a positive integer. Pure.
+ */
+export function displayWeekRange(
+  dueISO: string,
+  displayedWeek: number,
+): { startISO: string; endISO: string } | null {
+  if (!Number.isInteger(displayedWeek) || displayedWeek < 1) return null;
+  const lmpISO = addDaysISO(dueISO, -GESTATION_DAYS);
+  if (!lmpISO) return null;
+  const startISO = addDaysISO(lmpISO, (displayedWeek - 1) * 7);
+  const endISO = addDaysISO(lmpISO, displayedWeek * 7);
+  if (!startISO || !endISO) return null;
+  return { startISO, endISO };
+}
+
 /** "Jan 7, 2027" — warm, short, locale-aware. Falls back to the raw string. */
 export function formatLong(iso: string): string {
   const d = parseISODate(iso);

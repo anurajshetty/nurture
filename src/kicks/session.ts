@@ -8,6 +8,7 @@
 
 import type { LocalEvent } from '../lib/types';
 import type { KickSession, KickStrength } from './types';
+import { displayWeekRange, toISODate } from '../onboarding/dates';
 
 export type { KickSession, KickStrength };
 
@@ -21,6 +22,29 @@ export const KICK_SESSION_TARGET = 10;
  *  (completed weeks + 1 — the single shared week rule). */
 export function kicksVisibleForDisplayedWeek(displayedWeek: number): boolean {
   return displayedWeek >= KICKS_MIN_WEEK;
+}
+
+/**
+ * The kick sessions whose local calendar date falls inside the DISPLAYED
+ * week number's date range ([startISO, endISO) from displayWeekRange).
+ * `occurredAt` is an ISO timestamp — the date part is compared
+ * lexicographically against the YYYY-MM-DD bounds. Newest first (the
+ * input order is preserved). Empty when the due date or week is invalid.
+ * Pure.
+ */
+export function sessionsInDisplayedWeek(
+  all: readonly KickSession[],
+  dueISO: string,
+  displayedWeek: number,
+): KickSession[] {
+  const range = displayWeekRange(dueISO, displayedWeek);
+  if (!range) return [];
+  return all.filter((s) => {
+    // Device-local calendar day: a 11:30pm session stays on "today" even
+    // though its UTC ISO date has already rolled over.
+    const day = toISODate(new Date(s.occurredAt));
+    return day >= range.startISO && day < range.endISO;
+  });
 }
 
 export const KICK_STRENGTHS: readonly KickStrength[] = [
@@ -105,6 +129,22 @@ export function formatMovementsLine(session: {
   const n = session.movements;
   const moves = n === 1 ? '1 movement' : `${n} movements`;
   return `${moves} in ${formatDurationLong(session.durationSec)}`;
+}
+
+/**
+ * "3 sessions this week · 30 movements" / "1 session this week · 10
+ * movements" — the Home card's week summary line (round 4, mockup 21
+ * rev2). Pure.
+ */
+export function formatWeekSummary(
+  sessions: readonly KickSession[],
+): string {
+  const n = sessions.length;
+  const movements = sessions.reduce((sum, s) => sum + s.movements, 0);
+  const sessionWord = n === 1 ? '1 session' : `${n} sessions`;
+  const movementWord =
+    movements === 1 ? '1 movement' : `${movements} movements`;
+  return `${sessionWord} this week · ${movementWord}`;
 }
 
 /** "Mostly fluttery." — the optional strength note. Null when skipped. */
