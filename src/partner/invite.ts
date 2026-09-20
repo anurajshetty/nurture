@@ -185,7 +185,7 @@ export function confirmPartner(
   store.set(PENDING_INVITE_KEY, JSON.stringify(retired));
   const link: PartnerLink = { status: 'active', partnerName: PARTNER_PLACEHOLDER_NAME };
   setPartnerLink(link, store);
-  recordPartnerHistory('partner_confirmed', 'Alex connected', store, now);
+  recordPartnerHistory('partner_confirmed', 'Partner connected', store, now);
   return link;
 }
 

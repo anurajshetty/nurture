@@ -203,10 +203,18 @@ export default function PartnerSheet({ onChanged }: { onChanged: () => void }) {
       // claiming here models that handshake before confirmation.
       const pending = getPendingInvite();
       if (pending && isInviteUsable(pending)) claimInvite(pending);
-      confirmPartner();
+      const confirmed = confirmPartner();
       setConfirmingJoin(false);
       refresh();
-      showToast('Sharing with Alex is on');
+      // The invite flow never collects a real name (placeholder 'Alex'
+      // otherwise) — use the name only when it's a real one.
+      const confirmedName =
+        confirmed.partnerName !== PARTNER_PLACEHOLDER_NAME
+          ? confirmed.partnerName
+          : null;
+      showToast(
+        confirmedName ? `Sharing with ${confirmedName} is on` : 'Sharing is on',
+      );
     } catch (e) {
       showToast(e instanceof InviteError ? e.message : 'That didn\u2019t go through — nothing changed.');
     }
