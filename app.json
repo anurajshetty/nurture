@@ -3,13 +3,13 @@
     "name": "Willow",
     "slug": "nurture",
     "scheme": "willow",
-    "version": "1.0",
+    "version": "1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "com.anuraj.willow",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "supportsTablet": true,
       "infoPlist": {
 	"NSCameraUsageDescription": "Willow uses the camera only when you tap the camera button, to take bump and scan photos you choose to save.",
