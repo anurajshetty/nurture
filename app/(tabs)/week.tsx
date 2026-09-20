@@ -67,10 +67,13 @@ function orbTone(week: number): string {
 
 /**
  * The header shows the DISPLAY week = completed weeks + 1 (Anuraj, Sept
- * 2026) — the displayWeek(dueDate, dayISO) contract the dates agent is
- * adding to src/onboarding/dates. Swap the `week + 1` sites below to that
- * import when it lands; the completed-week number (content lookups, size
- * art, nav bounds) stays untouched.
+ * 2026) — via the displayWeek() helper in src/onboarding/dates. The
+ * completed-week number (content lookups, nav bounds) stays untouched,
+ * but the SIZE ART is keyed by the DISPLAYED week too (Anuraj ~22:59 PDT,
+ * "everything should be consistent"): the image for displayed week N
+ * comes from week N's subject set (e.g. displayed 38 -> leek). The
+ * rotation storage key is likewise the displayed week, so a new week
+ * starts at variant 1.
  *
  * "Coming up" card (Anuraj, Sept 2026): tight card — kicker, title, warm
  * `when` string only. The "2 questions to ask" line was removed at his
@@ -186,7 +189,9 @@ export default function WeekScreen() {
   useEffect(() => {
     if (state.kind !== 'ready') return;
     const w = Math.min(viewWeek ?? state.currentWeek, state.currentWeek);
-    setSizeArt(peekSizeArt(w));
+    // Displayed week (completed + 1): the size image for displayed week N
+    // comes from week N's subject set. Anuraj ~22:59 PDT.
+    setSizeArt(peekSizeArt(w + 1));
   }, [state, viewWeek]);
 
   useFocusEffect(
@@ -198,9 +203,10 @@ export default function WeekScreen() {
           v === null ? s.currentWeek : Math.min(v, s.currentWeek),
         );
         // Advance the size-art rotation once per tab load, for the week
-        // actually displayed (mirrors the viewWeek clamp above).
+        // actually displayed (mirrors the viewWeek clamp above) — keyed by
+        // the DISPLAYED week (completed + 1). Anuraj ~22:59 PDT.
         const w = Math.min(viewWeekRef.current ?? s.currentWeek, s.currentWeek);
-        setSizeArt(advanceSizeArt(w));
+        setSizeArt(advanceSizeArt(w + 1));
         setMoments(countWeekMoments());
         try {
           setBabyName(getBabyName());
@@ -285,8 +291,10 @@ export default function WeekScreen() {
     babyName,
   );
   const isCurrent = week === currentWeek;
-  // Header shows the DISPLAY week (completed + 1); the content, size art,
-  // and nav bounds above stay on the completed-week number.
+  // Header shows the DISPLAY week (completed + 1); the size ART is also
+  // keyed by the displayed week (Anuraj ~22:59 PDT). The week CONTENT
+  // (size caption, highlights, readings, questions) and nav bounds stay
+  // on the completed-week number.
   const displayWeekNum = week + 1;
   const displayCurrentWeek = currentWeek + 1;
   const greeting = weekGreeting(week, babyName);
@@ -319,7 +327,7 @@ export default function WeekScreen() {
         >
           <Text style={styles.wnavGlyph}>‹</Text>
         </Pressable>
-        <Text style={styles.weekTitle} accessibilityRole="header">
+        <Text testID="week-title" style={styles.weekTitle} accessibilityRole="header">
           Week {displayWeekNum}
         </Text>
         <Pressable

@@ -114,6 +114,66 @@ def main():
         page.keyboard.press("Escape")
         page.wait_for_timeout(500)
 
+        # --- Week-number consistency (Anuraj ~22:59 PDT, top priority) ---
+        # ONE week number everywhere: displayed = completed + 1. The seed
+        # (due 2026-10-08, LMP 2026-01-01) gives displayed week 38 today;
+        # the expected number is computed from the same formula, not
+        # hardcoded. Assert: heading "Week {d}", size art from week d's
+        # subject set (leek — NOT week-{d-1}'s chard), rotation still
+        # cycles its 3 variants, You account row "Week {d}".
+        import datetime as _dt
+        _lmp = _dt.date(2026, 1, 1)  # EDD 2026-10-08 minus 280 days
+        _completed = (_dt.date.today() - _lmp).days // 7
+        _displayed = _completed + 1
+        _weekdir = os.path.join(DIST, "assets", "assets", "size-images",
+                                f"week-{_displayed:02d}")
+        _prevdir = os.path.join(DIST, "assets", "assets", "size-images",
+                                f"week-{_completed:02d}")
+        def _slugs(d):
+            out = set()
+            for f in _glob.glob(os.path.join(d, "*.jpg")):
+                out.add(os.path.basename(f).split(".")[0].rsplit("-", 1)[0])
+            return out
+        _slugs_now = _slugs(_weekdir)
+        _slugs_prev = _slugs(_prevdir)
+        _subject = sorted(_slugs_now)[0].split("-")[1] if _slugs_now else None
+        _prev_subject = (sorted(_slugs_prev)[0].split("-")[1]
+                         if _slugs_prev else None)
+        check("week-consistency: displayed week + subject resolve from seed",
+              5 <= _displayed <= 40 and _subject is not None)
+        page.goto(WEEK, wait_until="networkidle")
+        page.wait_for_timeout(2500)
+        _title = page.get_by_test_id("week-title")
+        check("week-consistency: heading reads 'Week {d}' (displayed)".format(d=_displayed),
+              _title.count() == 1 and _title.first.inner_text().strip() == f"Week {_displayed}")
+        # 4 tab loads -> rotation must cycle the week's variants, all from
+        # week d's subject set. Phase-independent: earlier sections in this
+        # run already advanced the rotation.
+        _srcs = []
+        for _i in range(4):
+            page.goto(WEEK, wait_until="networkidle")
+            page.wait_for_timeout(2000)
+            # RNW puts the testID on the Image wrapper div; the real src
+            # lives on the inner <img>.
+            _img = page.get_by_test_id("week-size-art").locator("img")
+            _srcs.append(_img.get_attribute("src") if _img.count() else None)
+        check("week-consistency: size art renders on every load",
+              all(_srcs))
+        check("week-consistency: size art is week-{d} subject '{s}'".format(d=_displayed, s=_subject),
+              all(_subject in (_s or "") for _s in _srcs))
+        check("week-consistency: no week-{c} '{p}' bleed-through (the old bug)".format(c=_completed, p=_prev_subject),
+              all(_prev_subject not in (_s or "") for _s in _srcs))
+        check("week-consistency: per-load rotation still cycles 3 variants",
+              len(set(_srcs)) == 3)
+        page.screenshot(path=os.path.join(SHOT_DIR, "week-size-art.png"))
+        # You tab account row
+        page.goto(YOU, wait_until="networkidle")
+        page.wait_for_timeout(2500)
+        _you_line = page.get_by_test_id("you-pregnancy-line")
+        check("week-consistency: You account row reads 'Week {d}' (displayed)".format(d=_displayed),
+              _you_line.count() == 1
+              and _you_line.first.inner_text().strip().startswith(f"Week {_displayed} ·"))
+
         # --- Logs tab: report cards + dummy [+] ---
         # (re)seed on the Logs route so the feed picks up the report events.
         page.goto(LOGS, wait_until="networkidle")

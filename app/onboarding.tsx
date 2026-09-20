@@ -676,7 +676,7 @@ export default function OnboardingScreen() {
             {!skippedDate && estimatedDue && (
               <View style={styles.weekPill} accessibilityElementsHidden>
                 <Text style={styles.weekPillText}>
-                  {week ? `Week ${week.week} · ` : ''}Due {formatLong(estimatedDue)}
+                  {week ? `Week ${week.week + 1} · ` : ''}Due {formatLong(estimatedDue)}
                 </Text>
               </View>
             )}

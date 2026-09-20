@@ -351,8 +351,10 @@ export default function YouScreen() {
       const p = getActivePregnancy();
       if (p?.dueDate) {
         const w = weekOf(p.dueDate);
+        // Displayed week (completed + 1) — one week number everywhere.
+        // Anuraj ~22:59 PDT.
         setPregnancyLine(
-          w ? `Week ${w.week} · due ${formatLong(p.dueDate)}` : `Due ${formatLong(p.dueDate)}`,
+          w ? `Week ${w.week + 1} · due ${formatLong(p.dueDate)}` : `Due ${formatLong(p.dueDate)}`,
         );
       } else if (p) {
         setPregnancyLine('Due date not set yet');
@@ -830,7 +832,7 @@ export default function YouScreen() {
         </View>
         <View style={styles.profileText}>
           <Text style={styles.profileName}>Your account</Text>
-          <Text style={styles.profileSub}>{pregnancyLine}</Text>
+          <Text testID="you-pregnancy-line" style={styles.profileSub}>{pregnancyLine}</Text>
         </View>
       </View>
 
