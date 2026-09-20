@@ -29,6 +29,9 @@ tsc1 tests/briefing_context.test.ts src/briefing/context.ts src/onboarding/dates
 OUT=/tmp/nurture-tests-wb
 tsc1 tests/week_briefing.test.ts supabase/functions/week-briefing/lib.ts && run "week_briefing" node $OUT/tests/week_briefing.test.js
 
+OUT=/tmp/nurture-tests-rs
+tsc1 tests/report_summary.test.ts supabase/functions/report-summary/lib.ts && run "report_summary" node $OUT/tests/report_summary.test.js
+
 OUT=/tmp/nurture-tests3
 tsc1 tests/epic3_timeline.test.ts src/timeline/timeline.ts src/onboarding/dates.ts src/lib/types.ts && run "epic3_timeline" env TZ=UTC node $OUT/tests/epic3_timeline.test.js
 

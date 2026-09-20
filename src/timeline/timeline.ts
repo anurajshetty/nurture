@@ -10,7 +10,7 @@
  * The mockup wins: sections are week bands only.
  */
 
-import { addDaysISO, daysBetween, gestationalDays, todayISO } from '../onboarding/dates';
+import { addDaysISO, daysBetween, todayISO } from '../onboarding/dates';
 import type { LocalEvent } from '../lib/types';
 
 export interface TimelineSection {
@@ -37,31 +37,55 @@ export function pregnancyWeekRange(
 }
 
 /**
- * 1-based pregnancy week an event belongs to, or null when the dates don't
- * parse. Events before week 1 (or after the 42nd week) clamp to the nearest
- * band so every card always lands somewhere warm, never nowhere.
+ * THE one week calculation for the Logs tab (Anuraj Sept 2026).
+ *
+ * The week pill label, the week-filter dropdown options, the week filter
+ * itself, and the week-divider bands ALL funnel through this single
+ * formula: day 0 of the pregnancy is the LMP date (dueDate − 280,
+ * Naegele's rule); week W covers gestational days (W−1)·7 … W·7−1. The
+ * raw 1-based week may be ≤0 or >42 — the public wrappers below apply
+ * each caller's boundary rule on top of this one number, so the pill and
+ * the dividers can never disagree again (the old Week-37-pill vs
+ * Week-38-divider bug was two different formulas here).
+ */
+function rawPregnancyWeek(dueDate: string, dayISO: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayISO)) return null;
+  const lmp = addDaysISO(dueDate, -280);
+  const days = lmp ? daysBetween(lmp, dayISO) : null;
+  if (days === null) return null;
+  return Math.floor(days / 7) + 1;
+}
+
+/**
+ * 1-based pregnancy week for a due date and a YYYY-MM-DD calendar day —
+ * the single shared formula. Out-of-range days clamp to the nearest band
+ * (1…42). Null on bad input.
+ */
+export function pregnancyWeekForDay(dueDate: string, dayISO: string): number | null {
+  const w = rawPregnancyWeek(dueDate, dayISO);
+  return w === null ? null : Math.max(1, Math.min(42, w));
+}
+
+/**
+ * 1-based pregnancy week an event belongs to, or null when the dates
+ * don't parse. Events before week 1 (or after week 42) clamp to the
+ * nearest band so every card always lands somewhere warm, never nowhere.
  */
 export function pregnancyWeekForEvent(dueDate: string, occurredAt: string): number | null {
-  const lmp = addDaysISO(dueDate, -280);
   // The YYYY-MM-DD date part of the ISO timestamp; timezone-neutral.
-  const day = occurredAt.slice(0, 10);
-  const days = lmp ? daysBetween(lmp, day) : null;
-  if (days === null) return null;
-  return Math.max(1, Math.min(42, Math.floor(days / 7) + 1));
+  return pregnancyWeekForDay(dueDate, occurredAt.slice(0, 10));
 }
 
 /**
  * The 1-based pregnancy week "she's in" for a due date — the SAME week
  * number the timeline dividers use (pregnancyWeekForEvent for an event
- * that occurred today). The Logs header/picker must use this, not
- * weekOf's 0-based completed-weeks: mixing them was the Week-37-pill vs
- * Week-38-divider bug. Null when dates don't parse or the pregnancy
+ * that occurred today). Null when dates don't parse or the pregnancy
  * hasn't begun.
  */
 export function currentPregnancyWeek(dueDate: string, asOfISO: string = todayISO()): number | null {
-  const g = gestationalDays(dueDate, asOfISO);
-  if (g === null || g < 0) return null;
-  return Math.max(1, Math.min(42, Math.floor(g / 7) + 1));
+  const w = rawPregnancyWeek(dueDate, asOfISO);
+  if (w === null || w < 1) return null;
+  return Math.min(42, w);
 }
 
 const MONTHS = [

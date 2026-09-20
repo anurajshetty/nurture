@@ -5,10 +5,11 @@ import { Screen } from '../../src/components';
 import JournalSheet from '../../src/logging/JournalSheet';
 import { colors, eventDots, minTouch, radii, spacing, type as typeScale } from '../../src/theme/tokens';
 import { getEvent } from '../../src/sync/store';
-import { getPrefs, updatePrefs } from '../../src/notifications/prefs';
+import { getPrefs } from '../../src/notifications/prefs';
 import ReminderTimingSheet from '../../src/notifications/ReminderTimingSheet';
 import {
   DEFAULT_REMINDER_MINUTES,
+  appointmentLeadMinutes,
   formatLeadLabel,
   formatReminderSetToast,
 } from '../../src/notifications/reminderTiming';
@@ -16,7 +17,7 @@ import {
   installReminderSurfaces,
   takeColdStartAppointmentResponse,
 } from '../../src/notifications/snooze';
-import { refreshAppointmentReminders } from '../../src/notifications/appointments';
+import { refreshAppointmentReminders, saveReminderLeadMinutes } from '../../src/notifications/appointments';
 import { appointmentWhere, formatClock } from '../../src/notifications/reminderCopy';
 import {
   appendQuestion,
@@ -152,29 +153,6 @@ function AppointmentDetail({
     [],
   );
 
-  /**
-   * The timing editor's apply: persist the new lead time, refresh the
-   * row, reschedule this device's reminders, and confirm with a toast.
-   * The sheet settles away on its own after the tap.
-   */
-  const handleApply = useCallback(
-    async (minutes: number) => {
-      try {
-        await updatePrefs({ appointmentLeadMinutes: minutes });
-        setPrefs(await getPrefs());
-        showToast(formatReminderSetToast(minutes));
-        void refreshAppointmentReminders();
-      } catch {
-        // Gentle fallback: the row keeps showing the last good value.
-        showToast('That didn’t go through — nothing changed.');
-        getPrefs()
-          .then(setPrefs)
-          .catch(() => {});
-      }
-    },
-    [showToast],
-  );
-
   const reload = useCallback(() => {
     try {
       setEvent(getEvent(eventId));
@@ -182,6 +160,28 @@ function AppointmentDetail({
       setEvent(null);
     }
   }, [eventId]);
+
+  /**
+   * The timing editor's apply: persist the new lead time on THIS
+   * appointment's event (its own `data.reminderLeadMinutes` — the global
+   * default stays untouched), refresh the row, reschedule this device's
+   * reminders, and confirm with a toast. The sheet settles away on its
+   * own after the tap.
+   */
+  const handleApply = useCallback(
+    (minutes: number) => {
+      try {
+        if (saveReminderLeadMinutes(eventId, minutes)) reload();
+        showToast(formatReminderSetToast(minutes));
+        void refreshAppointmentReminders();
+      } catch {
+        // Gentle fallback: the row keeps showing the last good value.
+        showToast('That didn’t go through — nothing changed.');
+        reload();
+      }
+    },
+    [eventId, reload, showToast],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -250,9 +250,14 @@ function AppointmentDetail({
       : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
   })();
   const visitContext = `${visitTitle} · ${visitDay} · ${formatClock(event.occurredAt)}`;
-  const leadTitle = prefs
-    ? formatLeadLabel(prefs.appointmentLeadMinutes)
-    : formatLeadLabel(DEFAULT_REMINDER_MINUTES);
+  // Per-appointment timing: the event's own `data.reminderLeadMinutes`
+  // wins; appointments that never set one fall back to the global
+  // default (Prefs.appointmentLeadMinutes, 2 days).
+  const leadMinutes = appointmentLeadMinutes(
+    event.data,
+    prefs?.appointmentLeadMinutes ?? DEFAULT_REMINDER_MINUTES,
+  );
+  const leadTitle = formatLeadLabel(leadMinutes);
 
   return (
     <View testID="appointment-detail">
@@ -347,7 +352,7 @@ function AppointmentDetail({
       <ReminderTimingSheet
         visible={sheetOpen}
         onClose={() => setSheetOpen(false)}
-        leadMinutes={prefs?.appointmentLeadMinutes ?? DEFAULT_REMINDER_MINUTES}
+        leadMinutes={leadMinutes}
         visitContext={visitContext}
         quietNote={quietNote}
         onApply={handleApply}

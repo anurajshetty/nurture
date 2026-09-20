@@ -6,11 +6,12 @@
  * { n, unit } value. No database, no Expo imports — safe to unit-test
  * with node.
  *
- * The reminder timing editor (ReminderTimingSheet) edits the global
- * `Prefs.appointmentLeadMinutes` — the same value the You tab's lead-time
- * stepper edits — surfaced right on the appointment detail row. The sheet
- * names the visit for context, but the timing applies to every upcoming
- * appointment reminder.
+ * The reminder timing editor (ReminderTimingSheet) edits ONE appointment's
+ * own lead time, stored on the event's `data` bag as `reminderLeadMinutes`.
+ * The global `Prefs.appointmentLeadMinutes` (2 days) remains the DEFAULT
+ * for appointments that never set their own value — the You tab's
+ * lead-time stepper still edits that global default. The sheet names the
+ * visit in its context line so she always knows what the reminder is for.
  */
 
 /** One-tap presets in the editor, in display order. */
@@ -29,6 +30,28 @@ export const REMINDER_PRESETS: ReminderPreset[] = [
 
 /** The default lead time for a fresh install (2 days). Mirrors DEFAULT_PREFS. */
 export const DEFAULT_REMINDER_MINUTES = 2880;
+
+/**
+ * `data`-bag key for an appointment's OWN reminder lead time (minutes).
+ * Stored per appointment by the timing editor; the global
+ * `Prefs.appointmentLeadMinutes` stays the default for appointments that
+ * never set one.
+ */
+export const EVENT_REMINDER_MINUTES_KEY = 'reminderLeadMinutes';
+
+/**
+ * One appointment's reminder lead time: its own stored value wins,
+ * otherwise the supplied default (the global `Prefs.appointmentLeadMinutes`).
+ * A corrupted or non-positive stored value falls back too. Never throws.
+ */
+export function appointmentLeadMinutes(
+  data: Record<string, unknown> | null | undefined,
+  defaultMinutes: number,
+): number {
+  const raw = data?.[EVENT_REMINDER_MINUTES_KEY];
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return Math.round(raw);
+  return defaultMinutes;
+}
 
 /** Custom stepper bounds (the mockup's typeable number is 1–99). */
 export const CUSTOM_MIN = 1;

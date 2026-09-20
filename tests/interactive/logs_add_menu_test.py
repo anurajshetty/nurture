@@ -9,6 +9,15 @@ Log entry). Tap x, the scrim, or any pill to fold the menu away.
 Run:  python3 tests/interactive/logs_add_menu_test.py [--keep-open]
 Must stay green before any push that touches the Logs tab.
 
+Serving: by default the suite serves the committed web export from dist/
+(./dist is git-ignored; rebuild it with `expo export` after source changes).
+Set NURTURE_DEV=1 to serve the Metro dev server instead — compiled live from
+current source, so style/visual changes are testable without an export
+(Chromium can't reach localhost here, so the dev server is proxied through
+the https://nurture.test route; the /willow subpath is dropped because the
+dev server has no baseUrl). The open-menu visual checks (section A2) only run
+under NURTURE_DEV=1, since they assert the current source's styles.
+
 Flows:
   A. menu open/close: button label Add <-> Close add menu; close via x and
      via the scrim; old composer bar is gone.
@@ -37,9 +46,20 @@ from playwright.sync_api import sync_playwright
 REPO = os.path.expanduser("~/workspace/nurture-v12")
 DIST = os.path.join(REPO, "dist")
 ORIGIN = "https://nurture.test"
-BASE = ORIGIN + "/willow/?testhooks=1"
-LOGS = ORIGIN + "/willow/logs?testhooks=1"
+NURTURE_DEV = os.environ.get("NURTURE_DEV") == "1"
+METRO = "http://localhost:8081"
+if NURTURE_DEV:
+    # Metro dev has no /willow baseUrl — expo-router would 404 /willow/* as
+    # an unmatched route, so drop the subpath in dev mode.
+    BASE = ORIGIN + "/?testhooks=1"
+    LOGS = ORIGIN + "/logs?testhooks=1"
+else:
+    BASE = ORIGIN + "/willow/?testhooks=1"
+    LOGS = ORIGIN + "/willow/logs?testhooks=1"
 KEEP_OPEN = "--keep-open" in sys.argv
+# Dev bundling is slow on first hit; the prod export serves instantly.
+NAV_TIMEOUT = 120000 if NURTURE_DEV else 30000
+HOOK_TIMEOUT = 120000 if NURTURE_DEV else 30000
 
 REPORT_PDF = "/tmp/willow-test-report.pdf"
 PHOTO_PNG = "/tmp/willow-test-photo.png"
@@ -79,6 +99,111 @@ def serve_dist(route):
     return route.fulfill(status=200, body=body, content_type=ctype or "application/octet-stream")
 
 
+WASM_DIR = os.path.join(REPO, "node_modules", "sql.js", "dist")
+WASM_FILES = {
+    "/sql-wasm.wasm": os.path.join(WASM_DIR, "sql-wasm.wasm"),
+    "/sql-wasm-browser.wasm": os.path.join(WASM_DIR, "sql-wasm-browser.wasm"),
+}
+
+
+def serve_metro(route):
+    """NURTURE_DEV=1: proxy the Metro dev server (fresh source, no export).
+
+    Chromium blocks localhost in this sandbox, so the browser talks to
+    https://nurture.test and this handler fetches from Metro over the exec
+    side's loopback. The /willow subpath is already dropped from BASE/LOGS.
+    """
+    import urllib.request
+    url = route.request.url
+    assert url.startswith(ORIGIN), url
+    path = url[len(ORIGIN):]
+    if "?" in path:
+        path, qs = path.split("?", 1)
+        qs = "?" + qs
+    else:
+        qs = ""
+    # The web DB (db.web.ts) loads sql.js WASM relative to the page URL;
+    # Metro dev doesn't serve it, so hand it the real file directly.
+    if path in WASM_FILES and os.path.isfile(WASM_FILES[path]):
+        with open(WASM_FILES[path], "rb") as f:
+            body = f.read()
+        return route.fulfill(status=200, body=body, content_type="application/wasm")
+    try:
+        with urllib.request.urlopen(METRO + path + qs, timeout=90) as r:
+            body = r.read()
+            ctype = r.headers.get("Content-Type", "application/octet-stream")
+    except Exception as e:
+        return route.fulfill(status=502, body=f"metro proxy fail: {e}")
+    return route.fulfill(status=200, body=body, content_type=ctype)
+
+
+# Dev-only: hide Expo's error overlay (it swallows clicks and would ruin
+# screenshots; prod/dist builds never render it). documentElement may not
+# exist yet when init scripts run, so poll.
+OVERLAY_HIDE_JS = """(() => { const t = setInterval(() => {
+  if (document.documentElement) {
+    const s = document.createElement('style');
+    s.textContent = '#error-overlay{display:none!important}';
+    document.documentElement.appendChild(s);
+    clearInterval(t);
+  } }, 50); })();"""
+
+
+def seed_with_retry(page, timeout_s=40):
+    """completeOnboarding + clearEvents + seedPregnancy, retrying until the
+    web DB (async WASM init) is ready. Returns True on success."""
+    import time as _time
+    deadline = _time.time() + timeout_s
+    while _time.time() < deadline:
+        try:
+            page.evaluate(
+                "() => { const t = window.__nurtureTest; "
+                "t.completeOnboarding(); t.clearEvents(); "
+                "t.seedPregnancy({ dueDate: '2026-10-08', parity: 'first' }); }")
+            return True
+        except Exception:
+            page.wait_for_timeout(1000)
+    return False
+
+
+def menu_visual_metrics(page):
+    """Measured geometry + computed styles of the open add-menu, keyed by
+    pill. Used by the section-A2 mockup-match checks."""
+    return page.evaluate("""() => {
+      const out = {};
+      const ids = {
+        appointment: 'add-menu-pill-appointment',
+        report: 'add-menu-pill-report',
+        log: 'add-menu-pill-log',
+      };
+      for (const [k, id] of Object.entries(ids)) {
+        const el = document.querySelector('[data-testid="' + id + '"]');
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const icon = el.firstElementChild;
+        const ir = icon.getBoundingClientRect();
+        const ics = getComputedStyle(icon);
+        const label = el.lastElementChild;
+        const lcs = getComputedStyle(label);
+        out[k] = {
+          w: r.width, h: r.height, x: r.x, y: r.y,
+          bg: cs.backgroundColor, radius: cs.borderTopLeftRadius,
+          borderW: cs.borderTopWidth,
+          iconW: ir.width, iconH: ir.height, iconBg: ics.backgroundColor,
+          labelColor: lcs.color, labelWeight: lcs.fontWeight,
+          labelSize: lcs.fontSize,
+        };
+      }
+      out.scrim = getComputedStyle(
+        document.querySelector('[data-testid="add-menu-scrim"]')).backgroundColor;
+      return out;
+    }""")
+
+
+def norm_css(c):
+    return c.replace(" ", "").lower()
+
+
 def main():
     failures = []
     page_errors = []
@@ -94,23 +219,23 @@ def main():
         browser = p.chromium.launch(executable_path="/opt/meta-chromium/chrome")
         ctx = browser.new_context(viewport={"width": 390, "height": 844})
         ctx.add_init_script(FAKE_SR_JS)
-        ctx.route("**://nurture.test/**", serve_dist)
+        if NURTURE_DEV:
+            ctx.add_init_script(OVERLAY_HIDE_JS)
+            ctx.route("**://nurture.test/**", serve_metro)
+        else:
+            ctx.route("**://nurture.test/**", serve_dist)
         page = ctx.new_page()
         page.on("pageerror", lambda e: page_errors.append(str(e)[:200]))
-        page.goto(BASE, timeout=30000)
+        page.goto(BASE, timeout=NAV_TIMEOUT)
         try:
-            page.wait_for_function("() => window.__nurtureTest !== undefined", timeout=30000)
+            page.wait_for_function("() => window.__nurtureTest !== undefined", timeout=HOOK_TIMEOUT)
         except Exception:
             check("test hooks installed", False, "window.__nurtureTest never appeared")
             browser.close()
             sys.exit(1)
         check("test hooks installed", True)
-        page.evaluate(
-            "() => { const t = window.__nurtureTest; "
-            "t.completeOnboarding(); t.clearEvents(); "
-            "t.seedPregnancy({ dueDate: '2026-10-08', parity: 'first' }); }"
-        )
-        page.goto(LOGS, timeout=30000)
+        check("db ready + seeded", seed_with_retry(page))
+        page.goto(LOGS, timeout=NAV_TIMEOUT)
         try:
             page.get_by_test_id("logs-screen").wait_for(timeout=15000)
         except Exception:
@@ -169,6 +294,69 @@ def main():
         page.get_by_test_id("add-menu-scrim").click(position={"x": 195, "y": 100})
         page.wait_for_timeout(400)
         check("menu closes via scrim", page.get_by_test_id("add-menu").count() == 0)
+
+        # ---- A2. open-menu visuals vs design/13-logs-add.html ----
+        # Needs a fresh bundle: with the default stale dist these are
+        # skipped — run with NURTURE_DEV=1 (Metro, current source).
+        if not NURTURE_DEV:
+            print("SKIP open-menu visuals (needs NURTURE_DEV=1 or a rebuilt dist)")
+        else:
+            add_btn.click()
+            page.get_by_test_id("add-menu").wait_for(timeout=15000)
+            page.wait_for_timeout(600)  # let the entrance settle
+            open_box = add_btn.bounding_box()
+            check("open-state x stays 72px", open_box is not None
+                  and abs(open_box["width"] - 72) <= 2
+                  and abs(open_box["height"] - 72) <= 2,
+                  f"box={open_box}")
+            m = menu_visual_metrics(page)
+            check("scrim is the light warm dim rgba(47,43,39,.30)",
+                  norm_css(m["scrim"]) == "rgba(47,43,39,0.3)", m["scrim"])
+            expected_icon = {
+                "appointment": "rgb(142,124,195)",   # #8E7CC3
+                "report": "rgb(127,168,201)",        # #7FA8C9
+                "log": "rgb(147,177,146)",           # #93B192
+            }
+            prev_bottom = None
+            for k in ("appointment", "report", "log"):
+                pm = m[k]
+                check(f"pill {k}: 60px tall", abs(pm["h"] - 60) <= 4, f"h={pm['h']:.1f}")
+                check(f"pill {k}: min 238px wide", pm["w"] >= 236, f"w={pm['w']:.1f}")
+                check(f"pill {k}: white",
+                      norm_css(pm["bg"]) in ("rgb(255,255,255)", "rgba(255,255,255,1)"), pm["bg"])
+                try:
+                    round_enough = float(pm["radius"].replace("px", "")) >= 29
+                except ValueError:
+                    round_enough = False
+                check(f"pill {k}: full-round (999px)", pm["radius"] == "999px" or round_enough,
+                      pm["radius"])
+                check(f"pill {k}: borderless", pm["borderW"] in ("0px", "0"), pm["borderW"])
+                check(f"pill {k}: icon 44px",
+                      abs(pm["iconW"] - 44) <= 3 and abs(pm["iconH"] - 44) <= 3,
+                      f"{pm['iconW']:.1f}x{pm['iconH']:.1f}")
+                check(f"pill {k}: icon color", norm_css(pm["iconBg"]) == expected_icon[k],
+                      pm["iconBg"])
+                check(f"pill {k}: dark ink label", norm_css(pm["labelColor"]) == "rgb(47,43,39)",
+                      pm["labelColor"])
+                check(f"pill {k}: label 700/15.5px",
+                      pm["labelWeight"] == "700" and pm["labelSize"] == "15.5px",
+                      f"{pm['labelWeight']}/{pm['labelSize']}")
+                cx = pm["x"] + pm["w"] / 2
+                check(f"pill {k}: horizontally centered", abs(cx - 195) <= 8, f"cx={cx:.1f}")
+                if prev_bottom is not None:
+                    gap = pm["y"] - prev_bottom
+                    check(f"pill {k}: 10px gap above", abs(gap - 10) <= 3, f"gap={gap:.1f}")
+                prev_bottom = pm["y"] + pm["h"]
+            pill_x_gap = open_box["y"] - prev_bottom
+            check("14px-ish gap pill -> x button", 8 <= pill_x_gap <= 24,
+                  f"gap={pill_x_gap:.1f}")
+            check("x button centered",
+                  abs(open_box["x"] + open_box["width"] / 2 - 195) <= 4,
+                  f"cx={open_box['x'] + open_box['width']/2:.1f}")
+            # Fold the menu away so section B starts from the closed state.
+            add_btn.click()
+            page.wait_for_timeout(400)
+            check("menu closes after visuals", page.get_by_test_id("add-menu").count() == 0)
 
         # ---- B. Appointment ----
         add_btn.click()

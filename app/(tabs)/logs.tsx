@@ -75,8 +75,9 @@ export default function LogsScreen() {
    * jump. A selected week shows only that week's divider + entries;
    * 'all' shows everything. Defaults to the current week per the
    * approved mockup 13-logs-add. The selected week always matches the
-   * visible feed — the pill and the dividers share currentPregnancyWeek
-   * / pregnancyWeekForEvent (the Week-37-vs-38 bug was two calculations).
+   * visible feed — the pill, the filter, and the dividers all funnel
+   * through the one shared formula in src/timeline/timeline.ts
+   * (pregnancyWeekForDay; the Week-37-vs-38 bug was two calculations).
    */
   const [weekFilter, setWeekFilter] = useState<WeekFilterValue>(() => {
     const w = dueDate ? currentPregnancyWeek(dueDate) : null;
@@ -186,8 +187,10 @@ export default function LogsScreen() {
 
   /**
    * Both filters applied in one place: the type chip, then the week
-   * filter. A selected week keeps only events whose divider week (the
-   * SAME calculation the dividers use) equals it.
+   * filter. A selected week keeps only events whose week — computed by
+   * the SAME single formula the dividers use (pregnancyWeekForEvent, via
+   * pregnancyWeekForDay) — equals it, so the filter and the bands can
+   * never disagree.
    */
   const applyFilters = useCallback(
     (list: LocalEvent[]) => {

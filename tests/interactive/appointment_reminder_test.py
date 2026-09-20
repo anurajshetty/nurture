@@ -24,7 +24,12 @@ Flows (all real UI, no stubs, at 390x844):
      update to "12 hours before".
   5. Reopen -> the sheet re-seeds from the stored value (custom selected,
      12 Hours); type 99+clamp check via stepper at max.
-  6. Zero page errors throughout.
+  6. Per-appointment timing: seed two more visits — one with its own
+     stored value (1 hour before), one with none. Change the first
+     visit's timing to 1 week before -> the other two rows keep their
+     own timings, the global default is untouched, and a fresh page load
+     still shows each visit's own timing (persisted per appointment).
+  7. Zero page errors throughout.
 
 Run:  python3 tests/interactive/appointment_reminder_test.py [--keep-open]
 Must stay green before any push that touches the Plan appointment detail
@@ -218,7 +223,77 @@ def main():
         check("stepper clamps at 99", "99 hours before" in preview, f"preview={preview!r}")
         page.keyboard.press("Escape")
 
-        # ---- 6. zero page errors ----
+        # ---- 7. per-appointment timing: one visit's change leaves the others ----
+        # Seed two more visits: B carries its OWN stored value (1 hour
+        # before); C carries none, so it should read the global default.
+        # Changing A's timing must not touch B, C, or the global default.
+        SEED_TWO_JS = """
+(() => {
+  const t = window.__nurtureTest;
+  const mk = (daysOut, h, m, title, data) => {
+    const d = new Date();
+    d.setDate(d.getDate() + daysOut);
+    d.setHours(h, m, 0, 0);
+    const ev = t.seedEvent({ type: "appointment", occurredAt: d.toISOString(), data });
+    return ev && ev.id ? ev.id : "no-id";
+  };
+  return [
+    mk(4, 11, 0, "Glucose test", { title: "Glucose test", reminderLeadMinutes: 60 }),
+    mk(5, 14, 0, "Checkup", { title: "Checkup" }),
+  ];
+})()
+"""
+        appt_b, appt_c = page.evaluate(SEED_TWO_JS)
+        check("second + third appointments seeded",
+              appt_b not in ("no-id",) and appt_c not in ("no-id",),
+              f"b={appt_b} c={appt_c}")
+
+        def open_detail(event_id):
+            page.goto(f"{ORIGIN}/willow/plan?appointment={event_id}&testhooks=1", timeout=30000)
+            page.get_by_test_id("appointment-detail").wait_for(timeout=15000)
+
+        # B reads its own stored value, not the global default.
+        open_detail(appt_b)
+        check("own-value visit shows its timing",
+              "1 hour before" in row_label(), f"label={row_label()!r}")
+        # C (no own value) reads the global default — the section-3/4 edits
+        # to A must NOT have rewritten the global default.
+        open_detail(appt_c)
+        check("no-value visit shows the global default",
+              "2 days before" in row_label(), f"label={row_label()!r}")
+
+        # Change A's timing to 1 week before via the real UI.
+        open_detail(appt_id)
+        page.get_by_test_id("appointment-reminder-row").click()
+        page.get_by_test_id("reminder-sheet").wait_for(timeout=5000)
+        page.get_by_test_id("reminder-preset-10080").click()
+        page.wait_for_timeout(1200)
+        check("A row updates to 1 week before",
+              "1 week before" in row_label(), f"label={row_label()!r}")
+
+        # B and C are unchanged (label + persisted value).
+        open_detail(appt_b)
+        check("B label unchanged after A edit",
+              "1 hour before" in row_label(), f"label={row_label()!r}")
+        open_detail(appt_c)
+        check("C label unchanged after A edit (global default intact)",
+              "2 days before" in row_label(), f"label={row_label()!r}")
+
+        # Fresh page loads re-read from storage: the per-appointment values
+        # persisted.
+        page.goto(PLAN, timeout=30000)
+        page.wait_for_function("() => window.__nurtureTest !== undefined", timeout=30000)
+        open_detail(appt_id)
+        check("A timing persisted across reload",
+              "1 week before" in row_label(), f"label={row_label()!r}")
+        open_detail(appt_b)
+        check("B timing persisted across reload",
+              "1 hour before" in row_label(), f"label={row_label()!r}")
+        open_detail(appt_c)
+        check("C default persisted across reload",
+              "2 days before" in row_label(), f"label={row_label()!r}")
+
+        # ---- 8. zero page errors ----
         check("zero page errors", len(page_errors) == 0, f"errors={page_errors[:3]}")
 
         if KEEP_OPEN:

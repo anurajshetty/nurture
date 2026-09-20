@@ -1,10 +1,15 @@
 /**
  * AddMenu — the Logs-tab Add button (Anuraj-approved Sept 2026).
  *
- * One centered circular + button floating above the Logs tab bar. It
- * REPLACES the old "Save a moment…" composer bar. Tap: a light scrim and
- * three pills (Appointment / Add report / Log entry). Tap ×, the scrim,
+ * One centered circular + button (72px) floating above the Logs tab bar. It
+ * REPLACES the old "Save a moment…" composer bar. Tap: a light dim scrim and
+ * three white pills (Appointment / Add report / Log entry). Tap ×, the scrim,
  * or any pill to fold the menu away; a pill opens its sheet.
+ *
+ * Pill spec (design/13-logs-add.html, latest): full-round white pills,
+ * no border, min 60px tall / 238px wide, 8/22/8/8 padding, 12px icon→text
+ * gap, 10px between pills, 44px icon circles, 15.5px/700 ink labels,
+ * 0 10px 28px rgba(47,43,39,.18) shadow, rgba(47,43,39,.30) scrim.
  *
  * Rendered as a direct child of the Logs Screen: the button floats
  * absolutely over the feed (transparent — no box, no background, zero
@@ -16,7 +21,7 @@
 import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { colors, radii, type as typeScale, shadow } from '../theme/tokens';
+import { colors, shadow } from '../theme/tokens';
 import type { LocalEvent } from '../lib/types';
 import AppointmentSheet from './AppointmentSheet';
 import ReportSheet from './ReportSheet';
@@ -47,7 +52,7 @@ function MenuPill({
       <View
         style={[styles.pillIcon, { backgroundColor: iconBg }]}
         accessibilityElementsHidden>
-        <Feather name={icon} size={24} color="#fff" />
+        <Feather name={icon} size={20} color="#fff" />
       </View>
       <Text style={styles.pillText}>{label}</Text>
     </Pressable>
@@ -130,35 +135,41 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.55)',
+    // Light warm dim — design/13-logs-add.html .menuscrim.
+    backgroundColor: 'rgba(47, 43, 39, 0.30)',
   },
   pills: {
     position: 'absolute',
     left: 0,
     right: 0,
+    // 16px above the 72px button's top edge (button spans bottom 20→92),
+    // matching the mockup's 14px pill↔button gap.
     bottom: 108,
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 18,
+    gap: 12,
     backgroundColor: '#fff',
-    borderRadius: radii.chip,
-    paddingVertical: 12,
-    paddingLeft: 16,
-    paddingRight: 28,
-    minHeight: 84,
-    minWidth: 250,
-    borderWidth: 1,
-    borderColor: colors.line,
-    ...shadow.card,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingLeft: 8,
+    paddingRight: 22,
+    minHeight: 60,
+    minWidth: 238,
+    // No border — the mockup pill is borderless, shadow does the work.
+    shadowColor: '#2F2B27',
+    shadowOpacity: 0.18,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 6,
   },
   pillIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -166,7 +177,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   pillText: {
-    ...typeScale.headline,
+    fontSize: 15.5,
+    lineHeight: 20,
     fontWeight: '700',
     color: colors.ink,
   },

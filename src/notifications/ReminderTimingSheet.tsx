@@ -8,8 +8,9 @@
  * ~650ms. "Choose your own…" expands a stepper + typeable number (1–99)
  * with an Hours/Days toggle, a live preview, and a Set reminder button.
  *
- * The timing edited here is the global `Prefs.appointmentLeadMinutes` —
- * the same value the You tab's lead-time stepper edits. The sheet names
+ * The timing edited here is the appointment's OWN lead time (stored on the
+ * event's `data.reminderLeadMinutes`); the global `Prefs.appointmentLeadMinutes`
+ * stays the default for appointments that never set one. The sheet names
  * the visit in its context line so she always knows what the reminder
  * is for.
  */
@@ -42,16 +43,17 @@ const PRESET_CLOSE_MS = 650;
 type Props = {
   visible: boolean;
   onClose: () => void;
-  /** Currently stored lead minutes (prefs.appointmentLeadMinutes). */
+  /** This appointment's currently stored lead minutes (its own value,
+   * else the global default). */
   leadMinutes: number;
   /** "Growth scan · Tue, Sep 22 · 10:30 AM" — which visit this is for. */
   visitContext: string;
   /** Quiet-hours footnote, e.g. "Quiet hours 9 PM – 8 AM, always." */
   quietNote: string;
   /**
-   * Persist the new lead time. The parent owns prefs: it writes them,
-   * refreshes its display, reschedules reminders, and toasts
-   * "Reminder set — …". The sheet handles its own delayed close.
+   * Persist the new lead time. The parent owns the appointment event: it
+   * writes the value, refreshes its display, reschedules reminders, and
+   * toasts "Reminder set — …". The sheet handles its own delayed close.
    */
   onApply: (minutes: number) => void;
 };
