@@ -12,8 +12,11 @@
       "buildNumber": "1",
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Willow uses the camera only when you tap the camera button, to take bump and scan photos you choose to save.",
-        "NSPhotoLibraryUsageDescription": "Willow accesses your photo library only when you choose a photo to attach to your story."
+	"NSCameraUsageDescription": "Willow uses the camera only when you tap the camera button, to take bump and scan photos you choose to save.",
+	"NSPhotoLibraryUsageDescription": "Willow accesses your photo library only when you choose a photo to attach to your story.",
+	"NSSpeechRecognitionUsageDescription": "Willow turns your dictated words into a draft you review before saving. Audio stays on this device when the device supports it.",
+	"NSMicrophoneUsageDescription": "Willow uses the microphone only when you tap the mic button, to turn your words into a draft you review before saving.",
+	"ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -24,7 +27,10 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -41,6 +47,12 @@
           "speechRecognitionPermission": "Willow turns your dictated words into a draft you review before saving. Audio stays on this device when the device supports it."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "84e715a3-59f7-4c14-b15b-775181b25020"
+      }
+    }
   }
 }
