@@ -23,6 +23,7 @@ import { type EventAttachment, type LocalEvent } from '../lib/types';
 import { getEvent } from '../sync/store';
 import { readQuestions } from '../plan/questions';
 import KickFeedSection from '../kicks/KickFeedSection';
+import { deleteCopyFor } from '../timeline/deleteCopy';
 import {
   readReportSummaryState,
   REPORT_SUMMARY_DISCLAIMER,
@@ -296,13 +297,14 @@ export interface EventCardProps {
    */
   onAppointmentPress?: (eventId: string) => void;
   /**
-   * When present and the event is an appointment, a small × appears in the
-   * card's top-right corner (44×44 hit area). Tapping it calls this with
-   * the appointment's event id (opens the delete confirmation) and does
-   * NOT trigger onAppointmentPress — the × is a sibling of the card
-   * Pressable, never nested inside it. Mockup 18.
+   * When present, EVERY feed card gets a small × in its top-right corner
+   * (44×44 hit area). Tapping it calls this with the event (opens the
+   * shared delete confirmation) and does NOT trigger onAppointmentPress
+   * or report expand — the × is a sibling of the card Pressable, never
+   * nested inside it. Mockup 18 pattern, mockup 30 (Anuraj approved
+   * Sept 20, 2026) extended to all card types.
    */
-  onAppointmentDelete?: (eventId: string) => void;
+  onCardDelete?: (event: LocalEvent) => void;
 }
 
 /** "1 question to ask" / "2 questions to ask" — proper pluralization. */
@@ -310,7 +312,7 @@ function questionsLine(count: number): string {
   return count === 1 ? '1 question to ask' : `${count} questions to ask`;
 }
 
-export default function EventCard({ event, onAppointmentPress, onAppointmentDelete }: EventCardProps) {
+export default function EventCard({ event, onAppointmentPress, onCardDelete }: EventCardProps) {
   const meta = metaFor(event.type);
   const data = event.data;
   const text = typeof data.text === 'string' ? data.text : typeof data.note === 'string' ? data.note : '';
@@ -324,8 +326,10 @@ export default function EventCard({ event, onAppointmentPress, onAppointmentDele
   const isKickSession = event.type === 'kick_session';
   const appointmentQuestions = isAppointment ? readQuestions(event) : [];
   const appointmentPressable = isAppointment && !!onAppointmentPress;
-  // Mockup 18: the delete × renders on appointment cards in the Logs feed.
-  const appointmentDeletable = isAppointment && !!onAppointmentDelete;
+  // Mockup 30: the delete × renders on EVERY feed card type when the
+  // parent wires onCardDelete.
+  const deletable = !!onCardDelete;
+  const delCopy = deletable ? deleteCopyFor(event) : null;
 
   let title: string | null = null;
   let chips: string[] = [];
@@ -346,9 +350,9 @@ export default function EventCard({ event, onAppointmentPress, onAppointmentDele
   // "Backing up…" state may be shown — for photos or files.
 
   return (
-    <View style={appointmentDeletable ? styles.apptWrap : undefined}>
+    <View style={deletable ? styles.cardWrap : undefined}>
       <Card
-        style={[styles.card, appointmentDeletable && styles.cardDeletable]}
+        style={[styles.card, deletable && styles.cardDeletable]}
         testID={`event-card-${event.id}`}
         onPress={
           appointmentPressable ? () => onAppointmentPress!(event.id) : undefined
@@ -424,12 +428,12 @@ export default function EventCard({ event, onAppointmentPress, onAppointmentDele
       ) : null}
       {isReport ? <ReportSummarySection event={event} /> : null}
       </Card>
-      {appointmentDeletable ? (
+      {deletable ? (
         <Pressable
           testID={`event-card-delete-${event.id}`}
           accessibilityRole="button"
-          accessibilityLabel="Delete appointment"
-          onPress={() => onAppointmentDelete!(event.id)}
+          accessibilityLabel={delCopy!.xLabel}
+          onPress={() => onCardDelete!(event)}
           hitSlop={8}
           style={({ pressed }) => [styles.delBtn, pressed && styles.delPressed]}
         >
@@ -445,11 +449,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   /**
-   * Mockup 18: relative wrapper so the delete × can sit in the card's
+   * Mockup 18/30: relative wrapper so the delete × can sit in the card's
    * top-right corner as a sibling of the card Pressable — a sibling never
-   * triggers the card's onPress, so tapping × never opens the editor.
+   * triggers the card's onPress, so tapping × never opens the editor and
+   * never toggles report summaries.
    */
-  apptWrap: {
+  cardWrap: {
     position: 'relative',
   },
   /** Extra right padding keeps the meta row clear of the × hit zone. */

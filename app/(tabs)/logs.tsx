@@ -48,6 +48,10 @@ import TimelineFilters, {
   type FilterValue,
 } from '../../src/timeline/TimelineFilters';
 import TimelineList from '../../src/timeline/TimelineList';
+import DeleteCardDialog, {
+  deleteToastStyles,
+} from '../../src/timeline/DeleteCardDialog';
+import { deleteCopyFor } from '../../src/timeline/deleteCopy';
 import WeekFilterDropdown, {
   type WeekFilterValue,
 } from '../../src/timeline/WeekFilterDropdown';
@@ -136,13 +140,15 @@ export default function LogsScreen() {
     }
   }, [editorEventId]);
   /**
-   * Mockup 18 — delete appointment. deleteTarget is the appointment event
-   * awaiting confirmation; the dialog is stateless. Confirming soft-deletes
-   * the event (tombstone + sync outbox), cancels its reminder, removes it
-   * from the feed, and shows "Appointment deleted" — no undo.
+   * Mockup 18/30 — delete any feed card. deleteTarget is the event
+   * awaiting confirmation; the shared DeleteCardDialog renders the
+   * per-type copy (deleteCopyFor). Confirming soft-deletes the event
+   * (tombstone + sync outbox), cancels its reminder when it's an
+   * appointment, removes it from the feed, and shows a type-specific
+   * toast — no undo.
    */
   const [deleteTarget, setDeleteTarget] = useState<LocalEvent | null>(null);
-  const [deleteToastKey, setDeleteToastKey] = useState<number | null>(null);
+  const [deleteToast, setDeleteToast] = useState<string | null>(null);
   const deleteToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * Report-summary failure toast (Anuraj, Sept 2026): a genuine failure
@@ -176,27 +182,29 @@ export default function LogsScreen() {
     };
   }, []);
   const openDeleteConfirm = useCallback(
-    (eventId: string) => {
-      setDeleteTarget(events.find((e) => e.id === eventId) ?? null);
+    (event: LocalEvent) => {
+      setDeleteTarget(events.find((e) => e.id === event.id) ?? event);
     },
     [events],
   );
   const closeDeleteConfirm = useCallback(() => {
     setDeleteTarget(null);
   }, []);
-  const confirmDeleteAppointment = useCallback(() => {
+  const confirmDeleteCard = useCallback(() => {
     if (!deleteTarget) return;
     const id = deleteTarget.id;
+    const copy = deleteCopyFor(deleteTarget);
+    const isAppointment = deleteTarget.type === 'appointment';
     deleteEvent(id);
-    // The deleted appointment must not fire its reminder — reconcile the
+    // A deleted appointment must not fire its reminder — reconcile the
     // scheduled set against the surviving events.
-    void refreshAppointmentReminders().catch(() => {});
+    if (isAppointment) void refreshAppointmentReminders().catch(() => {});
     setEvents((prev) => prev.filter((e) => e.id !== id));
     setDeleteTarget(null);
     if (deleteToastTimer.current) clearTimeout(deleteToastTimer.current);
-    setDeleteToastKey(Date.now());
+    setDeleteToast(copy.toast);
     deleteToastTimer.current = setTimeout(() => {
-      setDeleteToastKey(null);
+      setDeleteToast(null);
       deleteToastTimer.current = null;
     }, 1800);
     void syncNow().catch(() => {});
@@ -470,7 +478,7 @@ export default function LogsScreen() {
             onDismissLookBack={dismissLookBack}
             onRevisitLookBack={scrollToEvent}
             onAppointmentPress={openAppointment}
-            onAppointmentDelete={openDeleteConfirm}
+            onCardDelete={openDeleteConfirm}
             onEndReached={loadMore}
             refreshing={refreshing}
             onRefresh={onRefresh}
@@ -485,63 +493,22 @@ export default function LogsScreen() {
         visible={editorVisible}
         onClose={closeAppointmentEditor}
       />
-      {deleteTarget ? (
-        <View style={styles.delScrim} testID="delete-appointment-dialog">
-          <Pressable
-            testID="delete-appointment-scrim"
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss delete confirmation"
-            onPress={closeDeleteConfirm}
-            style={styles.delScrimPress}
-          />
-          <View
-            style={styles.delDialog}
-            accessibilityRole="alert"
-            accessibilityLabel="Delete this appointment?"
-          >
-            <Text style={styles.delTitle}>Delete this appointment?</Text>
-            <Text style={styles.delBody}>
-              It'll disappear from your feed and your Week. This can't be
-              undone.
-            </Text>
-            <Pressable
-              testID="delete-appointment-confirm"
-              accessibilityRole="button"
-              accessibilityLabel="Delete appointment"
-              onPress={confirmDeleteAppointment}
-              style={({ pressed }) => [
-                styles.delBtn,
-                pressed && styles.delBtnPressed,
-              ]}
-            >
-              <Text style={styles.delBtnText}>Delete</Text>
-            </Pressable>
-            <Pressable
-              testID="delete-appointment-keep"
-              accessibilityRole="button"
-              accessibilityLabel="Keep it"
-              onPress={closeDeleteConfirm}
-              style={({ pressed }) => [
-                styles.keepBtn,
-                pressed && styles.keepPressed,
-              ]}
-            >
-              <Text style={styles.keepText}>Keep it</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
-      {deleteToastKey !== null ? (
-        <View style={styles.delToastWrap} pointerEvents="none">
-          <View style={styles.delToast} testID="delete-appointment-toast">
-            <Text style={styles.delToastText}>Appointment deleted</Text>
+      <DeleteCardDialog
+        copy={deleteTarget ? deleteCopyFor(deleteTarget) : null}
+        onDismiss={closeDeleteConfirm}
+        onConfirm={confirmDeleteCard}
+      />
+      {deleteToast !== null ? (
+        <View style={deleteToastStyles.wrap} pointerEvents="none">
+          <View style={deleteToastStyles.pill} testID="delete-card-toast">
+            <Text style={deleteToastStyles.text}>{deleteToast}</Text>
           </View>
         </View>
       ) : null}
       {reportToast !== null ? (
-        <View style={styles.delToastWrap} pointerEvents="none">
-          <View style={styles.delToast} testID="report-summary-toast">
-            <Text style={styles.delToastText}>{reportToast}</Text>
+        <View style={deleteToastStyles.wrap} pointerEvents="none">
+          <View style={deleteToastStyles.pill} testID="report-summary-toast">
+            <Text style={deleteToastStyles.text}>{reportToast}</Text>
           </View>
         </View>
       ) : null}
@@ -629,94 +596,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.ink,
     textAlign: 'center',
-  },
-  /* Mockup 18 — delete-appointment confirmation + toast. */
-  delScrim: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(90,74,62,0.28)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 50,
-  },
-  delScrimPress: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-  },
-  delDialog: {
-    position: 'relative',
-    width: '85%',
-    maxWidth: 340,
-    backgroundColor: colors.card,
-    borderRadius: 22,
-    padding: 26,
-  },
-  delTitle: {
-    fontFamily: fontDisplay,
-    fontSize: 22,
-    color: colors.ink,
-    marginBottom: 10,
-  },
-  delBody: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: colors.muted,
-    marginBottom: 22,
-  },
-  delBtn: {
-    backgroundColor: colors.coralDeep,
-    borderRadius: 16,
-    minHeight: 54,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  delBtnPressed: {
-    opacity: 0.85,
-  },
-  delBtnText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  keepBtn: {
-    backgroundColor: '#FAF6F0',
-    borderRadius: 16,
-    minHeight: 54,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  keepPressed: {
-    opacity: 0.7,
-  },
-  keepText: {
-    color: colors.ink,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  delToastWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 96,
-    alignItems: 'center',
-    zIndex: 60,
-  },
-  delToast: {
-    backgroundColor: '#3A332E',
-    borderRadius: 999,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-  },
-  delToastText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '500',
   },
 });

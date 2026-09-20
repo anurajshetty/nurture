@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Interactive test: mockup-18 delete appointment (Anuraj, Sept 19, 2026).
+"""Interactive test: mockup-18/30 delete cards (Anuraj, Sept 20, 2026).
 
-The Logs appointment card carries a small x in its top-right corner (44x44
-hit area). Tapping it opens a confirmation dialog with the exact spec copy;
+Every Logs feed card carries a small x in its top-right corner (44x44
+hit area) — this test drives the appointment card end to end. Tapping it
+opens the shared confirmation dialog with the exact per-type spec copy;
 confirming deletes the appointment from the feed AND the Week "Coming up"
 card, shows an "Appointment deleted" toast, and offers no undo. Scrim tap
 and "Keep it" dismiss without deleting. Tapping the x must NOT open the
@@ -139,57 +140,60 @@ def main():
         # --- 2. tap x -> dialog, NOT the questions sheet ------------------
         print("Tap x -> confirmation dialog")
         xbtn.click()
-        page.get_by_test_id("delete-appointment-dialog").wait_for(timeout=10000)
+        page.get_by_test_id("delete-card-dialog").wait_for(timeout=10000)
         page.wait_for_timeout(500)
-        dlg = page.get_by_test_id("delete-appointment-dialog")
+        dlg = page.get_by_test_id("delete-card-dialog")
         dlg_text = " ".join(dlg.inner_text().split())
         check("dialog title exact",
               "Delete this appointment?" in dlg_text)
         check("dialog body exact",
-              "It'll disappear from your feed and your Week. "
-              "This can't be undone." in dlg_text)
+              "It leaves your story and your Week, and its reminder is "
+              "cancelled too. This can\u2019t be undone." in dlg_text)
         check("Delete button", page.get_by_test_id(
-            "delete-appointment-confirm").count() == 1)
+            "delete-card-confirm").count() == 1)
+        check("Delete button label exact",
+              page.get_by_test_id("delete-card-confirm")
+              .inner_text().strip() == "Delete appointment")
         check("Keep it button", page.get_by_test_id(
-            "delete-appointment-keep").count() == 1)
+            "delete-card-keep").count() == 1)
         check("x tap does NOT open the questions sheet",
               page.get_by_test_id("appointment-editor").count() == 0)
         page.screenshot(path="/tmp/appt-delete-dialog-390x844.png")
 
         # --- 3. scrim tap dismisses ---------------------------------------
         print("Scrim tap dismisses")
-        page.get_by_test_id("delete-appointment-scrim").click(
+        page.get_by_test_id("delete-card-scrim").click(
             position={"x": 20, "y": 20})
         page.wait_for_timeout(600)
         check("scrim dismisses dialog",
-              page.get_by_test_id("delete-appointment-dialog").count() == 0)
+              page.get_by_test_id("delete-card-dialog").count() == 0)
         check("card still present after scrim dismiss",
               page.get_by_test_id(card_tid).count() == 1)
 
         # --- 4. Keep it dismisses -----------------------------------------
         print("Keep it dismisses")
         page.get_by_test_id(del_tid).click()
-        page.get_by_test_id("delete-appointment-dialog").wait_for(timeout=10000)
-        page.get_by_test_id("delete-appointment-keep").click()
+        page.get_by_test_id("delete-card-dialog").wait_for(timeout=10000)
+        page.get_by_test_id("delete-card-keep").click()
         page.wait_for_timeout(600)
         check("Keep it dismisses dialog",
-              page.get_by_test_id("delete-appointment-dialog").count() == 0)
+              page.get_by_test_id("delete-card-dialog").count() == 0)
         check("card still present after Keep it",
               page.get_by_test_id(card_tid).count() == 1)
 
         # --- 5. Delete -> toast, card gone ---------------------------------
         print("Delete confirms")
         page.get_by_test_id(del_tid).click()
-        page.get_by_test_id("delete-appointment-dialog").wait_for(timeout=10000)
-        page.get_by_test_id("delete-appointment-confirm").click()
+        page.get_by_test_id("delete-card-dialog").wait_for(timeout=10000)
+        page.get_by_test_id("delete-card-confirm").click()
         page.wait_for_timeout(600)
-        toast = page.get_by_test_id("delete-appointment-toast")
+        toast = page.get_by_test_id("delete-card-toast")
         check("toast appears", toast.count() == 1)
         toast_text = " ".join(toast.inner_text().split())
         check("toast copy exact", toast_text == "Appointment deleted")
         check("no undo offered", "Undo" not in toast_text)
         check("dialog closes on confirm",
-              page.get_by_test_id("delete-appointment-dialog").count() == 0)
+              page.get_by_test_id("delete-card-dialog").count() == 0)
         page.wait_for_timeout(2500)
         check("card gone from Logs feed",
               page.get_by_test_id(card_tid).count() == 0)

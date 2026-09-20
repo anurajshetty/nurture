@@ -30,8 +30,8 @@ interface TimelineListProps {
   onRevisitLookBack(e: LocalEvent): void;
   /** When present, appointment EventCards become pressable and call it with the event id (opens the appointment editor). */
   onAppointmentPress?(eventId: string): void;
-  /** When present, appointment EventCards show the mockup-18 delete × in the top-right corner. */
-  onAppointmentDelete?(eventId: string): void;
+  /** When present, EVERY feed EventCard shows the mockup-18/30 delete × in the top-right corner. */
+  onCardDelete?(event: LocalEvent): void;
   onEndReached(): void;
   refreshing: boolean;
   onRefresh(): void;
@@ -64,7 +64,7 @@ export default function TimelineList({
   onDismissLookBack,
   onRevisitLookBack,
   onAppointmentPress,
-  onAppointmentDelete,
+  onCardDelete,
   onEndReached,
   refreshing,
   onRefresh,
@@ -81,7 +81,7 @@ export default function TimelineList({
         <EventCard
           event={item}
           onAppointmentPress={onAppointmentPress}
-          onAppointmentDelete={onAppointmentDelete}
+          onCardDelete={onCardDelete}
         />
       )}
       renderSectionHeader={({ section }) => <DayGroupHeader section={section} />}

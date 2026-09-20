@@ -47,6 +47,9 @@ npx tsc --ignoreConfig tests/week_logic_shared.test.ts src/onboarding/dates.ts s
 OUT=/tmp/nurture-tests-f
 npx tsc --ignoreConfig tests/epic3_filters.test.ts src/timeline/TimelineFilters.tsx --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "epic3_filters" env NODE_PATH="$PWD/node_modules" node $OUT/tests/epic3_filters.test.js
 
+OUT=/tmp/nurture-tests-delete
+tsc1 tests/delete_cards.test.ts src/timeline/deleteCopy.ts src/lib/types.ts && run "delete_cards" node $OUT/tests/delete_cards.test.js
+
 OUT=/tmp/nurture-lookback-tests
 npx tsc --ignoreConfig tests/epic3_lookback.test.ts src/timeline/lookback.ts src/onboarding/dates.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "epic3_lookback" node $OUT/tests/epic3_lookback.test.js
 
