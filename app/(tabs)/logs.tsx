@@ -3,13 +3,14 @@
  *
  * "Your story" header with the week filter pill (Anuraj Sept 2026: the
  * pill is a FILTER, not a jump — a selected week shows only that week's
- * divider + entries; "All weeks" shows everything). Below it, the filter
- * chip row (track 2), and the virtualized timeline (week bands, newest
- * first) with the memory look-back card (track 3) pinned above it. The
- * composer stays pinned at the bottom; entries appear optimistically and
- * Undo removes one. Look-back is computed on focus, dismissible, and
- * never a push. The end-of-day nudge is re-evaluated whenever the stream
- * changes or the screen regains focus.
+ * day groups + entries; "All weeks" shows everything). Below it, the
+ * filter chip row (track 2), and the virtualized timeline (day groups:
+ * "Today", "Yesterday", "Friday, Sep 18" — newest first) with the memory
+ * look-back card (track 3) pinned above it. The composer stays pinned at
+ * the bottom; entries appear optimistically and Undo removes one.
+ * Look-back is computed on focus, dismissible, and never a push. The
+ * end-of-day nudge is re-evaluated whenever the stream changes or the
+ * screen regains focus.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -51,7 +52,7 @@ import WeekFilterDropdown, {
   type WeekFilterValue,
 } from '../../src/timeline/WeekFilterDropdown';
 import {
-  buildSections,
+  buildDaySections,
   currentPregnancyWeek,
   displayWeekLabel,
   formatWeekRange,
@@ -304,10 +305,11 @@ export default function LogsScreen() {
   /**
    * Both filters applied in one place: the type chip, then the week
    * filter. A selected week keeps only events whose week — computed by
-   * the SAME single formula the dividers use (pregnancyWeekForEvent on the
-   * event's STORY date, via storyDateOf: every entry sits in the week it
-   * was logged in) — equals it, so the filter and the bands can never
-   * disagree.
+   * the SAME single formula the filter matches on (pregnancyWeekForEvent
+   * on the event's STORY date, via storyDateOf: every entry sits in the
+   * week it was logged in) — equals it, so the filter and the feed can
+   * never disagree. The feed itself groups by day (buildDaySections);
+   * the week pill is a pure filter and no longer renders as a divider.
    */
   const applyFilters = useCallback(
     (list: LocalEvent[]) => {
@@ -321,13 +323,13 @@ export default function LogsScreen() {
   );
 
   const sections = useMemo(
-    () => buildSections(applyFilters(events), dueDate),
-    [applyFilters, events, dueDate],
+    () => buildDaySections(applyFilters(events)),
+    [applyFilters, events],
   );
 
   /**
    * Pages in events until `event` is in memory, then jumps the timeline
-   * to its week band. The scroll is best-effort: rows have variable
+   * to its day group. The scroll is best-effort: rows have variable
    * heights, so an unmeasured target just leaves the list in place.
    */
   const scrollToEvent = useCallback(
@@ -344,7 +346,7 @@ export default function LogsScreen() {
       setEvents(loaded);
       // Look-back only renders when both filters are 'all', so this is
       // the same list the timeline shows; reuse the one filter path.
-      const targetSections = buildSections(applyFilters(loaded), dueDate);
+      const targetSections = buildDaySections(applyFilters(loaded));
       const sectionIndex = targetSections.findIndex((s) =>
         s.data.some((e) => e.id === event.id),
       );
@@ -364,7 +366,7 @@ export default function LogsScreen() {
         }
       });
     },
-    [events, applyFilters, dueDate],
+    [events, applyFilters],
   );
 
   /** Week-filter select: apply the filter, close the dropdown. */

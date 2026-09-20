@@ -1,5 +1,9 @@
 /**
- * Epic 3.1 deterministic tests: timeline week-band grouping (src/timeline/timeline.ts).
+ * Epic 3.1 deterministic tests: timeline DAY grouping
+ * (src/timeline/timeline.ts). Day groups approved by Anuraj Sept 20,
+ * 2026 — "Today", "Yesterday", "Friday, Sep 18" — superseding the week
+ * bands.
+ *
  * Pure module only — no database, no Expo, no network. Run with:
  *
  *   npx tsc tests/epic3_timeline.test.ts src/timeline/timeline.ts \
@@ -12,9 +16,11 @@
  */
 
 import {
-  buildSections,
+  buildDaySections,
+  formatDayGroupLabel,
   formatDayShort,
   formatWeekRange,
+  localDayISO,
   pregnancyWeekForEvent,
   pregnancyWeekRange,
   storyDateOf,
@@ -57,7 +63,7 @@ function mkEvent(id: string, occurredAt: string): LocalEvent {
 // Sample due date: 2026-10-08 → LMP 2026-01-01 (280 days earlier).
 const DUE = '2026-10-08';
 
-// ---------- pregnancy week range ----------
+// ---------- pregnancy week range (week filter still uses these) ----------
 
 {
   check('week 37 range', pregnancyWeekRange(37, DUE), {
@@ -69,7 +75,7 @@ const DUE = '2026-10-08';
   check('non-integer invalid', pregnancyWeekRange(24.5, DUE), null);
 }
 
-// ---------- week of an event ----------
+// ---------- week of an event (week FILTER matching, unchanged) ----------
 
 {
   check('Sep 18 → week 37', pregnancyWeekForEvent(DUE, '2026-09-18T09:12:00.000Z'), 37);
@@ -86,56 +92,72 @@ const DUE = '2026-10-08';
   check('day short', formatDayShort('2026-09-18'), 'Sep 18');
 }
 
-// ---------- buildSections: pregnancy week bands ----------
+// ---------- localDayISO: device-local calendar day ----------
+
+{
+  check('UTC timestamp → local day', localDayISO('2026-09-20T23:30:00.000Z'), '2026-09-20');
+  // 01:30 at +05:30 is 2026-09-19 20:00 UTC → Sep 19 under TZ=UTC.
+  check('offset timestamp → local day', localDayISO('2026-09-20T01:30:00+05:30'), '2026-09-19');
+  check('midnight boundary keeps its own day', localDayISO('2026-09-20T00:03:00.000Z'), '2026-09-20');
+  check('bad timestamp → null', localDayISO('not-a-date'), null);
+}
+
+// ---------- formatDayGroupLabel ----------
+
+{
+  // 2026-09-20 is a Sunday; Sep 19 Saturday; Sep 18 Friday.
+  check('today label', formatDayGroupLabel('2026-09-20', '2026-09-20'), 'Today');
+  check('yesterday label', formatDayGroupLabel('2026-09-19', '2026-09-20'), 'Yesterday');
+  check('older label', formatDayGroupLabel('2026-09-18', '2026-09-20'), 'Friday, Sep 18');
+  check('older label across months', formatDayGroupLabel('2026-08-31', '2026-09-20'), 'Monday, Aug 31');
+  check('bad day passes through', formatDayGroupLabel('nope', '2026-09-20'), 'nope');
+}
+
+// ---------- buildDaySections: day groups, newest first ----------
 
 {
   const events = [
-    mkEvent('c', '2026-09-10T14:00:00.000Z'), // week 36 — deliberately oldest-first
-    mkEvent('a', '2026-09-18T09:12:00.000Z'), // week 37
-    mkEvent('b', '2026-09-19T20:04:00.000Z'), // week 37
+    mkEvent('c', '2026-09-18T18:00:00.000Z'), // Friday — deliberately oldest-first
+    mkEvent('a', '2026-09-20T09:12:00.000Z'), // Sunday (today)
+    mkEvent('b', '2026-09-20T20:04:00.000Z'), // Sunday (today), later
+    mkEvent('d', '2026-09-19T08:00:00.000Z'), // Saturday (yesterday)
   ];
-  const sections = buildSections(events, DUE);
-  check('two week bands', sections.length, 2);
-  check('newest band first', sections[0]?.key, 'preg-37');
-  check('band title (display week = completed + 1)', sections[0]?.title, 'Week 38');
-  check('band range subtitle', sections[0]?.subtitle, 'Sep 17 – 23');
-  check('newest event first in band', sections[0]?.data.map((e) => e.id), ['b', 'a']);
-  check('older band second', sections[1]?.key, 'preg-36');
-  check('older band subtitle', sections[1]?.subtitle, 'Sep 10 – 16');
-  check('older band contents', sections[1]?.data.map((e) => e.id), ['c']);
+  const sections = buildDaySections(events, '2026-09-20');
+  check('three day groups', sections.length, 3);
+  check('newest day first', sections[0]?.key, 'day-2026-09-20');
+  check('today title', sections[0]?.title, 'Today');
+  check('newest event first within the day', sections[0]?.data.map((e: LocalEvent) => e.id), ['b', 'a']);
+  check('yesterday second', sections[1]?.key, 'day-2026-09-19');
+  check('yesterday title', sections[1]?.title, 'Yesterday');
+  check('older day label', sections[2]?.title, 'Friday, Sep 18');
+  check('older day contents', sections[2]?.data.map((e: LocalEvent) => e.id), ['c']);
 }
 
-// ---------- buildSections: calendar-week fallback (no due date) ----------
+// ---------- buildDaySections: the midnight boundary ----------
 
 {
-  const events = [
-    mkEvent('a', '2026-09-18T09:12:00.000Z'), // Friday → Monday Sep 14
-    mkEvent('b', '2026-09-07T10:00:00.000Z'), // Monday Sep 7
-  ];
-  const sections = buildSections(events, null);
-  check('two calendar bands', sections.length, 2);
-  check('newest calendar band first', sections[0]?.key, 'cal-2026-09-14');
-  check('calendar band title', sections[0]?.title, 'Week of Sep 14');
-  check('calendar band subtitle', sections[0]?.subtitle, 'Sep 14 – 20');
-  check('older calendar band', sections[1]?.key, 'cal-2026-09-07');
-  check('older calendar band title', sections[1]?.title, 'Week of Sep 7');
-  // A Sunday still belongs to the week starting the previous Monday.
-  const sunday = buildSections([mkEvent('s', '2026-09-13T22:00:00.000Z')], null);
-  check('Sunday → previous Monday band', sunday[0]?.key, 'cal-2026-09-07');
+  // The mockup's boundary case: "Yesterday · 11:58 PM" and
+  // "Today · 12:03 AM" kick sessions land in different groups.
+  const late = mkEvent('late', '2026-09-19T23:58:00.000Z');
+  const early = mkEvent('early', '2026-09-20T00:03:00.000Z');
+  const sections = buildDaySections([late, early], '2026-09-20');
+  check('midnight boundary → two groups', sections.length, 2);
+  check('12:03 AM in Today', sections[0]?.data.map((e: LocalEvent) => e.id), ['early']);
+  check('11:58 PM in Yesterday', sections[1]?.data.map((e: LocalEvent) => e.id), ['late']);
 }
 
-// ---------- buildSections: edge cases ----------
+// ---------- buildDaySections: edge cases ----------
 
 {
-  check('empty input → no sections', buildSections([], DUE), []);
+  check('empty input → no sections', buildDaySections([], '2026-09-20'), []);
   // Malformed timestamps never crash grouping; they're skipped.
   const mixed = [
     mkEvent('bad', 'not-a-date'),
     mkEvent('good', '2026-09-18T09:12:00.000Z'),
   ];
-  const sections = buildSections(mixed, DUE);
+  const sections = buildDaySections(mixed, '2026-09-20');
   check('bad timestamps skipped', sections.length, 1);
-  check('good event still grouped', sections[0]?.data.map((e) => e.id), ['good']);
+  check('good event still grouped', sections[0]?.data.map((e: LocalEvent) => e.id), ['good']);
 }
 
 // ---------- storyDateOf: every entry sits where it was logged ----------
@@ -188,28 +210,35 @@ function mkReport(id: string, documentDate: string, createdAt: string): LocalEve
 {
   // A: visit scheduled Oct 5, logged Sep 19. B: visit scheduled Sep 21,
   // logged Sep 20. Story order must be B then A (logged later first),
-  // even though A's visit is later.
+  // even though A's visit is later — and they group by the day they
+  // were LOGGED, not the visit day.
   const a = mkAppt('a', '2026-10-05T10:00:00.000Z', '2026-09-19T09:00:00.000Z');
   const b = mkAppt('b', '2026-09-21T10:00:00.000Z', '2026-09-20T09:00:00.000Z');
-  const sections = buildSections([a, b], DUE);
-  const flat = sections.flatMap((s) => s.data.map((e) => e.id));
+  const sections = buildDaySections([a, b], '2026-09-20');
+  const flat = sections.flatMap((s) => s.data.map((e: LocalEvent) => e.id));
   check('appointments sort by created date, not scheduled date', flat, ['b', 'a']);
-  // Both logged in the same week → one band, the logged week (completed
-  // week 37 → display "Week 38"), not the visit weeks.
-  check('appointments band by logged week', sections.map((s) => s.key), ['preg-37']);
+  check(
+    'appointments group by logged day',
+    sections.map((s: { key: string }) => s.key),
+    ['day-2026-09-20', 'day-2026-09-19'],
+  );
 }
 
 {
   // R: report with a document date of Aug 1 but logged Sep 20. S:
   // report with document date Sep 18 but logged Sep 19. Story order must
   // be R then S (logged later first) — sorted by created date, never by
-  // document date — and both band by logged week.
+  // document date — and both group by logged day.
   const r = mkReport('r', '2026-08-01T10:00:00.000Z', '2026-09-20T09:00:00.000Z');
   const s = mkReport('s', '2026-09-18T10:00:00.000Z', '2026-09-19T09:00:00.000Z');
-  const sections = buildSections([r, s], DUE);
-  const flat = sections.flatMap((sec) => sec.data.map((e) => e.id));
+  const sections = buildDaySections([r, s], '2026-09-20');
+  const flat = sections.flatMap((sec) => sec.data.map((e: LocalEvent) => e.id));
   check('reports sort by created date, not document date', flat, ['r', 's']);
-  check('reports band by logged week', sections.map((sec) => sec.key), ['preg-37']);
+  check(
+    'reports group by logged day',
+    sections.map((sec: { key: string }) => sec.key),
+    ['day-2026-09-20', 'day-2026-09-19'],
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

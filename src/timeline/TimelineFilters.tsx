@@ -12,16 +12,9 @@ import FilterChip, { type FilterKind } from '../components/FilterChip';
 import { spacing } from '../theme/tokens';
 import type { LocalEvent } from '../lib/types';
 
-/** The filter buckets (Anuraj Sept 2026: All · Reports · Appointments ·
- * Logs · Notes · Symptoms · Kicks — the Photos chip was dropped). */
-export type FilterValue =
-  | 'all'
-  | 'reports'
-  | 'appointments'
-  | 'logs'
-  | 'notes'
-  | 'symptoms'
-  | 'kicks';
+/** The filter buckets (Anuraj Sept 2026, day-groups mockup: exactly four —
+ * All · Reports · Appointments · Logs). */
+export type FilterValue = 'all' | 'reports' | 'appointments' | 'logs';
 
 /**
  * A health-document upload: ReportSheet always saves type 'report' (the entry
@@ -35,17 +28,14 @@ export function isReportEvent(event: LocalEvent): boolean {
 
 /**
  * Filter predicate for the timeline stream. Pure: no db, no expo, no
- * react-native. Mapping (authoritative, Anuraj Sept 2026):
+ * react-native. Mapping (authoritative, Anuraj Sept 2026 — exactly four
+ * filters):
  *
  * - 'all'         → every event (the store already excludes tombstones)
  * - 'reports'     → health documents (Add report uploads)
  * - 'appointments'→ type 'appointment'
  * - 'logs'        → the journal core: everything she logged herself that
- *                   isn't a report, an appointment, or a bare file
- * - 'notes'       → type 'note' or 'mood'
- * - 'symptoms'    → type 'symptom'
- * - 'kicks'       → type 'kick_session' or 'milestone'
- *                     ("First strong kicks" is a milestone under Kicks)
+ *                   isn't a report or an appointment
  */
 export function matchesFilter(event: LocalEvent, filter: FilterValue): boolean {
   switch (filter) {
@@ -56,23 +46,7 @@ export function matchesFilter(event: LocalEvent, filter: FilterValue): boolean {
     case 'appointments':
       return event.type === 'appointment';
     case 'logs':
-      return (
-        !isReportEvent(event) &&
-        (event.type === 'note' ||
-          event.type === 'mood' ||
-          event.type === 'symptom' ||
-          event.type === 'weight' ||
-          event.type === 'photo' ||
-          event.type === 'kick_session' ||
-          event.type === 'milestone' ||
-          event.type === 'question')
-      );
-    case 'notes':
-      return event.type === 'note' || event.type === 'mood';
-    case 'symptoms':
-      return event.type === 'symptom';
-    case 'kicks':
-      return event.type === 'kick_session' || event.type === 'milestone';
+      return !isReportEvent(event) && event.type !== 'appointment';
     default:
       return false;
   }
@@ -84,15 +58,12 @@ type ChipDef = {
   label: string;
 };
 
-/** Row order (Anuraj Sept 2026): All · Reports · Appointments · Logs · Notes · Symptoms · Kicks. */
+/** Row order (Anuraj Sept 2026, day-groups mockup): All · Reports · Appointments · Logs. */
 const CHIPS: ChipDef[] = [
   { value: 'all', kind: 'all', label: 'All' },
   { value: 'reports', kind: 'file', label: 'Reports' },
   { value: 'appointments', kind: 'appointment', label: 'Appointments' },
   { value: 'logs', kind: 'note', label: 'Logs' },
-  { value: 'notes', kind: 'note', label: 'Notes' },
-  { value: 'symptoms', kind: 'symptom', label: 'Symptoms' },
-  { value: 'kicks', kind: 'kick', label: 'Kicks' },
 ];
 
 type TimelineFiltersProps = {

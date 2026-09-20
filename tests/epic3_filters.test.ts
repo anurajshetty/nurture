@@ -5,6 +5,10 @@
  * react-native module loader before requiring it; matchesFilter itself
  * never touches it.
  *
+ * Exactly four filters (Anuraj-approved, day-groups mockup Sept 20,
+ * 2026): All · Reports · Appointments · Logs. 'logs' is the journal
+ * core: everything that isn't a report or an appointment.
+ *
  * Run with:
  *
  *   npx tsc tests/epic3_filters.test.ts src/timeline/TimelineFilters.tsx \
@@ -67,7 +71,8 @@ function ev(type: string, data: Record<string, unknown> = {}): any {
   };
 }
 
-const ALL: string[] = ['all', 'reports', 'appointments', 'logs', 'notes', 'symptoms', 'kicks'];
+// Exactly four filters.
+const ALL: string[] = ['all', 'reports', 'appointments', 'logs'];
 function onlyIn(event: any, expected: string[]): void {
   for (const f of ALL) {
     check(`${event.type} [${f}]`, matchesFilter(event, f), expected.includes(f));
@@ -84,16 +89,17 @@ function onlyIn(event: any, expected: string[]): void {
 }
 
 {
-  onlyIn(ev('note', { text: 'hello' }), ['all', 'logs', 'notes']);
+  // notes, moods, symptoms, kicks, photos, milestones, weights,
+  // questions: all part of the journal core → 'logs'
+  onlyIn(ev('note', { text: 'hello' }), ['all', 'logs']);
 }
 
 {
-  // mood collapses into notes (and the Logs umbrella)
-  onlyIn(ev('mood', { mood: 'glowing' }), ['all', 'logs', 'notes']);
+  onlyIn(ev('mood', { mood: 'glowing' }), ['all', 'logs']);
 }
 
 {
-  // a photo-only log entry surfaces under Logs now that the Photos chip is gone
+  // photo-only log entry: photo is a self-logged moment, not a report
   onlyIn(ev('photo', {}), ['all', 'logs']);
 }
 
@@ -110,9 +116,7 @@ function onlyIn(event: any, expected: string[]): void {
   });
   check('note + photo attachment → logs', matchesFilter(withPhoto, 'logs'), true);
   check('note + photo attachment → all', matchesFilter(withPhoto, 'all'), true);
-  check('note + photo attachment → notes', matchesFilter(withPhoto, 'notes'), true);
   check('note + photo attachment → reports', matchesFilter(withPhoto, 'reports'), false);
-  check('note + photo attachment → symptoms', matchesFilter(withPhoto, 'symptoms'), false);
 }
 
 {
@@ -135,7 +139,7 @@ function onlyIn(event: any, expected: string[]): void {
 }
 
 {
-  onlyIn(ev('symptom', { symptoms: ['Nausea'] }), ['all', 'logs', 'symptoms']);
+  onlyIn(ev('symptom', { symptoms: ['Nausea'] }), ['all', 'logs']);
 }
 
 {
@@ -143,19 +147,14 @@ function onlyIn(event: any, expected: string[]): void {
 }
 
 {
-  onlyIn(ev('kick_session', { kicks: 8 }), ['all', 'logs', 'kicks']);
+  onlyIn(ev('kick_session', { kicks: 8 }), ['all', 'logs']);
 }
 
 {
-  // milestone sits under Kicks (approved mockup: "First strong kicks")
-  onlyIn(ev('milestone', { title: 'First strong kicks' }), ['all', 'logs', 'kicks']);
-  const otherMilestone = ev('milestone', { title: 'Heard the heartbeat' });
-  check('any milestone → kicks', matchesFilter(otherMilestone, 'kicks'), true);
-  check('any milestone → logs', matchesFilter(otherMilestone, 'logs'), true);
-  check('milestone → symptoms false', matchesFilter(otherMilestone, 'symptoms'), false);
+  // milestones are self-logged moments → logs (they are never reports
+  // or appointments)
+  onlyIn(ev('milestone', { title: 'First strong kicks' }), ['all', 'logs']);
 }
-
-// ---------- visible under 'all' + 'logs' ----------
 
 {
   onlyIn(ev('weight', { value: 148, unit: 'lb' }), ['all', 'logs']);
@@ -197,8 +196,9 @@ function onlyIn(event: any, expected: string[]): void {
 }
 
 {
-  // unknown future event types must not leak into a bucket
-  onlyIn(ev('weird_future_type', {}), ['all']);
+  // unknown future event types: never a report or an appointment, so
+  // they land in the journal core
+  onlyIn(ev('weird_future_type', {}), ['all', 'logs']);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -8,23 +8,26 @@ seeded through the app's own test hooks (?testhooks=1 ->
 window.__nurtureTest.seedEvent, backed by the real SQLite store), so every
 assertion below exercises the real grouping, filtering, and look-back code.
 
+Day groups approved by Anuraj Sept 20, 2026: "Today", "Yesterday",
+"Friday, Sep 18" — the week pill is a pure filter, never a divider.
+
 Run:  python3 tests/interactive/timeline_browser_test.py [--keep-open]
 Must stay green before any push that touches the timeline/composer.
 
 Flows:
-  0. week filter default -> pill reads the current week (same 1-based
-     week as the dividers, not weekOf's 37); All weeks restores
-  1. boot + seed -> timeline renders seeded events grouped in week bands
-  2. filter chips -> chip order All · Reports · Appointments · Logs ·
-     Notes · Symptoms · Kicks (no Photos chip); Reports empty state when
-     nothing seeded, Appointments/Logs/Symptoms/Kicks narrow the stream;
-     All restores;
+  0. week filter default -> pill reads the current week (display week);
+     All weeks restores
+  1. boot + seed -> timeline renders seeded events grouped in day groups
+     (Today / Yesterday / older), no week-band dividers
+  2. filter chips -> chip order All · Reports · Appointments · Logs;
+     Reports empty state when nothing seeded,
+     Appointments/Logs narrow the stream; All restores;
      empty filter shows the warm empty state
   3. look-back -> "N weeks ago today" card appears under All, hides under a
      filter, dismisses, and stays dismissed after reload
   4. week filter dropdown -> pill opens the inline dropdown listing All
-     weeks + every week; picking one filters the feed to that week's band
-     alone and the pill label matches
+     weeks + every week; picking one filters the feed to that week's
+     day groups alone (never week bands) and the pill label matches
 """
 
 import mimetypes
@@ -40,27 +43,72 @@ ORIGIN = "https://nurture.test"
 BASE = ORIGIN + "/willow/?testhooks=1"
 KEEP_OPEN = "--keep-open" in sys.argv
 
+# Card-root counter: [data-testid^="event-card-"] also matches the
+# event-card-date-* / event-card-questions-* / event-card-delete-*
+# sub-nodes, so filter to the UUID card roots.
+CARD_COUNT_JS = """() => Array.from(
+  document.querySelectorAll('[data-testid^="event-card-"]')
+).filter(el => /^event-card-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+  .test(el.getAttribute('data-testid'))).length"""
+
+
+SCROLLER_JS = """() => {
+  const list = document.querySelector('[data-testid="timeline-list"]');
+  if (!list) return null;
+  const cands = [list, ...list.querySelectorAll('*')];
+  for (const el of cands) {
+    const s = getComputedStyle(el);
+    if (/auto|scroll/.test(s.overflowY) && el.scrollHeight > el.clientHeight + 4) {
+      return el;
+    }
+  }
+  return null;
+}"""
+
+
+def card_count(page):
+    # Scroll top->bottom so the virtualized list mounts every card,
+    # then count the rendered card roots.
+    page.evaluate(
+        f"() => {{ const sc = ({SCROLLER_JS})(); if (sc) sc.scrollTop = 0; }}")
+    page.wait_for_timeout(300)
+    page.evaluate(
+        f"() => {{ const sc = ({SCROLLER_JS})(); if (sc) sc.scrollTop = sc.scrollHeight; }}")
+    page.wait_for_timeout(500)
+    return page.evaluate(CARD_COUNT_JS)
+
 SEED_JS = r"""
 (() => {
   const t = window.__nurtureTest;
   if (!t) return "no-hooks";
   t.completeOnboarding();
   t.clearEvents();
-  const now = Date.now();
-  const iso = (daysAgo) => new Date(now - daysAgo * 86400000).toISOString();
-  t.seedEvent({ type: "note", occurredAt: iso(0),
-    data: { text: "Slept through the night for the first time in weeks." } });
-  t.seedEvent({ type: "symptom", occurredAt: iso(1),
-    data: { symptoms: ["Heartburn", "Backache"] } });
-  t.seedEvent({ type: "photo", occurredAt: iso(3),
+  // Day groups key on the LOCAL calendar day of createdAt (the story
+  // date), so backdate createdAt explicitly — saveEvent stamps "now".
+  const now = new Date();
+  const at = (daysAgo, h) => {
+    const x = new Date(now);
+    x.setDate(x.getDate() - daysAgo);
+    x.setHours(h === undefined ? 9 : h, 12, 0, 0);
+    return x.toISOString();
+  };
+  const seedAt = (input, createdAt) => {
+    const ev = t.seedEvent(input);
+    t.setCreatedAt(ev.id, createdAt);
+  };
+  seedAt({ type: "note", occurredAt: at(0),
+    data: { text: "Slept through the night for the first time in weeks." } }, at(0));
+  seedAt({ type: "symptom", occurredAt: at(1),
+    data: { symptoms: ["Heartburn", "Backache"] } }, at(1));
+  seedAt({ type: "photo", occurredAt: at(3),
     data: { text: "Bump at 24 weeks",
             attachments: [{ id: "a1", kind: "photo", name: "bump.jpg",
-                            upload: "pending" }] } });
-  t.seedEvent({ type: "appointment", occurredAt: iso(8),
-    data: { title: "Growth scan" } });
+                            upload: "pending" }] } }, at(3));
+  seedAt({ type: "appointment", occurredAt: at(8),
+    data: { title: "Growth scan" } }, at(8));
   // 28 days ago -> inside the 4-weeks-ago look-back window.
-  t.seedEvent({ type: "note", occurredAt: iso(28),
-    data: { text: "There's the heartbeat — 158 bpm." } });
+  seedAt({ type: "note", occurredAt: at(28),
+    data: { text: "There's the heartbeat — 158 bpm." } }, at(28));
   return "seeded";
 })()
 """
@@ -143,9 +191,10 @@ def main():
         page.get_by_role("tab", name="Logs").click()
         page.get_by_test_id("logs-screen").wait_for(timeout=10000)
 
-        # ---- Flow 0: week filter defaults to the current week ----
+        # ---- Flow 0: week filter defaults to the current display week ----
         # Regression for the reported bug (pill said Week 37, divider said
-        # Week 38): the pill must use the same 1-based week as the dividers.
+        # Week 38): the pill must read the 1-based display week. The feed
+        # itself groups by day now — the pill never renders as a divider.
         pill = page.get_by_test_id("week-jump-button")
         pill_text = pill.inner_text()
         check("flow0: pill defaults to the current week", "Week 38" in pill_text,
@@ -160,43 +209,47 @@ def main():
         cards = page.locator('[data-testid^="event-card-"]')
         try:
             page.wait_for_function(
-                '() => document.querySelectorAll(\'[data-testid^="event-card-"]\').length >= 5',
+                f"() => ({CARD_COUNT_JS})() >= 5",
                 timeout=15000,
             )
         except Exception:
             check("flow1: 5 seeded events render", False,
-                  f"only {cards.count()} cards rendered")
+                  f"only {page.evaluate(CARD_COUNT_JS)} cards rendered")
         else:
             check("flow1: 5 seeded events render", True)
 
-        bands = page.locator('[data-testid^="week-band-"]')
-        n_bands = bands.count()
-        check("flow1: events grouped into 2+ week bands", n_bands >= 2,
-              f"bands={n_bands}")
-        band_text = page.evaluate(
-            "() => Array.from(document.querySelectorAll('[data-testid^=\"week-band-\"]'))"
-            ".map(el => el.innerText).join(' | ')")
-        check("flow1: pregnancy week bands titled", "Week 37" in band_text,
-              f"bands={band_text!r}")
+        groups = page.locator('[data-testid^="day-group-"]')
+        n_groups = groups.count()
+        check("flow1: events grouped into 2+ day groups", n_groups >= 2,
+              f"groups={n_groups}")
+        check("flow1: no week-band dividers render",
+              page.locator('[data-testid^="week-band-"]').count() == 0)
+        group_text = page.evaluate(
+            "() => Array.from(document.querySelectorAll('[data-testid^=\"day-group-\"]'))"
+            ".map(el => el.innerText.trim()).join(' | ')").lower()
+        check("flow1: day groups titled Today / Yesterday / older",
+              "today" in group_text and "yesterday" in group_text,
+              f"groups={group_text!r}")
 
         # ---- Flow 2: filter chips narrow the stream ----
-        # Chip order (Anuraj Sept 2026): All · Reports · Appointments ·
-        # Logs · Notes · Symptoms · Kicks — the Photos chip was dropped.
+        # Chip order (Anuraj Sept 2026, day-groups mockup):
+        # All · Reports · Appointments · Logs.
         chip_order = page.evaluate(
             "() => Array.from(document.querySelectorAll('[data-testid^=\"filter-chip-\"]'))"
             ".map(el => el.getAttribute('data-testid'))")
-        check("flow2: chip order is All · Reports · Appointments · Logs · Notes · Symptoms · Kicks",
+        check("flow2: chip order is All · Reports · Appointments · Logs",
               chip_order == ["filter-chip-all", "filter-chip-reports",
-                             "filter-chip-appointments", "filter-chip-logs",
-                             "filter-chip-notes", "filter-chip-symptoms",
-                             "filter-chip-kicks"],
+                             "filter-chip-appointments", "filter-chip-logs"],
               f"chips={chip_order!r}")
-        check("flow2: no Photos chip",
-              page.get_by_test_id("filter-chip-photos").count() == 0)
+        check("flow2: no Notes/Symptoms/Kicks/Photos chips",
+              page.get_by_test_id("filter-chip-notes").count() == 0
+              and page.get_by_test_id("filter-chip-symptoms").count() == 0
+              and page.get_by_test_id("filter-chip-kicks").count() == 0
+              and page.get_by_test_id("filter-chip-photos").count() == 0)
 
         page.get_by_test_id("filter-chip-reports").click()
         page.wait_for_timeout(600)
-        n = page.locator('[data-testid^="event-card-"]').count()
+        n = card_count(page)
         body = page.evaluate("document.body.innerText")
         check("flow2: Reports shows no cards (none seeded)", n == 0, f"cards={n}")
         check("flow2: Reports warm empty state",
@@ -204,7 +257,7 @@ def main():
 
         page.get_by_test_id("filter-chip-appointments").click()
         page.wait_for_timeout(600)
-        n = page.locator('[data-testid^="event-card-"]').count()
+        n = card_count(page)
         body = page.evaluate("document.body.innerText")
         check("flow2: Appointments filter shows only the appointment", n == 1, f"cards={n}")
         check("flow2: appointment card shown", "Growth scan" in body)
@@ -213,27 +266,14 @@ def main():
 
         page.get_by_test_id("filter-chip-logs").click()
         page.wait_for_timeout(600)
-        n = page.locator('[data-testid^="event-card-"]').count()
+        n = card_count(page)
         body = page.evaluate("document.body.innerText")
         check("flow2: Logs filter shows the 4 journal entries", n == 4, f"cards={n}")
         check("flow2: Logs excludes the appointment", "Growth scan" not in body)
 
-        page.get_by_test_id("filter-chip-symptoms").click()
-        page.wait_for_timeout(600)
-        n = page.locator('[data-testid^="event-card-"]').count()
-        check("flow2: Symptoms filter shows only the symptom event", n == 1, f"cards={n}")
-
-        page.get_by_test_id("filter-chip-kicks").click()
-        page.wait_for_timeout(600)
-        n = page.locator('[data-testid^="event-card-"]').count()
-        body = page.evaluate("document.body.innerText")
-        check("flow2: Kicks filter shows no cards", n == 0, f"cards={n}")
-        check("flow2: warm empty state on empty filter",
-              "Nothing here yet" in body, "empty copy missing")
-
         page.get_by_test_id("filter-chip-all").click()
         page.wait_for_timeout(600)
-        n = page.locator('[data-testid^="event-card-"]').count()
+        n = card_count(page)
         check("flow2: All restores the full stream", n == 5, f"cards={n}")
 
         # ---- Flow 3: look-back card ----
@@ -274,20 +314,19 @@ def main():
             rows = page.locator('[data-testid^="week-filter-option-"]')
             check("flow4: dropdown lists All weeks + every week", rows.count() >= 30,
                   f"rows={rows.count()}")
-            # The seed has an appointment 8 days ago -> Week 37. Filter to
-            # it and confirm the feed shows only that week's band.
-            page.get_by_test_id("week-filter-option-37").click()
+            # The seed has an appointment 8 days ago -> completed week 36
+            # (display "Week 37"; option testIDs carry the internal
+            # completed number). Filter to it and confirm the feed shows
+            # only that week's day groups — never a week-band divider.
+            page.get_by_test_id("week-filter-option-36").click()
             page.wait_for_timeout(800)
             check("flow4: picking a week closes the dropdown",
                   page.get_by_test_id("week-filter-dropdown").count() == 0)
-            bands = page.locator('[data-testid^="week-band-"]')
-            band_text = page.evaluate(
-                "() => Array.from(document.querySelectorAll('[data-testid^=\"week-band-\"]'))"
-                ".map(b => b.textContent).join(' | ')")
-            check("flow4: filtered feed shows only Week 37",
-                  bands.count() >= 1 and "Week 37" in band_text
-                  and "Week 38" not in band_text and "Week 34" not in band_text,
-                  f"bands={band_text[:160]!r}")
+            groups = page.locator('[data-testid^="day-group-"]')
+            check("flow4: filtered feed shows only that week's day groups",
+                  groups.count() >= 1
+                  and page.locator('[data-testid^="week-band-"]').count() == 0,
+                  f"groups={groups.count()}")
             pill = page.get_by_test_id("week-jump-button").inner_text()
             check("flow4: pill label matches the filter", "Week 37" in pill,
                   f"pill={pill!r}")

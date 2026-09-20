@@ -1,13 +1,15 @@
 /**
- * Timeline week-band grouping (Epic 3.1).
+ * Timeline day grouping (Epic 3.1; day groups approved by Anuraj Sept 20,
+ * 2026, superseding the week bands).
  *
  * Pure module: no database, no Expo imports — safe to unit-test with node.
  *
- * Grouping decision: the backlog draft said "grouped by day, then week",
- * but the approved v1 mockup (design/03-timeline.html, Anuraj Sept 17)
- * shows week bands — "Week 24" + date range "Sep 14 – 20" — with
- * per-card relative timestamps ("Today · 9:12 AM") and NO day sub-headers.
- * The mockup wins: sections are week bands only.
+ * Grouping decision: the feed groups entries by the LOCAL calendar day
+ * they were logged — "Today", "Yesterday", "Friday, Sep 18" — newest day
+ * first, newest entry first within the day. The week pill is a pure
+ * FILTER now; it no longer renders as a divider. The pregnancy-week
+ * helpers below stay: the week filter matches on the same completed-week
+ * formula as ever.
  */
 
 import { addDaysISO, gestationalDays, pregnancyWeek, todayISO } from '../onboarding/dates';
@@ -80,21 +82,119 @@ export function pregnancyWeekForEvent(dueDate: string, occurredAt: string): numb
 
 /**
  * The date an entry sits at in the story (Anuraj, Sept 2026): EVERY new
- * report, log, or appointment goes to the top of the current week's feed
- * section, so entries sort and week-band by CREATION date — never by
+ * report, log, or appointment goes to the top of the current day's feed
+ * section, so entries sort and day-group by CREATION date — never by
  * subject date (not the appointment's scheduled date, not a report's
- * document date). Pure — the feed's ORDER BY, week banding, and week
+ * document date). Pure — the feed's ORDER BY, day grouping, and week
  * filter all funnel through this one function so they can never disagree.
  */
 export function storyDateOf(event: LocalEvent): string {
   return event.createdAt || event.occurredAt;
 }
 
+/* ------------------------------------------------------------------ */
+/* Day grouping (Willow, Anuraj Sept 20, 2026): the feed groups entries */
+/* by the LOCAL calendar day they were logged — "Today", "Yesterday",  */
+/* "Friday, Sep 18" — newest day first, newest entry first within the  */
+/* day. Grouping is on the story date (storyDateOf) in the DEVICE's    */
+/* timezone, so an 11:58 PM entry and a 12:03 AM entry land in         */
+/* different groups.                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Local-calendar YYYY-MM-DD for an ISO timestamp, in the device's
+ * timezone. Null when the timestamp doesn't parse.
+ */
+export function localDayISO(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Add (or subtract) whole days to a YYYY-MM-DD date. Null on bad input. */
+function addDaysToDay(dayISO: string, n: number): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayISO);
+  if (!m) return null;
+  // Noon-local sidesteps DST edges; only the calendar day matters.
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12);
+  d.setDate(d.getDate() + n);
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${da}`;
+}
+
+const WEEKDAYS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+/**
+ * "Today" / "Yesterday" / "Friday, Sep 18" — the day-group label for a
+ * local YYYY-MM-DD day, relative to the device-local today.
+ */
+export function formatDayGroupLabel(dayISO: string, todayLocalISO: string): string {
+  if (dayISO === todayLocalISO) return 'Today';
+  if (dayISO === addDaysToDay(todayLocalISO, -1)) return 'Yesterday';
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayISO);
+  if (!m) return dayISO;
+  // Noon-local sidesteps DST edges; only the weekday matters.
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12);
+  return `${WEEKDAYS[d.getDay()]}, ${formatDayShort(dayISO)}`;
+}
+
+/**
+ * Groups events into day sections, newest day first; within a day,
+ * newest event first. Accepts unsorted input; returns [] for no events.
+ *
+ * `todayLocalISO` pins the "Today"/"Yesterday" labels (defaults to the
+ * device-local today) — pass it explicitly in tests for determinism.
+ */
+export function buildDaySections(
+  events: LocalEvent[],
+  todayLocalISO?: string,
+): TimelineSection[] {
+  const today = todayLocalISO ?? localDayISO(new Date().toISOString()) ?? '';
+  const sorted = [...events].sort((a, b) => {
+    const sa = storyDateOf(a);
+    const sb = storyDateOf(b);
+    return sa < sb ? 1 : sa > sb ? -1 : 0;
+  });
+  const entries = new Map<string, TimelineSection>();
+  for (const event of sorted) {
+    const day = localDayISO(storyDateOf(event));
+    if (!day) continue;
+    let section = entries.get(day);
+    if (!section) {
+      section = {
+        key: `day-${day}`,
+        title: formatDayGroupLabel(day, today),
+        subtitle: '',
+        data: [],
+      };
+      entries.set(day, section);
+    }
+    section.data.push(event);
+  }
+  // Keys are `day-YYYY-MM-DD`, so lexicographic order is chronological.
+  return [...entries.values()].sort((a, b) =>
+    a.key < b.key ? 1 : a.key > b.key ? -1 : 0,
+  );
+}
+
 /**
  * The completed pregnancy week "she's in" for a due date — the SAME week
- * number the timeline dividers use internally (pregnancyWeekForEvent for
- * an event that occurred today). Out-of-range days clamp to the 1…42
- * band; null when dates don't parse or the pregnancy hasn't begun.
+ * number the week filter matches on (pregnancyWeekForEvent for an event
+ * logged today). Out-of-range days clamp to the 1…42 band; null when
+ * dates don't parse or the pregnancy hasn't begun.
  */
 export function currentPregnancyWeek(dueDate: string, asOfISO: string = todayISO()): number | null {
   const w = pregnancyWeek(dueDate, asOfISO);
@@ -114,8 +214,8 @@ export function displayWeekForDay(dueDate: string, dayISO: string): number | nul
 
 /**
  * The user-facing display week "she's in" — the pill/dropdown number.
- * Display = completed + 1, so the current-week pill and the dividers
- * always read the same week.
+ * Display = completed + 1, so the current-week pill and the week-filter
+ * options always read the same week.
  */
 export function currentDisplayWeek(dueDate: string, asOfISO: string = todayISO()): number | null {
   const w = currentPregnancyWeek(dueDate, asOfISO);
@@ -157,88 +257,3 @@ export function formatWeekRange(startISO: string, endISOExclusive: string): stri
   return `${start} – ${end}`;
 }
 
-/** Monday (week start) of the calendar week containing `dayISO` (YYYY-MM-DD). */
-function mondayOfWeek(dayISO: string): string | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayISO);
-  if (!m) return null;
-  // Noon-local avoids DST edge cases; only the calendar day matters.
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12);
-  const dow = (d.getDay() + 6) % 7; // 0 = Monday
-  d.setDate(d.getDate() - dow);
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, '0');
-  const da = String(d.getDate()).padStart(2, '0');
-  return `${y}-${mo}-${da}`;
-}
-
-interface BandInfo {
-  key: string;
-  title: string;
-  subtitle: string;
-  /** Week-start YYYY-MM-DD; sections sort newest-first on this. */
-  sortKey: string;
-}
-
-/** The week band for one event: pregnancy weeks when a due date is known,
- * otherwise Monday-start calendar weeks ("Week of Sep 14"). */
-function bandForEvent(event: LocalEvent, dueDate: string | null): BandInfo | null {
-  // Story position: appointments band by the week they were logged in.
-  const day = storyDateOf(event).slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
-
-  if (dueDate) {
-    const week = pregnancyWeekForEvent(dueDate, storyDateOf(event));
-    const range = week === null ? null : pregnancyWeekRange(week, dueDate);
-    if (week === null || !range) return null;
-    return {
-      key: `preg-${week}`,
-      // User-facing divider label: the DISPLAY week (completed + 1).
-      // Keys and ranges stay on the completed-week number.
-      title: displayWeekLabel(week),
-      subtitle: formatWeekRange(range.startISO, range.endISO),
-      sortKey: range.startISO,
-    };
-  }
-
-  const startISO = mondayOfWeek(day);
-  const endExclusive = startISO ? addDaysISO(startISO, 7) : null;
-  if (!startISO || !endExclusive) return null;
-  return {
-    key: `cal-${startISO}`,
-    title: `Week of ${formatDayShort(startISO)}`,
-    subtitle: formatWeekRange(startISO, endExclusive),
-    sortKey: startISO,
-  };
-}
-
-/**
- * Groups events into week-band sections, newest week first; within a band,
- * newest event first. Accepts unsorted input; returns [] for no events.
- */
-export function buildSections(
-  events: LocalEvent[],
-  dueDate: string | null,
-): TimelineSection[] {
-  const sorted = [...events].sort((a, b) => {
-    const sa = storyDateOf(a);
-    const sb = storyDateOf(b);
-    return sa < sb ? 1 : sa > sb ? -1 : 0;
-  });
-  const entries = new Map<string, { section: TimelineSection; sortKey: string }>();
-  for (const event of sorted) {
-    const band = bandForEvent(event, dueDate);
-    if (!band) continue;
-    let entry = entries.get(band.key);
-    if (!entry) {
-      entry = {
-        section: { key: band.key, title: band.title, subtitle: band.subtitle, data: [] },
-        sortKey: band.sortKey,
-      };
-      entries.set(band.key, entry);
-    }
-    entry.section.data.push(event);
-  }
-  return [...entries.values()]
-    .sort((a, b) => (a.sortKey < b.sortKey ? 1 : a.sortKey > b.sortKey ? -1 : 0))
-    .map((entry) => entry.section);
-}

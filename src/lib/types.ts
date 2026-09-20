@@ -85,7 +85,7 @@ export interface LocalEvent {
   updatedAt: string; // ISO 8601
   /**
    * Immutable creation timestamp (ISO 8601, v6 schema). Appointment cards
-   * in the feed sort and week-band by this — the entry sits in the story
+   * in the feed sort and day-group by this — the entry sits in the story
    * where it was logged, not at its scheduled date. Always resolved (falls
    * back to occurredAt for rows that predate the column).
    */

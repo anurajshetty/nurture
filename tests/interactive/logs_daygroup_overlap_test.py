@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """
-Regression test: Logs week-band dividers must not overlap moment cards.
+Regression test: Logs day-group headers must not overlap moment cards.
 
-Anuraj caught this on the live app (Sept 19, 2026): the sticky "Week N"
-section header ("Week 38 · Sep 17 – 23") rendered on top of a moment card,
-with card text bleeding through above/below the divider band.
+Anuraj caught this on the live app (Sept 19, 2026): the sticky section
+header (then "Week N" — now the day-group labels "Today", "Yesterday",
+"Friday, Sep 18") rendered on top of a moment card, with card text
+bleeding through above/below the header band.
 
-Root cause: WeekBandHeader used marginTop/marginBottom for its spacing.
+Root cause: the header used marginTop/marginBottom for its spacing.
 Backgrounds don't cover margins, so when the header sticks
 (stickySectionHeadersEnabled), cards scrolling underneath show through the
 transparent margin zones. Fix: full-bleed opaque background via padding
 (zero vertical margins) + zIndex so the stuck header paints above cards.
 
-Run:  python3 tests/interactive/logs_weekband_overlap_test.py [--keep-open]
+Run:  python3 tests/interactive/logs_daygroup_overlap_test.py [--keep-open]
 Must stay green before any push that touches the timeline.
 
 Flows:
-  1. boot + seed -> 3+ week bands render with tall multi-line cards
-  2. mechanism: every week-band header has zero vertical margins and an
+  1. boot + seed -> 3+ day groups render with tall multi-line cards
+  2. mechanism: every day-group header has zero vertical margins and an
      opaque background (no transparent zones for cards to show through)
   3. visual: scroll a tall card under a stuck header at 390x844 and
      screenshot it for human review (screenshots in /tmp)
@@ -50,15 +51,26 @@ SEED_JS_TEMPLATE = r"""
   t.completeOnboarding();
   t.clearEvents();
   const LONGTEXT = __LONGTEXT__;
-  const now = Date.now();
-  const iso = (daysAgo, h) => new Date(now - daysAgo * 86400000 - h * 3600000).toISOString();
+  // Day groups key on the LOCAL calendar day of createdAt (the story
+  // date), so backdate createdAt explicitly — saveEvent stamps "now".
+  const now = new Date();
+  const at = (daysAgo, h) => {
+    const x = new Date(now);
+    x.setDate(x.getDate() - daysAgo);
+    x.setHours(h === undefined ? 9 : h, 12, 0, 0);
+    return x.toISOString();
+  };
   const days = [0, 0, 1, 2, 4, 6, 8, 9, 11, 13, 15, 17, 20, 24, 27];
   days.forEach((d, i) => {
-    t.seedEvent({ type: "note", occurredAt: iso(d, i % 5),
+    const created = at(d, i % 5);
+    const ev = t.seedEvent({ type: "note", occurredAt: created,
       data: { text: "Moment " + (i + 1) + " (" + d + "d ago). " + LONGTEXT } });
+    t.setCreatedAt(ev.id, created);
   });
-  t.seedEvent({ type: "note", occurredAt: iso(28, 3),
+  const hb = at(28, 3);
+  const ev28 = t.seedEvent({ type: "note", occurredAt: hb,
     data: { text: "There's the heartbeat - 158 bpm." } });
+  t.setCreatedAt(ev28.id, hb);
   return "seeded";
 })()
 """
@@ -91,7 +103,7 @@ def serve_dist(route):
 
 SCROLL_SETUP_JS = """
 (() => {
-  const band = document.querySelectorAll('[data-testid^="week-band-"]')[1];
+  const band = document.querySelectorAll('[data-testid^="day-group-"]')[1];
   if (!band) return "no-band";
   let el = band.parentElement, scroller = null;
   while (el) {
@@ -111,7 +123,7 @@ SCROLL_SETUP_JS = """
 MECHANISM_JS = """
 (() => {
   const out = [];
-  document.querySelectorAll('[data-testid^="week-band-"]').forEach((b) => {
+  document.querySelectorAll('[data-testid^="day-group-"]').forEach((b) => {
     const s = getComputedStyle(b);
     out.push({
       id: b.getAttribute("data-testid"),
@@ -192,8 +204,8 @@ def main():
         else:
             check("flow1: 10+ seeded cards render", True)
 
-        n_bands = page.locator('[data-testid^="week-band-"]').count()
-        check("flow1: 3+ week bands render", n_bands >= 3, f"bands={n_bands}")
+        n_groups = page.locator('[data-testid^="day-group-"]').count()
+        check("flow1: 3+ day groups render", n_groups >= 3, f"groups={n_groups}")
 
         # ---- Flow 2: the bleed mechanism must be gone ----
         bands = page.evaluate(MECHANISM_JS)

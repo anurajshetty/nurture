@@ -3,11 +3,14 @@
  * contract, Anuraj Sept 2026).
  *
  * Locked rule: LMP = EDD − 280 days; completedWeeks = floor((day − LMP) / 7);
- * DISPLAYED week = completed + 1. Internal grouping and filter matching
- * stay on completed-week numbers (pregnancyWeekForEvent / buildSections
- * keys); every user-facing label — the pill, the dropdown options, the
- * divider bands — shows the display week. Due 2026-10-08: Sep 19 is
- * completed 37, DISPLAYED Week 38, everywhere.
+ * DISPLAYED week = completed + 1. Internal filter matching stays on
+ * completed-week numbers (pregnancyWeekForEvent on the event's STORY
+ * date); every user-facing label — the pill, the dropdown options —
+ * shows the display week. The feed itself groups by day
+ * (buildDaySections); the week pill is a pure filter and no longer
+ * renders as a divider (Anuraj Sept 20, 2026).
+ *
+ * Due 2026-10-08: Sep 19 is completed 37, DISPLAYED Week 38, everywhere.
  *
  * Run with:
  *
@@ -18,11 +21,12 @@
  */
 
 import {
-  buildSections,
+  buildDaySections,
   currentDisplayWeek,
   currentPregnancyWeek,
   displayWeekLabel,
   pregnancyWeekForEvent,
+  storyDateOf,
 } from '../src/timeline/timeline';
 import { displayWeek, weekOf } from '../src/onboarding/dates';
 import type { LocalEvent } from '../src/lib/types';
@@ -53,29 +57,27 @@ check('weekOf: completed-weeks convention is 37', weekOf(DUE, '2026-09-19')?.wee
 check('displayWeek: Sep 19 reads Week 38', displayWeek(DUE, '2026-09-19'), 38);
 check('currentDisplayWeek: the pill reads Week 38', currentDisplayWeek(DUE, '2026-09-19'), 38);
 
-// Unification invariant: the pill's display week always equals the divider
-// label for an event that occurred on the same day — swept across
-// completed weeks 30..41.
+// Unification invariant: the pill's display week always equals the
+// DISPLAY label for the week an event was logged in — swept across
+// completed weeks 30..41. The divider is a day group now; the agreement
+// that matters is pill label ↔ week-filter matching (both funnel through
+// pregnancyWeekForEvent on the story date).
 for (let w = 30; w <= 41; w += 1) {
   // LMP = due - 280d = 2026-01-01; completed week w starts LMP + 7*w.
   const lmp = Date.UTC(2026, 0, 1);
   const day = new Date(lmp + 7 * w * 86400000);
   const iso = day.toISOString().slice(0, 10);
-  const sections = buildSections(
-    [
-      {
-        id: 'x',
-        type: 'note',
-        occurredAt: `${iso}T12:00:00.000Z`,
-        createdAt: `${iso}T12:00:00.000Z`,
-        data: {},
-      } as unknown as LocalEvent,
-    ],
-    DUE,
-  );
+  const event = {
+    id: 'x',
+    type: 'note',
+    occurredAt: `${iso}T12:00:00.000Z`,
+    createdAt: `${iso}T12:00:00.000Z`,
+    data: {},
+  } as unknown as LocalEvent;
+  const matched = pregnancyWeekForEvent(DUE, storyDateOf(event));
   check(
-    `pill/divider agreement on ${iso} (completed ${w})`,
-    sections[0]?.title,
+    `pill/filter agreement on ${iso} (completed ${w})`,
+    matched === null ? null : displayWeekLabel(matched),
     `Week ${currentDisplayWeek(DUE, iso)}`,
   );
 }
@@ -89,10 +91,9 @@ check('clamps to week 1 right after LMP', currentPregnancyWeek(DUE, '2026-01-01'
 check('clamps to week 42 far past the due date', currentPregnancyWeek(DUE, '2027-06-01'), 42);
 check('display null before the pregnancy begins', currentDisplayWeek(DUE, '2025-12-20'), null);
 
-// Filter semantics: events grouped by completed-week band internally;
-// selecting one week keeps only that week's divider + entries, and the
-// divider label shows the DISPLAY week (mirrors the app's applyFilters +
-// buildSections path).
+// Filter semantics: selecting a week keeps only that week's entries
+// (mirrors the app's applyFilters), and the feed renders them in day
+// groups — no week dividers anymore.
 function fakeEvent(id: string, daysAgo: number): LocalEvent {
   const t = Date.UTC(2026, 8, 19) - daysAgo * 86400000;
   return {
@@ -110,17 +111,18 @@ const events = [
   fakeEvent('e16', 16), // Sep 3 -> completed 35 -> "Week 36"
   fakeEvent('e28', 28), // Aug 22 -> completed 33 -> "Week 34"
 ];
-const weekOfEvent = (e: LocalEvent) => pregnancyWeekForEvent(DUE, e.occurredAt);
-check('band keys stay on completed weeks', events.map(weekOfEvent), [37, 36, 35, 33]);
+const weekOfEvent = (e: LocalEvent) => pregnancyWeekForEvent(DUE, storyDateOf(e));
+check('filter matching stays on completed weeks', events.map(weekOfEvent), [37, 36, 35, 33]);
 
 const filtered36 = events.filter((e) => weekOfEvent(e) === 36);
-const sections36 = buildSections(filtered36, DUE);
-check('filtering to completed 36 yields one divider', sections36.map((s) => s.title), ['Week 37']);
-check('filtering to completed 36 yields one entry', sections36[0]!.data.map((e) => e.id), ['e8']);
+const sections36 = buildDaySections(filtered36, '2026-09-19');
+check('filtering to completed 36 yields one day group', sections36.length, 1);
+check('filtering to completed 36 yields one entry', sections36[0]!.data.map((e: LocalEvent) => e.id), ['e8']);
+check('day group key is the local day', sections36[0]!.key, 'day-2026-09-11');
 
-const sectionsAll = buildSections(events, DUE);
-check('all weeks yields four dividers with display labels', sectionsAll.map((s) => s.title),
-  ['Week 38', 'Week 37', 'Week 36', 'Week 34']);
+const sectionsAll = buildDaySections(events, '2026-09-19');
+check('all weeks yields four day groups', sectionsAll.map((s: { title: string }) => s.title),
+  ['Today', 'Friday, Sep 11', 'Thursday, Sep 3', 'Saturday, Aug 22']);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

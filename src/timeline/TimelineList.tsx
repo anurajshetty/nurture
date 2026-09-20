@@ -1,11 +1,11 @@
 /**
- * TimelineList (Epic 3.1).
+ * TimelineList (Epic 3.1; day groups approved by Anuraj Sept 20, 2026).
  *
- * The virtualized keepsake stream: a SectionList of week-band sections
- * with EventCard rows. Virtualization keeps 9 months of daily logging
- * smooth. The memory look-back card (track 3) sits above everything as
- * the list header; per-card relative times ("Today · 9:12 AM") come from
- * EventCard itself.
+ * The virtualized keepsake stream: a SectionList of day-group sections
+ * ("Today", "Yesterday", "Friday, Sep 18") with EventCard rows.
+ * Virtualization keeps 9 months of daily logging smooth. The memory
+ * look-back card (track 3) sits above everything as the list header;
+ * per-card relative times ("Today · 9:12 AM") come from EventCard itself.
  */
 
 import type { ReactElement, Ref } from 'react';
@@ -16,7 +16,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { colors, fontDisplay, spacing, type as typeScale } from '../theme/tokens';
+import { colors, spacing } from '../theme/tokens';
 import type { LocalEvent } from '../lib/types';
 import type { TimelineSection } from './timeline';
 import type { LookBack } from './lookback';
@@ -39,13 +39,21 @@ interface TimelineListProps {
   sectionListRef?: Ref<SectionList<LocalEvent, TimelineSection>>;
 }
 
-/** Week band header: serif title + muted range + hairline, per the mockup. */
-function WeekBandHeader({ section }: { section: TimelineSection }) {
+/**
+ * Day group header: small uppercase muted label, per the approved mockup.
+ * Day groups are quiet navigation — coral stays reserved for kickers and
+ * active elements, so the label reads in the feed's muted gray.
+ *
+ * Sticky-section-header rule (Sept 2026 overlap bug): the background must
+ * cover the header's FULL footprint. Backgrounds don't cover margins, so
+ * the spacing around the text is padding (never margins) — otherwise
+ * cards scrolling underneath show through the transparent margin zones
+ * when the header sticks.
+ */
+function DayGroupHeader({ section }: { section: TimelineSection }) {
   return (
-    <View style={styles.weekband} testID={`week-band-${section.key}`}>
-      <Text style={styles.weekTitle}>{section.title}</Text>
-      <Text style={styles.weekRange}>{section.subtitle}</Text>
-      <View style={styles.hairline} />
+    <View style={styles.daygroup} testID={`day-group-${section.key}`}>
+      <Text style={styles.dayLabel}>{section.title}</Text>
     </View>
   );
 }
@@ -76,7 +84,7 @@ export default function TimelineList({
           onAppointmentDelete={onAppointmentDelete}
         />
       )}
-      renderSectionHeader={({ section }) => <WeekBandHeader section={section} />}
+      renderSectionHeader={({ section }) => <DayGroupHeader section={section} />}
       stickySectionHeadersEnabled
       ListHeaderComponent={
         lookBack ? (
@@ -115,35 +123,24 @@ const styles = StyleSheet.create({
     paddingBottom: 112,
     flexGrow: 1,
   },
-  weekband: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
+  daygroup: {
     // Sticky section header: the cream background must cover the header's
-    // FULL footprint. Backgrounds don't cover margins, so the spacing around
-    // the text is padding (never margins) — otherwise cards scrolling
-    // underneath show through the transparent margin zones when the header
-    // sticks (Sept 2026 overlap bug). Compacted (Anuraj Sept 2026): the
-    // divider was eating feed space — tighter padding, smaller title.
+    // FULL footprint. Backgrounds don't cover margins, so the spacing
+    // around the text is padding (never margins) — otherwise cards
+    // scrolling underneath show through the transparent margin zones when
+    // the header sticks (Sept 2026 overlap bug).
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
+    paddingHorizontal: 2,
     backgroundColor: colors.bg,
     zIndex: 1,
   },
-  weekTitle: {
-    fontFamily: fontDisplay,
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: '600',
-    color: colors.ink,
-  },
-  weekRange: {
-    ...typeScale.footnote,
+  /** Small uppercase muted label — day groups are quiet navigation. */
+  dayLabel: {
+    fontSize: 12,
+    letterSpacing: 1.7,
+    textTransform: 'uppercase',
+    fontWeight: '700',
     color: colors.muted,
-  },
-  hairline: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.line,
   },
 });

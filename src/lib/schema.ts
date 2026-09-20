@@ -261,7 +261,7 @@ function runMigrations(handle: SyncDbHandle): void {
     // v6 (Willow feed story order, Sept 2026): events gains created_at,
     // the immutable creation timestamp. EVERY new report, log, or
     // appointment goes to the top of the current week's feed section: the
-    // feed sorts and week-bands by creation date, never by subject date
+    // feed sorts and day-groups by creation date, never by subject date
     // (not the appointment's scheduled date, not a report's document
     // date). Set once at insert, never updated. Existing rows backfill to
     // occurred_at — the closest knowable story position, and exactly the

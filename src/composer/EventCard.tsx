@@ -153,6 +153,22 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
   const [state, setState] = useState<ReportSummaryState | null>(() =>
     readReportSummaryState(event.data),
   );
+  // "Show more" (Anuraj-approved Sept 2026, day-groups mockup): long
+  // summaries clamp to 4 lines; the toggle appears only when the text
+  // actually overflows the clamp. Overflow is measured, not guessed: a
+  // hidden unclamped twin of the body is laid out next to the clamped
+  // text, and the toggle latches on when the twin is taller. The latch
+  // survives expand/collapse (the twin unmounts when expanded).
+  const [expanded, setExpanded] = useState(false);
+  const [fullHeight, setFullHeight] = useState(0);
+  const [clampedHeight, setClampedHeight] = useState(0);
+  const [hasOverflow, setHasOverflow] = useState(false);
+
+  useEffect(() => {
+    if (!expanded && clampedHeight > 0 && fullHeight > clampedHeight + 2) {
+      setHasOverflow(true);
+    }
+  }, [expanded, clampedHeight, fullHeight]);
 
   useEffect(() => {
     if (event.type !== 'report') return;
@@ -209,17 +225,55 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
   }
 
   // Ready: text-only summary card. No attachment row, no Open › — report
-  // entries never carry files anymore.
+  // entries never carry files anymore. Long summaries clamp to 4 lines
+  // with a coral "Show more" toggle that appears only when the text
+  // overflows the clamp; tapping expands the full text and the toggle
+  // flips to "Show less". Short summaries never show the toggle
+  // (Anuraj-approved Sept 2026).
   return (
     <View style={styles.summaryCard} testID="report-summary-card">
       <Text style={styles.summaryTitle} testID="report-summary-title">
         {state.title}
       </Text>
-      {/* Long summaries clamp to 4 lines; no Read more/Show less toggle
-          (Anuraj's pending review — do not build until approved). */}
-      <Text style={styles.summaryBody} numberOfLines={4} ellipsizeMode="tail">
-        {state.summary}
-      </Text>
+      <View style={styles.summaryBodyWrap}>
+        <Text
+          style={styles.summaryBody}
+          numberOfLines={expanded ? undefined : 4}
+          ellipsizeMode="tail"
+          onLayout={(e) => {
+            if (!expanded) setClampedHeight(e.nativeEvent.layout.height);
+          }}
+        >
+          {state.summary}
+        </Text>
+        {!expanded && (
+          <Text
+            style={[styles.summaryBody, styles.summaryBodyMeasure]}
+            onLayout={(e) => setFullHeight(e.nativeEvent.layout.height)}
+            importantForAccessibility="no-hide-descendants"
+          >
+            {state.summary}
+          </Text>
+        )}
+      </View>
+      {(hasOverflow || expanded) && (
+        <Pressable
+          testID="report-summary-toggle"
+          accessibilityRole="button"
+          accessibilityLabel={
+            expanded
+              ? 'Show less of the report summary'
+              : 'Show more of the report summary'
+          }
+          onPress={() => setExpanded((v) => !v)}
+          hitSlop={8}
+          style={styles.summaryToggle}
+        >
+          <Text style={styles.summaryToggleText}>
+            {expanded ? 'Show less' : 'Show more'}
+          </Text>
+        </Pressable>
+      )}
       {/* Fixed disclaimer — never model-written (Anuraj-approved spec). */}
       <Text style={styles.summaryDisclaimer}>{REPORT_SUMMARY_DISCLAIMER}</Text>
     </View>
@@ -575,6 +629,34 @@ const styles = StyleSheet.create({
     ...typeScale.body,
     color: '#5C554D',
     lineHeight: 24,
+  },
+  /** Relative anchor for the hidden overflow-measurement twin. */
+  summaryBodyWrap: {
+    position: 'relative',
+  },
+  /**
+   * The overflow-measurement twin: identical text, no clamp, invisible
+   * and non-interactive. Its laid-out height tells us whether the
+   * visible text overflows the 4-line clamp. Hidden from assistive tech
+   * (duplicate content).
+   */
+  summaryBodyMeasure: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    opacity: 0,
+  },
+  /** "Show more" / "Show less" on long report summaries: coral, 44pt. */
+  summaryToggle: {
+    minHeight: 44,
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+  },
+  summaryToggleText: {
+    ...typeScale.subhead,
+    fontWeight: '700',
+    color: colors.coralDeep,
   },
   summaryDisclaimer: {
     ...typeScale.footnote,
