@@ -14,19 +14,23 @@
  *
  * Failures surface as a typed ReportSummaryError:
  * - 'not_configured'  — the edge function has no provider key yet
- *   (or no backend is wired up). Degrade gracefully: the card shows
- *   "Couldn't read this one" with Try again.
+ *   (or no backend is wired up). The setup card says summaries aren't
+ *   set up yet.
+ * - 'not_related'     — the function judged the document off-topic
+ *   (HTTP 422 `{error:'not_related'}`). The entry is hard-deleted and
+ *   the UI toasts — the document is never persisted as a feed entry.
  * - 'network'         — transport failure or the 20s timeout.
  * - 'invalid_response' — the function answered, but the outcome was
- *   unusable (bad schema, 4xx/422/502), or the input failed validation.
+ *   unusable (bad schema, other 4xx/502), or the input failed validation.
  *
  * The supabase client is resolved lazily (and is injectable for tests) so
  * importing this module never touches native modules or the network.
  *
  * Ephemeral byte stash: `stashReportBytes` keeps the picked bytes in a
- * module-level Map (memory only, cleared on success) so Try again can
- * re-send without re-picking. A restart wipes the stash — a persisted
- * 'summarizing' state with no stashed bytes degrades to 'failed'.
+ * module-level Map (memory only, cleared after the summary attempt) so
+ * the in-flight attempt can send them. A restart wipes the stash — a
+ * persisted 'summarizing' state with no stashed bytes has its entry
+ * hard-deleted instead of hanging.
  *
  * Summary-state persistence: `writeReportSummaryState` manages
  * `event.data.reportSummary` (`{status:'summarizing'} | {status:'ready',…}
@@ -37,12 +41,13 @@
  */
 
 import { getDb } from '../lib/db';
-import { getEvent } from '../sync/store';
+import { getEvent, hardDeleteEvent } from '../sync/store';
 import {
   REPORT_SUMMARY_DISCLAIMER,
   readReportSummaryState,
   runReportSummaryFlow,
   type ReportBytes,
+  type ReportFailureKind,
   type ReportSummaryInput,
   type ReportSummaryResult,
   type ReportSummaryState,
@@ -51,10 +56,17 @@ import {
 export {
   REPORT_SUMMARY_DISCLAIMER,
   readReportSummaryState,
+  type ReportFailureKind,
   type ReportSummaryInput,
   type ReportSummaryResult,
   type ReportSummaryState,
 };
+
+/** Transient toast copy for a genuine summary failure (Anuraj, Sept 2026). Locked copy. */
+export const REPORT_SUMMARY_FAILED_TOAST = 'Report summary failed';
+
+/** Transient toast copy for the off-topic verdict (Anuraj, Sept 2026). Locked copy. */
+export const REPORT_SUMMARY_NOT_RELATED_TOAST = 'Report not related to pregnancy or baby';
 
 /** Name of the Supabase edge function that summarizes health documents. */
 export const REPORT_SUMMARY_FUNCTION_NAME = 'report-summary';
@@ -78,7 +90,7 @@ const SUPPORTED_MIME_TYPES = new Set([
 /** Sanity cap on the inline payload: 10MB of bytes ≈ 13.4M base64 chars. */
 const MAX_INLINE_CHARS = 20_000_000;
 
-export type ReportSummaryErrorCode = 'not_configured' | 'network' | 'invalid_response';
+export type ReportSummaryErrorCode = 'not_configured' | 'network' | 'invalid_response' | 'not_related';
 
 /** Typed failure from summarizeReport. `code` is stable for UI branching. */
 export class ReportSummaryError extends Error {
@@ -218,6 +230,27 @@ function isNotConfiguredError(error: unknown, data: unknown): boolean {
 }
 
 /**
+ * True when the failure is the edge function's off-topic verdict: HTTP
+ * 422 with a `{error:'not_related'}` body. Both 422 verdicts
+ * ('unreadable' and 'not_related') share the status, so the BODY decides
+ * — a bare 422 is not enough. Never throws and never logs the body
+ * (document contents stay private).
+ */
+async function isNotRelatedVerdict(error: unknown, data: unknown): Promise<boolean> {
+  try {
+    if (isRecord(data) && data.error === 'not_related') return true;
+    const context = (error as { context?: unknown } | null)?.context;
+    if (!isRecord(context) || context.status !== 422) return false;
+    const json = context.json;
+    if (typeof json !== 'function') return false;
+    const body = await (json as () => Promise<unknown>).call(context);
+    return isRecord(body) && body.error === 'not_related';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Summarizes a report via the `report-summary` edge function. Sends
  * `{ dataBase64, mimeType }` — the in-memory document bytes, inline.
  * Nothing is persisted by this call. Throws ReportSummaryError on any
@@ -263,13 +296,24 @@ export async function summarizeReport(
         );
       }),
     ]);
-    if (!settled.ok) throw toSummaryError(settled.error, 'Summary request failed.');
+    if (!settled.ok) {
+      // The transport threw (real supabase-js path: FunctionsHttpError on
+      // non-2xx). An off-topic verdict still surfaces here — read the 422
+      // body before falling back to the generic network mapping.
+      if (await isNotRelatedVerdict(settled.error, null)) {
+        throw new ReportSummaryError('not_related', 'Report is not related to pregnancy or baby.');
+      }
+      throw toSummaryError(settled.error, 'Summary request failed.');
+    }
     if (settled.result.error) {
       if (isNotConfiguredError(settled.result.error, settled.result.data)) {
         throw new ReportSummaryError(
           'not_configured',
           'Report summaries are not set up yet.',
         );
+      }
+      if (await isNotRelatedVerdict(settled.result.error, settled.result.data)) {
+        throw new ReportSummaryError('not_related', 'Report is not related to pregnancy or baby.');
       }
       // The function answered with an HTTP error (400/422/502 …): the
       // transport worked, the response didn't. Thrown transport/timeout
@@ -288,14 +332,9 @@ export async function summarizeReport(
 
 const reportByteStash = new Map<string, ReportBytes>();
 
-/** Stashes picked bytes in memory so the summary (and Try again) can send them. */
+/** Stashes picked bytes in memory so the summary can send them. */
 export function stashReportBytes(eventId: string, bytes: ReportBytes): void {
   reportByteStash.set(eventId, bytes);
-}
-
-/** True while stashed bytes are available for the event (same session only). */
-export function hasStashedReportBytes(eventId: string): boolean {
-  return reportByteStash.has(eventId);
 }
 
 /* ------------------------------------------------------------------ */
@@ -325,6 +364,32 @@ function notifySummaryListeners(eventId: string): void {
       l(eventId);
     } catch {
       // A listener must never break persistence.
+    }
+  }
+}
+
+type SummaryOutcomeListener = (eventId: string, kind: ReportFailureKind) => void;
+const summaryOutcomeListeners = new Set<SummaryOutcomeListener>();
+
+/**
+ * Subscribe to summary-run outcomes that delete the entry (genuine
+ * failure or off-topic verdict). The Logs screen uses this to drop the
+ * interim card from its list and show the transient toast — the entry
+ * is already gone by the time this fires. Returns unsubscribe.
+ */
+export function subscribeReportSummaryOutcome(listener: SummaryOutcomeListener): () => void {
+  summaryOutcomeListeners.add(listener);
+  return () => {
+    summaryOutcomeListeners.delete(listener);
+  };
+}
+
+function notifyOutcomeListeners(eventId: string, kind: ReportFailureKind): void {
+  for (const l of summaryOutcomeListeners) {
+    try {
+      l(eventId, kind);
+    } catch {
+      // A listener must never break the flow.
     }
   }
 }
@@ -402,18 +467,25 @@ function flowStoreFor(eventId: string) {
     setEntryName: (name: string): void => {
       updateReportEntryName(eventId, name);
     },
+    deleteEntry: (): void => {
+      hardDeleteEvent(eventId);
+    },
   };
 }
 
 function takeStashedBytes(eventId: string): ReportBytes | null {
-  // Peek, don't consume: Try again may need the bytes more than once.
+  // Peek, don't consume: a failure mid-flight still has the bytes stashed,
+  // and on app restart a stuck 'summarizing' entry must not be retried —
+  // the flow hard-deletes instead.
   return reportByteStash.get(eventId) ?? null;
 }
 
 /**
  * Starts the ephemeral summary flow for a report event (called right
  * after the event is saved and its bytes are stashed). Fire-and-forget:
- * the card re-renders via `subscribeReportSummary` as states land.
+ * the card re-renders via `subscribeReportSummary` as states land, and
+ * failures delete the entry + notify `subscribeReportSummaryOutcome`
+ * (the UI toasts; nothing persists).
  */
 export function startReportSummary(eventId: string, deps: SummarizeReportDeps = {}): void {
   void runReportSummaryFlow({
@@ -424,13 +496,14 @@ export function startReportSummary(eventId: string, deps: SummarizeReportDeps = 
       reportByteStash.delete(eventId);
     },
     summarize: (input) => summarizeReport(input, deps),
+    onFailure: (kind) => notifyOutcomeListeners(eventId, kind),
   });
 }
 
 /**
  * Re-runs the flow after a remount when the persisted state is still
  * 'summarizing'. Same-session only in practice: with no stashed bytes
- * the flow marks the entry 'failed' instead of hanging.
+ * the entry is hard-deleted instead of hanging.
  */
 export function resumeReportSummary(eventId: string, deps: SummarizeReportDeps = {}): void {
   const event = getEvent(eventId);
@@ -441,21 +514,30 @@ export function resumeReportSummary(eventId: string, deps: SummarizeReportDeps =
 }
 
 /**
- * Try again from the failed card. Returns false when the bytes are gone
- * (e.g. after a restart) — the card then tells her to add the report
- * again instead of pretending to retry.
+ * One-time convergence for entries persisted by the old failure model:
+ * a generic (non-setup) 'failed' summary state no longer has a card, so
+ * those entries are hard-deleted — no persistent failed card, ever.
+ * Best-effort, never throws.
  */
-export function retryReportSummary(eventId: string, deps: SummarizeReportDeps = {}): boolean {
-  if (!reportByteStash.has(eventId)) return false;
-  void runReportSummaryFlow({
-    eventId,
-    store: flowStoreFor(eventId),
-    takeBytes: () => takeStashedBytes(eventId),
-    clearBytes: () => {
-      reportByteStash.delete(eventId);
-    },
-    summarize: (input) => summarizeReport(input, deps),
-    force: true,
-  });
-  return true;
+export function purgeLegacyFailedReportEntries(): void {
+  try {
+    const db = getDb();
+    const rows = db.getAllSync<{ id: string; data: string }>(
+      "SELECT id, data FROM events WHERE type = 'report' AND deleted_at IS NULL",
+    );
+    for (const row of rows) {
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(row.data) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const state = readReportSummaryState(data);
+      if (state && state.status === 'failed' && state.reason !== 'not_configured') {
+        hardDeleteEvent(row.id);
+      }
+    }
+  } catch {
+    // Best-effort: a failed purge must never break the feed.
+  }
 }

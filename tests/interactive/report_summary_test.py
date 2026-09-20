@@ -12,7 +12,10 @@ Ephemeral contract under test:
   no attachments, no media-outbox rows, no "Backing up…" anywhere, and
   report bytes are never persisted.
 - Feed entries are text-only: "Summarizing your report…" interim →
-  title/body/fixed-disclaimer card → failure card with Try again.
+  title/body/fixed-disclaimer card. A genuine failure or an off-topic
+  verdict hard-deletes the interim entry and shows a transient toast
+  ("Report summary failed" / "Report not related to pregnancy or baby")
+  — no persistent card, no retry, nothing left behind.
 
 `functions.invoke` is stubbed AT THE NETWORK LAYER: the app still
 crosses a real fetch boundary (via the testhooks-gated transport in
@@ -26,12 +29,25 @@ Covers:
       the base64 decodes to the fixture bytes; summary card renders with
       title/body/fixed disclaimer; no attachment card, no Open button,
       no "Backing up…", no raw filename on the entry.
-  (b) failure: a second report with the stub failing → "Couldn't read
-      this one" card + Try again. NO page reload between phases —
-      the bytes are intentionally memory-only, so a reload would wipe
-      the retry path this test is proving.
-  (c) retry: stub flips to success, Try again → the second summary card.
-  (d) zero page errors throughout.
+  (b) failure: a second report with the stub failing (500) → transient
+      "Report summary failed" toast, the interim entry hard-deleted, no
+      persistent card, no Try again, toast auto-dismisses. NO page reload
+      between phases — the bytes are intentionally memory-only, so a
+      reload would wipe the state this test is proving.
+  (c) off-topic: a third report with the stub answering 422
+      {error:"not_related"} → transient "Report not related to pregnancy
+      or baby" toast, entry hard-deleted (off-topic is never persisted
+      anywhere), toast auto-dismisses.
+  (e) thrown path: a fourth report where the stub answers 422
+      {error:"not_related"} AND the test transport throws a
+      FunctionsHttpError-like object (the real supabase-js non-2xx path)
+      → same off-topic toast, entry hard-deleted.
+  (d) not_configured: stub answers 503 {error:"not_configured"} → the
+      warm "Report summaries aren't set up yet." setup card, no retry,
+      no toast, no "clearer photo" language.
+  (g) client-side unreadable: a 0-byte PDF → the sheet toasts "That file
+      looks empty.", no row, no entry created.
+  (f) zero page errors throughout.
 
 Run: python3 tests/interactive/report_summary_test.py
 """
@@ -134,6 +150,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         mode = stub_state["mode"]
         if mode == "failure":
             self._send_json(500, b'{"error":"boom"}')
+        elif mode == "delayed-failure":
+            # Hold so "Summarizing your report…" is observable after the
+            # sheet closes; then fail. The app must hard-delete the entry
+            # and toast — no card, no retry.
+            time.sleep(5)
+            self._send_json(500, b'{"error":"boom"}')
+        elif mode == "not-related":
+            self._send_json(422, b'{"error":"not_related"}')
+        elif mode == "delayed-not-related":
+            # Same hold; the off-topic verdict arrives as a 422 pair.
+            time.sleep(5)
+            self._send_json(422, b'{"error":"not_related"}')
+        elif mode == "delayed-not-related-throw":
+            # Same hold; the test transport THROWS a FunctionsHttpError-like
+            # object (the real supabase-js path) — header tells it to.
+            time.sleep(5)
+            body = b'{"error":"not_related"}'
+            self.send_response(422)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("x-willow-test-throw", "1")
+            self.end_headers()
+            self.wfile.write(body)
         elif mode == "not-configured":
             # Edge function deployed but no provider key: the 503 contract
             # the card must NOT blame the photo for (Anuraj, Sept 2026).
@@ -203,6 +242,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 # The test transport: installed before the app boots. Same-origin POST
 # to the stub above — a real fetch, intercepted by the test server.
+# When the stub answers with the x-willow-test-throw header, the
+# transport THROWS a FunctionsHttpError-like object (context.status +
+# context.json) — the real supabase-js non-2xx path.
 INIT_SCRIPT = """
 window.__reportSummaryTestTransport = {
   invoke: async (body) => {
@@ -213,6 +255,11 @@ window.__reportSummaryTestTransport = {
     });
     let data = null;
     try { data = await res.json(); } catch (e) { /* ignore */ }
+    if (!res.ok && res.headers.get('x-willow-test-throw') === '1') {
+      const err = new Error('stub http ' + res.status);
+      err.context = { status: res.status, json: async () => data };
+      throw err;
+    }
     if (!res.ok) return { data, error: { message: 'stub http ' + res.status } };
     return { data, error: null };
   },
@@ -388,101 +435,176 @@ def main():
                 check(decoded == fixture1_bytes,
                       "(a) dataBase64 decodes to the picked fixture bytes")
 
-        # ---- phase 2: failure → fallback card + Try again (NO reload:
-        # the bytes are memory-only, and this phase proves the same-session
-        # retry path works)
-        print("Phase 2: failure + Try again (no reload)")
-        stub_state["mode"] = "failure"
+        # ---- phase 2: genuine failure → transient toast, entry hard-deleted
+        # (Anuraj, Sept 2026: no persistent card, no retry, nothing left
+        # behind). The stub holds 5s so the interim entry is observable
+        # after the sheet closes, then answers 500.
+        print("Phase 2: failure → toast + hard-delete (no reload)")
+        stub_state["mode"] = "delayed-failure"
         if not add_report_via_ui(page, check, FIXTURE_2, "b"):
             print("  FAIL: phase 2 UI flow broke; skipping remaining phase-2 checks")
         else:
-            failed_card = page.locator('[data-testid="report-summary-failed"]')
             try:
-                failed_card.first.wait_for(state="visible", timeout=20000)
-                check(True, "(b) fallback card renders on failure")
+                page.wait_for_function(
+                    "() => { const el = document.querySelector('[data-testid=\"report-summary-loading\"]'); "
+                    "return !!el && (el.textContent || '').includes('Summarizing your report'); }",
+                    timeout=10000)
+                check(True, "(b) 'Summarizing your report…' shown while in flight")
             except Exception:
-                check(False, "(b) fallback card renders on failure")
-            if failed_card.count():
-                check("Couldn't read this one \u2014 try a clearer photo." in failed_card.first.inner_text(),
-                      "(b) \"Couldn't read this one\" message")
-                check("Backing up" not in failed_card.first.inner_text(),
-                      "(b) no 'Backing up…' on the failed entry")
-            retry = failed_card.locator('[data-testid="report-summary-retry"]')
-            check(retry.count() > 0, "(b) Try again action present")
+                check(False, "(b) 'Summarizing your report…' shown while in flight")
+            # The failure toast arrives once the stub answers.
+            try:
+                page.wait_for_function(
+                    "() => { const el = document.querySelector('[data-testid=\"report-summary-toast\"]'); "
+                    "return !!el && (el.textContent || '').includes('Report summary failed'); }",
+                    timeout=20000)
+                check(True, "(b) 'Report summary failed' toast shows")
+            except Exception:
+                check(False, "(b) 'Report summary failed' toast shows")
+            # Nothing left behind: interim gone, no failed card, no retry.
+            check(page.locator('[data-testid="report-summary-loading"]').count() == 0,
+                  "(b) interim entry hard-deleted")
+            check(page.locator('[data-testid="report-summary-failed"]').count() == 0,
+                  "(b) no persistent failed card")
+            check(page.locator('[data-testid="report-summary-retry"]').count() == 0,
+                  "(b) no Try again button")
+            check(page.locator('[data-testid="report-summary-card"]').count() == 1,
+                  "(b) only the phase-1 summary card remains")
+            # Transient: the toast auto-dismisses (established 2400ms).
+            try:
+                page.wait_for_function(
+                    "() => !document.querySelector('[data-testid=\"report-summary-toast\"]')",
+                    timeout=8000)
+                check(True, "(b) toast auto-dismisses")
+            except Exception:
+                check(False, "(b) toast auto-dismisses")
 
-            # ---- phase 3b: backend not deployed → setup copy, never blame the photo
-            # (Anuraj, Sept 2026: a 503 {error:"not_configured"} means the
-            # report pipeline isn't set up yet — the card must say so, with
-            # no retry button and no "clearer photo" language. Placed before
-            # the phase-3 retry so the phase-2 generic failed card is still
-            # present for the two-states-stay-distinct contrast checks.)
-            print("Phase 3b: not_configured → setup copy (no reload)")
-            stub_state["mode"] = "not-configured"
-            if not add_report_via_ui(page, check, FIXTURE_1, "d"):
-                print("  FAIL: phase 3b UI flow broke; skipping remaining phase-3b checks")
-            else:
-                nc_card = page.locator('[data-testid="report-summary-not-configured"]')
-                try:
-                    nc_card.first.wait_for(state="visible", timeout=20000)
-                    check(True, "(d) not-configured card renders")
-                except Exception:
-                    check(False, "(d) not-configured card renders")
-                if nc_card.count():
-                    nc_text = nc_card.first.inner_text()
-                    check("Report summaries aren't set up yet." in nc_text,
-                          "(d) warm setup copy renders")
-                    check("clearer photo" not in nc_text,
-                          "(d) no 'clearer photo' language")
-                    check("Couldn't read this one" not in nc_text,
-                          "(d) no unreadable-file blame text")
-                    check("This isn't medical advice." in nc_text,
-                          "(d) fixed disclaimer still visible")
-                    check(nc_card.locator('[data-testid="report-summary-retry"]').count() == 0,
-                          "(d) no Try again on the setup card")
-                check(failed_card.count() > 0, "(d) generic failed card still present")
-                if failed_card.count():
-                    check("clearer photo" in failed_card.first.inner_text(),
-                          "(d) generic failure keeps 'clearer photo' copy")
-                    check(failed_card.first.locator(
-                        '[data-testid="report-summary-retry"]').count() > 0,
-                          "(d) generic failure keeps Try again")
+        # ---- phase 3: off-topic verdict (422 pair) → its own toast, entry gone
+        print("Phase 3: 422 not_related → off-topic toast + hard-delete")
+        stub_state["mode"] = "delayed-not-related"
+        if not add_report_via_ui(page, check, FIXTURE_1, "c"):
+            print("  FAIL: phase 3 UI flow broke; skipping remaining phase-3 checks")
+        else:
+            try:
+                page.wait_for_function(
+                    "() => { const el = document.querySelector('[data-testid=\"report-summary-toast\"]'); "
+                    "return !!el && (el.textContent || '').includes('Report not related to pregnancy or baby'); }",
+                    timeout=20000)
+                check(True, "(c) 'Report not related to pregnancy or baby' toast shows")
+            except Exception:
+                check(False, "(c) 'Report not related to pregnancy or baby' toast shows")
+            check(page.locator('[data-testid="report-summary-loading"]').count() == 0,
+                  "(c) off-topic interim entry hard-deleted")
+            check(page.locator('[data-testid="report-summary-failed"]').count() == 0,
+                  "(c) no failed card for off-topic")
+            check(page.locator('[data-testid="report-summary-card"]').count() == 1,
+                  "(c) still only the phase-1 summary card")
+            try:
+                page.wait_for_function(
+                    "() => !document.querySelector('[data-testid=\"report-summary-toast\"]')",
+                    timeout=8000)
+                check(True, "(c) off-topic toast auto-dismisses")
+            except Exception:
+                check(False, "(c) off-topic toast auto-dismisses")
 
-            # ---- phase 3: Try again recovers once the stub succeeds
-            print("Phase 3: Try again recovers")
-            stub_state["mode"] = "success"
-            if retry.count() > 0:
-                retry.first.click()
-                try:
-                    page.wait_for_function(
-                        "() => document.querySelectorAll('[data-testid=\"report-summary-card\"]').length >= 2",
-                        timeout=20000,
-                    )
-                    check(True, "(c) Try again recovers → second summary card renders")
-                except Exception:
-                    check(False, "(c) Try again recovers → second summary card renders")
-                cards = page.locator('[data-testid="report-summary-card"]')
-                if cards.count() >= 2:
-                    check("Growth scan" in cards.nth(1).inner_text(),
-                          "(c) retried card carries the summary title")
-                # The retry re-sent the SECOND fixture's bytes, inline.
-                # (Index 3: phase 3b added a not-configured invoke at [2].)
-                if len(seen_requests) >= 4:
-                    retry_body = seen_requests[3]
-                    check(sorted(retry_body.keys()) == ["dataBase64", "mimeType"],
-                          "(c) retry body is also ONLY {dataBase64, mimeType}")
-                    try:
-                        retry_decoded = base64.b64decode(retry_body.get("dataBase64", ""))
-                    except Exception:
-                        retry_decoded = None
-                    check(retry_decoded == fixture2_bytes,
-                          "(c) retry re-sends the second fixture's bytes")
-                else:
-                    check(False, "(c) retry invoked the function again")
-            else:
-                check(False, "(c) Try again recovers (no retry button)")
+        # ---- phase 4: off-topic via the THROWN path (real supabase-js shape:
+        # FunctionsHttpError with context.status + context.json)
+        print("Phase 4: thrown 422 not_related → off-topic toast + hard-delete")
+        stub_state["mode"] = "delayed-not-related-throw"
+        if not add_report_via_ui(page, check, FIXTURE_2, "e"):
+            print("  FAIL: phase 4 UI flow broke; skipping remaining phase-4 checks")
+        else:
+            try:
+                page.wait_for_function(
+                    "() => { const el = document.querySelector('[data-testid=\"report-summary-toast\"]'); "
+                    "return !!el && (el.textContent || '').includes('Report not related to pregnancy or baby'); }",
+                    timeout=20000)
+                check(True, "(e) thrown-path off-topic toast shows")
+            except Exception:
+                check(False, "(e) thrown-path off-topic toast shows")
+            check(page.locator('[data-testid="report-summary-loading"]').count() == 0,
+                  "(e) thrown-path interim entry hard-deleted")
+            check(page.locator('[data-testid="report-summary-card"]').count() == 1,
+                  "(e) still only the phase-1 summary card")
+            try:
+                page.wait_for_function(
+                    "() => !document.querySelector('[data-testid=\"report-summary-toast\"]')",
+                    timeout=8000)
+                check(True, "(e) thrown-path toast auto-dismisses")
+            except Exception:
+                check(False, "(e) thrown-path toast auto-dismisses")
 
+        # ---- phase 5: backend not deployed → setup copy, never blame the photo
+        # (Anuraj, Sept 2026: a 503 {error:"not_configured"} means the
+        # report pipeline isn't set up yet — the card must say so, with
+        # no retry button and no "clearer photo" language.)
+        print("Phase 5: not_configured → setup copy (no reload)")
+        stub_state["mode"] = "not-configured"
+        if not add_report_via_ui(page, check, FIXTURE_1, "d"):
+            print("  FAIL: phase 5 UI flow broke; skipping remaining phase-5 checks")
+        else:
+            nc_card = page.locator('[data-testid="report-summary-not-configured"]')
+            try:
+                nc_card.first.wait_for(state="visible", timeout=20000)
+                check(True, "(d) not-configured card renders")
+            except Exception:
+                check(False, "(d) not-configured card renders")
+            if nc_card.count():
+                nc_text = nc_card.first.inner_text()
+                check("Report summaries aren't set up yet." in nc_text,
+                      "(d) warm setup copy renders")
+                check("clearer photo" not in nc_text,
+                      "(d) no 'clearer photo' language")
+                check("Couldn't read this one" not in nc_text,
+                      "(d) no unreadable-file blame text")
+                check("This isn't medical advice." in nc_text,
+                      "(d) fixed disclaimer still visible")
+                check(nc_card.locator('[data-testid="report-summary-retry"]').count() == 0,
+                      "(d) no Try again on the setup card")
+                check(page.locator('[data-testid="report-summary-toast"]').count() == 0,
+                      "(d) no toast for the setup state")
+
+        # ---- phase 6: client-side unreadable file (0-byte PDF) → preserved
+        # clearer-photo handling: the sheet toasts "That file looks empty.",
+        # no entry is created, and the sheet still closes on Done.
+        print("Phase 6: unreadable file (0 bytes) → client-side toast, no entry")
+        empty_fixture = "/tmp/willow-test-report-empty.pdf"
+        with open(empty_fixture, "wb") as f:
+            pass
+        page.get_by_test_id("logs-add-button").click()
+        page.get_by_test_id("add-menu").wait_for(timeout=5000)
+        page.get_by_test_id("add-menu-pill-report").click()
+        page.get_by_test_id("report-sheet").wait_for(timeout=5000)
+        with page.expect_file_chooser() as fc:
+            page.get_by_test_id("report-choose-file").click()
+        fc.value.set_files(empty_fixture)
+        try:
+            page.wait_for_function(
+                "() => { const el = document.querySelector('[data-testid=\"report-toast\"]'); "
+                "return !!el && (el.textContent || '').includes('That file looks empty.'); }",
+                timeout=10000)
+            check(True, "(g) 'That file looks empty.' toast shows in the sheet")
+        except Exception:
+            check(False, "(g) 'That file looks empty.' toast shows in the sheet")
+        try:
+            # The in-flight skeleton (report-row-saving) is transient; once the
+            # read fails no row remains — the unreadable file adds nothing.
+            page.wait_for_function(
+                "() => document.querySelectorAll('[data-testid^=\"report-row-\"]').length === 0",
+                timeout=10000)
+            check(True, "(g) unreadable file adds no row")
+        except Exception:
+            check(False, "(g) unreadable file adds no row")
+        page.get_by_test_id("report-done").click()
+        page.wait_for_timeout(1000)
+        check(page.get_by_test_id("report-sheet").count() == 0,
+              "(g) sheet closes after Done")
+        check(page.locator('[data-testid="report-summary-loading"]').count() == 0,
+              "(g) no interim entry created for the unreadable file")
+        check(page.locator('[data-testid="report-summary-card"]').count() == 1,
+              "(g) still only the phase-1 summary card")
         # ---- page errors ----
-        check(len(errors) == 0, f"(d) zero page errors ({len(errors)} seen)")
+        check(len(errors) == 0, f"(f) zero page errors ({len(errors)} seen)")
         for e in errors[:5]:
             print(f"    pageerror: {e}")
 

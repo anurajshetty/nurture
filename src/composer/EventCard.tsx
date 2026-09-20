@@ -26,7 +26,6 @@ import {
   readReportSummaryState,
   REPORT_SUMMARY_DISCLAIMER,
   resumeReportSummary,
-  retryReportSummary,
   subscribeReportSummary,
   type ReportSummaryState,
 } from '../reportSummary/client';
@@ -137,14 +136,12 @@ function PhotoPlaceholder({ label }: { label: string }) {
 /* - 'summarizing': the interim feed entry ("Summarizing your report…") */
 /* - 'ready':       the summary card (serif title, plain-language body, */
 /*                  fixed disclaimer)                                   */
-/* - 'failed':      "Couldn't read this one — try a clearer photo."     */
-/*                  with Try again (re-sends the in-memory bytes; when  */
-/*                  they're gone — e.g. after a restart — the card says */
-/*                  to add the report again). When the backend isn't     */
-/*                  deployed (reason 'not_configured') the card instead */
-/*                  says "Report summaries aren't set up yet." with NO   */
-/*                  retry — a retry would fail identically — and no      */
-/*                  "clearer photo" language.                           */
+/* - 'failed':      ONLY the backend-not-deployed setup state: "Report   */
+/*                  summaries aren't set up yet." with no retry and no   */
+/*                  "clearer photo" language. Every other failure        */
+/*                  hard-deletes the entry and the feed shows a          */
+/*                  transient toast instead — no persistent card, no     */
+/*                  retry, no feed entry left behind (Anuraj Sept 2026). */
 /*                                                                     */
 /* The summary state lives on `event.data.reportSummary` so it          */
 /* survives reloads and syncs like any other payload change. The card   */
@@ -155,7 +152,6 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
   const [state, setState] = useState<ReportSummaryState | null>(() =>
     readReportSummaryState(event.data),
   );
-  const [needsReadd, setNeedsReadd] = useState(false);
 
   useEffect(() => {
     if (event.type !== 'report') return;
@@ -166,14 +162,13 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
     const freshOnMount = getEvent(event.id);
     setState(readReportSummaryState(freshOnMount?.data ?? event.data));
     // Resume an in-flight summary after a remount (same session, bytes
-    // still stashed). With no stashed bytes the flow marks the entry
-    // 'failed' instead of hanging on "Summarizing…" forever.
+    // still stashed). With no stashed bytes the entry is hard-deleted
+    // instead of hanging on "Summarizing…" forever.
     resumeReportSummary(event.id);
     return subscribeReportSummary((id) => {
       if (id !== event.id) return;
       const fresh = getEvent(event.id);
       setState(readReportSummaryState(fresh?.data ?? {}));
-      setNeedsReadd(false);
     });
   }, [event.id, event.type]);
 
@@ -194,7 +189,10 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
     // Backend not deployed yet: a setup state, not a bad photo. Warm and
     // minimal, no blame, no "clearer photo" language — and no retry button
     // (a retry would fail identically; the deploy is a separate step).
-    // The fixed disclaimer stays visible on this state too.
+    // The fixed disclaimer stays visible on this state too. Any other
+    // failure deletes the entry outright (toast, no card) — a generic
+    // 'failed' state no longer renders anything by design; logs.tsx
+    // purges those legacy entries on mount.
     if (state.reason === 'not_configured') {
       return (
         <View testID="report-summary-not-configured">
@@ -206,34 +204,7 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
         </View>
       );
     }
-    return (
-      <View testID="report-summary-failed">
-        <Text style={styles.summaryFailedText}>Couldn&apos;t read this one — try a clearer photo.</Text>
-        {needsReadd ? (
-          <Text style={styles.summaryReaddText} testID="report-summary-readd">
-            Add the report again to try once more.
-          </Text>
-        ) : null}
-        <Pressable
-          onPress={() => {
-            // Try again re-sends the in-memory bytes. When they're gone
-            // (app restarted since), say so instead of pretending to retry.
-            if (retryReportSummary(event.id)) {
-              setNeedsReadd(false);
-            } else {
-              setNeedsReadd(true);
-            }
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Try again"
-          testID="report-summary-retry"
-          style={({ pressed }) => [styles.retryBtn, pressed && styles.retryPressed]}>
-          <Text style={styles.retryText}>Try again</Text>
-        </Pressable>
-        {/* Fixed disclaimer — inside the card, always visible. */}
-        <Text style={styles.summaryDisclaimer}>{REPORT_SUMMARY_DISCLAIMER}</Text>
-      </View>
-    );
+    return null;
   }
 
   // Ready: text-only summary card. No attachment row, no Open › — report
@@ -609,27 +580,5 @@ const styles = StyleSheet.create({
     ...typeScale.subhead,
     color: '#5C554D',
     marginTop: spacing.sm,
-  },
-  summaryReaddText: {
-    ...typeScale.footnote,
-    color: colors.muted,
-    marginTop: spacing.xs,
-  },
-  retryBtn: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.coral,
-    borderRadius: radii.chip,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: 18,
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  retryPressed: {
-    backgroundColor: colors.coralDeep,
-  },
-  retryText: {
-    ...typeScale.subhead,
-    fontWeight: '700',
-    color: '#fff',
   },
 });

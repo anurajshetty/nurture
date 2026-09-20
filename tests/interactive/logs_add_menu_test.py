@@ -463,13 +463,14 @@ def main():
             # Find the report's own card by its summary state (ephemeral flow,
             # Sept 2026: entries are text-only — no raw filename on the card).
             # This suite doesn't stub the edge function, so the card lands in
-            # the loading, failed, or not-configured state (the last appears
-            # when no Supabase backend is wired up — the Sept 2026 setup
-            # card, which must never blame the photo).
+            # the loading or summary-card state, or — with no Supabase backend
+            # wired up — the not-configured setup card (the Sept 2026 setup
+            # card, which must never blame the photo). A genuine failure
+            # hard-deletes the entry instead (transient toast, no card), so
+            # there is no failed-card surface to allow here.
             report_card = page.locator(
                 '[data-testid="report-summary-loading"],'
                 '[data-testid="report-summary-card"],'
-                '[data-testid="report-summary-failed"],'
                 '[data-testid="report-summary-not-configured"]').first
             try:
                 report_card.wait_for(timeout=8000)

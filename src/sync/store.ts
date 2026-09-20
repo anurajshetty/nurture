@@ -140,6 +140,33 @@ export function deleteEvent(id: string): void {
   });
 }
 
+/**
+ * Hard-deletes an event: removes the row AND its pending outbox ops, then
+ * enqueues a 'delete' op so the tombstone still converges if the row was
+ * already pushed (a user-initiated sync during the summarize window).
+ * Reserved for ephemeral entries that must leave no trace (report-summary
+ * failures: Anuraj Sept 2026 — a failed or off-topic report leaves no
+ * card and no feed entry, ever). Never throws.
+ */
+export function hardDeleteEvent(id: string): void {
+  try {
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.withTransactionSync(() => {
+      db.runSync('DELETE FROM outbox WHERE event_id = ?', id);
+      db.runSync('DELETE FROM events WHERE id = ?', id);
+      db.runSync(
+        `INSERT INTO outbox (id, event_id, op, attempts, created_at) VALUES (?, ?, 'delete', 0, ?)`,
+        Crypto.randomUUID(),
+        id,
+        now,
+      );
+    });
+  } catch {
+    // Best-effort: callers treat a failed delete as a no-op.
+  }
+}
+
 /** Fetches one local event by id, or null when absent. */
 export function getEvent(id: string): LocalEvent | null {
   const row = getDb().getFirstSync<EventRow>('SELECT * FROM events WHERE id = ?', id);

@@ -453,6 +453,8 @@ async function main(): Promise<void> {
     const writes: ReportSummaryState[] = [];
     let state = initial;
     let entryName: string | undefined;
+    let deleted = 0;
+    const failures: string[] = [];
     const store: ReportFlowStore = {
       readState: () => state,
       writeState: (s) => {
@@ -462,8 +464,24 @@ async function main(): Promise<void> {
       setEntryName: (n) => {
         entryName = n;
       },
+      deleteEntry: () => {
+        deleted += 1;
+      },
     };
-    return { store, writes, getState: () => state, getEntryName: () => entryName };
+    const deps = {
+      onFailure: (kind: string) => {
+        failures.push(kind);
+      },
+    };
+    return {
+      store,
+      writes,
+      deps,
+      getState: () => state,
+      getEntryName: () => entryName,
+      getDeleted: () => deleted,
+      getFailures: () => failures,
+    };
   }
 
   const FLOW_RESULT: ReportSummaryResult = {
@@ -515,7 +533,7 @@ async function main(): Promise<void> {
     check('entry takes the LLM-derived name', h.getEntryName(), 'Growth scan – Sep 19');
   }
 
-  // --- failure: failed state, bytes RETAINED for Try again ---
+  // --- genuine failure: entry hard-deleted, transient toast signaled, no failed card ---
   {
     const h = makeFlowHarness({ status: 'summarizing' });
     const stash = new Map<string, ReportBytes>([
@@ -531,11 +549,37 @@ async function main(): Promise<void> {
         stash.delete('flow-e2');
       },
       summarize: () => Promise.reject(new Error('provider down')),
+      onFailure: h.deps.onFailure,
     });
     check('flow failure resolves failed', outcome, 'failed');
-    check('flow writes the failed state', h.getState(), { status: 'failed' });
-    check('bytes are RETAINED after failure (retry can re-send)', cleared, false);
-    check('stashed bytes survive the failure', stash.has('flow-e2'), true);
+    check('failure hard-deletes the interim entry', h.getDeleted(), 1);
+    check('failure writes NO failed state (no persistent card)', h.writes.length, 1); // only the interim 'summarizing'
+    check('bytes are dropped after failure (no retry)', cleared, true);
+    check('failure signals the toast kind', h.getFailures(), ['failed']);
+  }
+
+  // --- off-topic verdict (422 not_related): entry hard-deleted, never persisted ---
+  {
+    const h = makeFlowHarness({ status: 'summarizing' });
+    const notRelated = new Error('Report is not related to pregnancy or baby.');
+    notRelated.name = 'ReportSummaryError';
+    (notRelated as { code?: string }).code = 'not_related';
+    let cleared = false;
+    const outcome = await runReportSummaryFlow({
+      eventId: 'flow-e2n',
+      store: h.store,
+      takeBytes: () => ({ dataBase64: 'QUJD', mimeType: 'application/pdf' }),
+      clearBytes: () => {
+        cleared = true;
+      },
+      summarize: () => Promise.reject(notRelated),
+      onFailure: h.deps.onFailure,
+    });
+    check('not_related resolves failed', outcome, 'failed');
+    check('not_related hard-deletes the interim entry', h.getDeleted(), 1);
+    check('not_related writes NO failed state', h.writes.length, 1); // only the interim 'summarizing'
+    check('not_related drops the bytes', cleared, true);
+    check('not_related signals the off-topic toast kind', h.getFailures(), ['not_related']);
   }
 
   // --- not_configured: backend not deployed → setup state, no retry copy ---
@@ -550,15 +594,18 @@ async function main(): Promise<void> {
       takeBytes: () => ({ dataBase64: 'QUJD', mimeType: 'application/pdf' }),
       clearBytes: () => {},
       summarize: () => Promise.reject(notConfigured),
+      onFailure: h.deps.onFailure,
     });
     check('not_configured failure resolves failed', outcome, 'failed');
     check('not_configured persists the reason', h.getState(), {
       status: 'failed',
       reason: 'not_configured',
     });
+    check('not_configured does NOT delete the entry (setup card stays)', h.getDeleted(), 0);
+    check('not_configured signals NO toast', h.getFailures(), []);
   }
 
-  // --- stale entry: no stashed bytes → failed, summarize never called ---
+  // --- stale entry: no stashed bytes → entry deleted, toast signaled, summarize never called ---
   {
     const h = makeFlowHarness({ status: 'summarizing' });
     let summarizeCalled = false;
@@ -571,9 +618,11 @@ async function main(): Promise<void> {
         summarizeCalled = true;
         return Promise.resolve(FLOW_RESULT);
       },
+      onFailure: h.deps.onFailure,
     });
     check('stale entry (no bytes) resolves failed', outcome, 'failed');
-    check('stale entry marked failed, never hangs', h.getState(), { status: 'failed' });
+    check('stale entry is hard-deleted, never hangs', h.getDeleted(), 1);
+    check('stale entry signals the toast kind', h.getFailures(), ['failed']);
     check('summarize is never called without bytes', summarizeCalled, false);
   }
 

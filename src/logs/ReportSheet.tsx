@@ -10,8 +10,9 @@
  * for the AI summary. Nothing is persisted — no attachment on the
  * event, no Storage upload, no media-outbox row, no "Backing up…"
  * states. The feed entry is text-only: the interim
- * "Summarizing your report…" entry, then the summary card (or the
- * "Couldn't read this one" card with Try again).
+ * "Summarizing your report…" entry, then the summary card. A failure
+ * (or an off-topic verdict) hard-deletes the entry and shows a transient
+ * toast — no persistent card, no retry (Anuraj Sept 2026).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';

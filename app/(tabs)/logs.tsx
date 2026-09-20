@@ -29,6 +29,12 @@ import {
   type as typeScale,
 } from '../../src/theme/tokens';
 import { countEvents, deleteEvent, getEvent, listEventsInRange, listEventsPage } from '../../src/sync/store';
+import {
+  REPORT_SUMMARY_FAILED_TOAST,
+  REPORT_SUMMARY_NOT_RELATED_TOAST,
+  purgeLegacyFailedReportEntries,
+  subscribeReportSummaryOutcome,
+} from '../../src/reportSummary/client';
 import { refreshAppointmentReminders } from '../../src/notifications/appointments';
 import { kvGet, kvSet } from '../../src/lib/db';
 import type { LocalEvent } from '../../src/lib/types';
@@ -137,6 +143,37 @@ export default function LogsScreen() {
   const [deleteTarget, setDeleteTarget] = useState<LocalEvent | null>(null);
   const [deleteToastKey, setDeleteToastKey] = useState<number | null>(null);
   const deleteToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Report-summary failure toast (Anuraj, Sept 2026): a genuine failure
+   * or an off-topic verdict hard-deletes the interim "Summarizing your
+   * report…" entry — no card, no retry — and this transient toast is the
+   * only surface. Same visual language as the delete toast; the app's
+   * established transient-toast duration (2400ms).
+   */
+  const [reportToast, setReportToast] = useState<string | null>(null);
+  const reportToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // One-time convergence: entries persisted by the old failure model
+    // (generic 'failed' card) are hard-deleted — no persistent failed
+    // card, ever.
+    purgeLegacyFailedReportEntries();
+    return subscribeReportSummaryOutcome((eventId, kind) => {
+      setEvents((prev) => prev.filter((e) => e.id !== eventId));
+      if (reportToastTimer.current) clearTimeout(reportToastTimer.current);
+      setReportToast(
+        kind === 'not_related' ? REPORT_SUMMARY_NOT_RELATED_TOAST : REPORT_SUMMARY_FAILED_TOAST,
+      );
+      reportToastTimer.current = setTimeout(() => {
+        setReportToast(null);
+        reportToastTimer.current = null;
+      }, 2400);
+    });
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (reportToastTimer.current) clearTimeout(reportToastTimer.current);
+    };
+  }, []);
   const openDeleteConfirm = useCallback(
     (eventId: string) => {
       setDeleteTarget(events.find((e) => e.id === eventId) ?? null);
@@ -496,6 +533,13 @@ export default function LogsScreen() {
         <View style={styles.delToastWrap} pointerEvents="none">
           <View style={styles.delToast} testID="delete-appointment-toast">
             <Text style={styles.delToastText}>Appointment deleted</Text>
+          </View>
+        </View>
+      ) : null}
+      {reportToast !== null ? (
+        <View style={styles.delToastWrap} pointerEvents="none">
+          <View style={styles.delToast} testID="report-summary-toast">
+            <Text style={styles.delToastText}>{reportToast}</Text>
           </View>
         </View>
       ) : null}
