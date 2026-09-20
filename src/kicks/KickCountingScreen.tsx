@@ -412,11 +412,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.ink,
     marginTop: spacing.xs,
+    textAlign: 'center',
   },
   ofTarget: {
     fontSize: 15,
     color: colors.muted,
     marginBottom: spacing.md,
+    textAlign: 'center',
   },
   tapzone: {
     flex: 1,
