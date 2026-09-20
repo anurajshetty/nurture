@@ -13,7 +13,9 @@
  * Flow states on `event.data.reportSummary`:
  * - 'summarizing' — interim entry in the feed ("Summarizing your report…")
  * - 'ready'       — summary card (title, body, fixed disclaimer)
- * - 'failed'      — error card with Try again
+ * - 'failed'      — error card with Try again; or, when the backend
+ *                   isn't deployed (reason 'not_configured'), a "summaries
+ *                   aren't set up yet" state with no retry
  *
  * Legacy note: the pre-ephemeral flow persisted 'reading'. Readers map it
  * to 'summarizing'; with no stashed bytes left it degrades to 'failed',
@@ -56,10 +58,34 @@ export type ReportSummaryState =
       needsAttention: boolean;
       disclaimer: string;
     }
-  | { status: 'failed' };
+  | {
+      status: 'failed';
+      /**
+       * Why it failed, when the reason changes what the card should say.
+       * 'not_configured' — the edge function has no provider key yet
+       * (backend not deployed): a setup state, not a bad photo. The card
+       * says summaries aren't set up yet and offers no retry (a retry
+       * would fail identically). Absent for every other failure, which
+       * keeps the "Couldn't read this one" copy with Try again.
+       */
+      reason?: 'not_configured';
+    };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Structural check for the client's ReportSummaryError('not_configured').
+ * flow.ts stays dependency-free (client.ts imports from here, not vice
+ * versa); `code` is the documented stable UI-branching field on that error.
+ */
+function isNotConfiguredError(e: unknown): boolean {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    (e as { code?: unknown }).code === 'not_configured'
+  );
 }
 
 /**
@@ -72,7 +98,13 @@ export function readReportSummaryState(data: Record<string, unknown>): ReportSum
   const raw = data.reportSummary;
   if (!isRecord(raw)) return null;
   if (raw.status === 'summarizing' || raw.status === 'reading') return { status: 'summarizing' };
-  if (raw.status === 'failed') return { status: 'failed' };
+  if (raw.status === 'failed') {
+    // Only 'not_configured' survives the round-trip; every other failure
+    // keeps the generic unreadable copy + retry.
+    return raw.reason === 'not_configured'
+      ? { status: 'failed', reason: 'not_configured' }
+      : { status: 'failed' };
+  }
   if (raw.status === 'ready') {
     if (
       typeof raw.title !== 'string' ||
@@ -217,8 +249,12 @@ export async function runReportSummaryFlow(
     });
     store.setEntryName?.(result.attachmentName);
     return 'ready';
-  } catch {
-    store.writeState({ status: 'failed' });
+  } catch (e) {
+    // A missing backend deploy ('not_configured') is a setup state, not a
+    // bad photo — persist the reason so the card can say so honestly and
+    // skip the retry button (a retry would fail identically).
+    const reason = isNotConfiguredError(e) ? ('not_configured' as const) : undefined;
+    store.writeState(reason ? { status: 'failed', reason } : { status: 'failed' });
     return 'failed';
   } finally {
     inflightSummaries.delete(eventId);

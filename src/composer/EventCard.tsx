@@ -139,7 +139,11 @@ function PhotoPlaceholder({ label }: { label: string }) {
 /* - 'failed':      "Couldn't read this one — try a clearer photo."     */
 /*                  with Try again (re-sends the in-memory bytes; when  */
 /*                  they're gone — e.g. after a restart — the card says */
-/*                  to add the report again)                            */
+/*                  to add the report again). When the backend isn't     */
+/*                  deployed (reason 'not_configured') the card instead */
+/*                  says "Report summaries aren't set up yet." with NO   */
+/*                  retry — a retry would fail identically — and no      */
+/*                  "clearer photo" language.                           */
 /*                                                                     */
 /* The summary state lives on `event.data.reportSummary` so it          */
 /* survives reloads and syncs like any other payload change. The card   */
@@ -186,6 +190,21 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
   }
 
   if (state.status === 'failed') {
+    // Backend not deployed yet: a setup state, not a bad photo. Warm and
+    // minimal, no blame, no "clearer photo" language — and no retry button
+    // (a retry would fail identically; the deploy is a separate step).
+    // The fixed disclaimer stays visible on this state too.
+    if (state.reason === 'not_configured') {
+      return (
+        <View testID="report-summary-not-configured">
+          <Text style={styles.summaryFailedText}>
+            Report summaries aren&apos;t set up yet.
+          </Text>
+          {/* Fixed disclaimer — inside the card, always visible. */}
+          <Text style={styles.summaryDisclaimer}>{REPORT_SUMMARY_DISCLAIMER}</Text>
+        </View>
+      );
+    }
     return (
       <View testID="report-summary-failed">
         <Text style={styles.summaryFailedText}>Couldn&apos;t read this one — try a clearer photo.</Text>

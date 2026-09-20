@@ -438,6 +438,26 @@ async function main(): Promise<void> {
     check('stashed bytes survive the failure', stash.has('flow-e2'), true);
   }
 
+  // --- not_configured: backend not deployed → setup state, no retry copy ---
+  {
+    const h = makeFlowHarness({ status: 'summarizing' });
+    const notConfigured = new Error('edge function has no provider key');
+    notConfigured.name = 'ReportSummaryError';
+    (notConfigured as { code?: string }).code = 'not_configured';
+    const outcome = await runReportSummaryFlow({
+      eventId: 'flow-e2b',
+      store: h.store,
+      takeBytes: () => ({ dataBase64: 'QUJD', mimeType: 'application/pdf' }),
+      clearBytes: () => {},
+      summarize: () => Promise.reject(notConfigured),
+    });
+    check('not_configured failure resolves failed', outcome, 'failed');
+    check('not_configured persists the reason', h.getState(), {
+      status: 'failed',
+      reason: 'not_configured',
+    });
+  }
+
   // --- stale entry: no stashed bytes → failed, summarize never called ---
   {
     const h = makeFlowHarness({ status: 'summarizing' });
@@ -482,6 +502,15 @@ async function main(): Promise<void> {
   });
   check('absent state is null', readReportSummaryState({}), null);
   check('malformed ready state is null', readReportSummaryState({ reportSummary: { status: 'ready' } }), null);
+  check('not_configured reason survives the round-trip',
+    readReportSummaryState({ reportSummary: { status: 'failed', reason: 'not_configured' } }),
+    { status: 'failed', reason: 'not_configured' });
+  check('generic failure reads back with no reason',
+    readReportSummaryState({ reportSummary: { status: 'failed' } }),
+    { status: 'failed' });
+  check('unknown reason is dropped (generic copy + retry)',
+    readReportSummaryState({ reportSummary: { status: 'failed', reason: 'bogus' } }),
+    { status: 'failed' });
 
   // --- chunked base64 encoder round-trips a large payload ---
   {

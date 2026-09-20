@@ -260,6 +260,14 @@ def main():
         box = add_btn.bounding_box()
         check("add button is 72px", box is not None
               and abs(box["width"] - 72) <= 2 and abs(box["height"] - 72) <= 2)
+        # Locked position (mockup 15, supersedes mockup 13 centering):
+        # bottom-right, 18px from the right edge, just above the tab bar.
+        if box is not None:
+            check("add button pinned bottom-right (18px from right edge)",
+                  abs(box["x"] + box["width"] - 372) <= 6,
+                  f"right={box['x'] + box['width']:.1f}")
+        else:
+            check("add button pinned bottom-right (18px from right edge)", False)
         bar_bg = page.evaluate(
             "() => { const el = document.querySelector('[data-testid=\"logs-add-button\"]').parentElement;"
             " const cs = getComputedStyle(el);"
@@ -342,7 +350,9 @@ def main():
                       pm["labelWeight"] == "700" and pm["labelSize"] == "15.5px",
                       f"{pm['labelWeight']}/{pm['labelSize']}")
                 cx = pm["x"] + pm["w"] / 2
-                check(f"pill {k}: horizontally centered", abs(cx - 195) <= 8, f"cx={cx:.1f}")
+                check(f"pill {k}: right-aligned to button (right edge ~372px)",
+                      abs(pm["x"] + pm["w"] - 372) <= 8,
+                      f"right={pm['x'] + pm['w']:.1f}")
                 if prev_bottom is not None:
                     gap = pm["y"] - prev_bottom
                     check(f"pill {k}: 10px gap above", abs(gap - 10) <= 3, f"gap={gap:.1f}")
@@ -350,9 +360,9 @@ def main():
             pill_x_gap = open_box["y"] - prev_bottom
             check("14px-ish gap pill -> x button", 8 <= pill_x_gap <= 24,
                   f"gap={pill_x_gap:.1f}")
-            check("x button centered",
-                  abs(open_box["x"] + open_box["width"] / 2 - 195) <= 4,
-                  f"cx={open_box['x'] + open_box['width']/2:.1f}")
+            check("x button pinned bottom-right (right edge ~372px)",
+                  abs(open_box["x"] + open_box["width"] - 372) <= 6,
+                  f"right={open_box['x'] + open_box['width']:.1f}")
             # Fold the menu away so section B starts from the closed state.
             add_btn.click()
             page.wait_for_timeout(400)
@@ -453,11 +463,14 @@ def main():
             # Find the report's own card by its summary state (ephemeral flow,
             # Sept 2026: entries are text-only — no raw filename on the card).
             # This suite doesn't stub the edge function, so the card lands in
-            # the loading or failed state.
+            # the loading, failed, or not-configured state (the last appears
+            # when no Supabase backend is wired up — the Sept 2026 setup
+            # card, which must never blame the photo).
             report_card = page.locator(
                 '[data-testid="report-summary-loading"],'
                 '[data-testid="report-summary-card"],'
-                '[data-testid="report-summary-failed"]').first
+                '[data-testid="report-summary-failed"],'
+                '[data-testid="report-summary-not-configured"]').first
             try:
                 report_card.wait_for(timeout=8000)
             except Exception:

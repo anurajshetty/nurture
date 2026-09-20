@@ -134,6 +134,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         mode = stub_state["mode"]
         if mode == "failure":
             self._send_json(500, b'{"error":"boom"}')
+        elif mode == "not-configured":
+            # Edge function deployed but no provider key: the 503 contract
+            # the card must NOT blame the photo for (Anuraj, Sept 2026).
+            self._send_json(503, b'{"error":"not_configured"}')
         elif mode == "delayed-success":
             # Hold the response so "Summarizing your report…" stays
             # observable while the test closes the sheet and locates it.
@@ -406,6 +410,43 @@ def main():
             retry = failed_card.locator('[data-testid="report-summary-retry"]')
             check(retry.count() > 0, "(b) Try again action present")
 
+            # ---- phase 3b: backend not deployed → setup copy, never blame the photo
+            # (Anuraj, Sept 2026: a 503 {error:"not_configured"} means the
+            # report pipeline isn't set up yet — the card must say so, with
+            # no retry button and no "clearer photo" language. Placed before
+            # the phase-3 retry so the phase-2 generic failed card is still
+            # present for the two-states-stay-distinct contrast checks.)
+            print("Phase 3b: not_configured → setup copy (no reload)")
+            stub_state["mode"] = "not-configured"
+            if not add_report_via_ui(page, check, FIXTURE_1, "d"):
+                print("  FAIL: phase 3b UI flow broke; skipping remaining phase-3b checks")
+            else:
+                nc_card = page.locator('[data-testid="report-summary-not-configured"]')
+                try:
+                    nc_card.first.wait_for(state="visible", timeout=20000)
+                    check(True, "(d) not-configured card renders")
+                except Exception:
+                    check(False, "(d) not-configured card renders")
+                if nc_card.count():
+                    nc_text = nc_card.first.inner_text()
+                    check("Report summaries aren't set up yet." in nc_text,
+                          "(d) warm setup copy renders")
+                    check("clearer photo" not in nc_text,
+                          "(d) no 'clearer photo' language")
+                    check("Couldn't read this one" not in nc_text,
+                          "(d) no unreadable-file blame text")
+                    check("This isn't medical advice." in nc_text,
+                          "(d) fixed disclaimer still visible")
+                    check(nc_card.locator('[data-testid="report-summary-retry"]').count() == 0,
+                          "(d) no Try again on the setup card")
+                check(failed_card.count() > 0, "(d) generic failed card still present")
+                if failed_card.count():
+                    check("clearer photo" in failed_card.first.inner_text(),
+                          "(d) generic failure keeps 'clearer photo' copy")
+                    check(failed_card.first.locator(
+                        '[data-testid="report-summary-retry"]').count() > 0,
+                          "(d) generic failure keeps Try again")
+
             # ---- phase 3: Try again recovers once the stub succeeds
             print("Phase 3: Try again recovers")
             stub_state["mode"] = "success"
@@ -424,8 +465,9 @@ def main():
                     check("Growth scan" in cards.nth(1).inner_text(),
                           "(c) retried card carries the summary title")
                 # The retry re-sent the SECOND fixture's bytes, inline.
-                if len(seen_requests) >= 3:
-                    retry_body = seen_requests[2]
+                # (Index 3: phase 3b added a not-configured invoke at [2].)
+                if len(seen_requests) >= 4:
+                    retry_body = seen_requests[3]
                     check(sorted(retry_body.keys()) == ["dataBase64", "mimeType"],
                           "(c) retry body is also ONLY {dataBase64, mimeType}")
                     try:

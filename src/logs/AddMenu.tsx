@@ -1,10 +1,13 @@
 /**
  * AddMenu — the Logs-tab Add button (Anuraj-approved Sept 2026).
  *
- * One centered circular + button (72px) floating above the Logs tab bar. It
- * REPLACES the old "Save a moment…" composer bar. Tap: a light dim scrim and
- * three white pills (Appointment / Add report / Log entry). Tap ×, the scrim,
- * or any pill to fold the menu away; a pill opens its sheet.
+ * One circular + button (72px) pinned bottom-right, just above the tab
+ * bar (mockup 15, design/15-logs-feed-changes.html — this SUPERSEDES the
+ * centered position from mockup 13). It REPLACES the old "Save a moment…"
+ * composer bar. Tap: a light dim scrim and three white pills
+ * (Appointment / Add report / Log entry) that rise from and right-align
+ * to the button. Tap ×, the scrim, or any pill to fold the menu away;
+ * a pill opens its sheet.
  *
  * Pill spec (design/13-logs-add.html, latest): full-round white pills,
  * no border, min 60px tall / 238px wide, 8/22/8/8 padding, 12px icon→text
@@ -140,12 +143,13 @@ const styles = StyleSheet.create({
   },
   pills: {
     position: 'absolute',
-    left: 0,
-    right: 0,
+    right: 18,
     // 16px above the 72px button's top edge (button spans bottom 20→92),
-    // matching the mockup's 14px pill↔button gap.
+    // matching the mockup's 14px pill↔button gap. Right-aligned to the
+    // button (mockup 15 .opts: right:18px, align-items:flex-end) so the
+    // menu fans upward from the button's right edge.
     bottom: 108,
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: 10,
   },
   pill: {
@@ -183,18 +187,19 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   /**
-   * Floating button: absolutely positioned over the feed — transparent,
+   * Floating button: pinned bottom-right just above the tab bar
+   * (mockup 15 .addwrap: right:18px; bottom:108px from the screen bottom
+   * = 20px above the tab bar — the tab bar is ~88px tall). Transparent,
    * no container, no background, zero in-flow space (Anuraj Sept 2026:
    * feed gets maximum space). Above the menu scrim (zIndex 10): the + / x
    * stays tappable while the menu is open.
    */
   bar: {
     position: 'absolute',
-    left: 0,
-    right: 0,
+    right: 18,
     bottom: 20,
     zIndex: 11,
-    alignItems: 'center',
+    alignItems: 'flex-end',
   },
   addButton: {
     // 72px: ~two-thirds of the old 88px (Anuraj Sept 2026 — the old

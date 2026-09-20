@@ -137,6 +137,53 @@ def main():
               page.get_by_text("Take a photo").count() == 0)
         page.screenshot(path=os.path.join(SHOT_DIR, "logs-photo-paused.png"))
 
+        # --- Logs Add button: LOCKED bottom-right position (mockup 15) ---
+        # The release agent's pass only asserted the button EXISTED — never
+        # its position, which is how the centered-vs-bottom-right drift
+        # shipped. Assert geometry, not just presence.
+        # Fresh navigation: deterministic closed-menu state.
+        page.goto(LOGS, wait_until="networkidle")
+        page.wait_for_timeout(2000)
+        add_btn2 = page.get_by_test_id("logs-add-button")
+        bbox = add_btn2.bounding_box()
+        tabbar_top = page.evaluate(
+            "() => { const a = document.querySelector('a[href*=\"/willow/you\"]');"
+            " return a ? a.getBoundingClientRect().top : null; }")
+        check("add: + button box measurable", bbox is not None)
+        if bbox is not None:
+            right = bbox["x"] + bbox["width"]
+            bottom = bbox["y"] + bbox["height"]
+            check("add: + button right edge ~18px from screen edge (372px)",
+                  abs(right - 372) <= 6)
+            check("add: + button in lower half of screen", bbox["y"] > 844 / 2)
+            if tabbar_top is not None:
+                check("add: + button floats above the tab bar",
+                      bottom < tabbar_top and bottom > tabbar_top - 80)
+        # open the menu: pills must fan upward, right-aligned to the button
+        add_btn2.click()
+        page.wait_for_timeout(800)
+        pill_ids = ["add-menu-pill-appointment", "add-menu-pill-report",
+                    "add-menu-pill-log"]
+        pill_boxes = [page.get_by_test_id(pid).bounding_box() for pid in pill_ids]
+        check("add: three pills measurable on open",
+              all(b is not None for b in pill_boxes))
+        if all(b is not None for b in pill_boxes) and bbox is not None:
+            btn_right = bbox["x"] + bbox["width"]
+            for pid, pb in zip(pill_ids, pill_boxes):
+                pright = pb["x"] + pb["width"]
+                check(f"add: pill {pid} right-aligned to button",
+                      abs(pright - btn_right) <= 8)
+            # fanning upward: each pill sits above the previous, 10px gaps
+            tops = [pb["y"] for pb in pill_boxes]
+            check("add: pills stack upward (appointment topmost)",
+                  tops[0] < tops[1] < tops[2])
+            lowest_bottom = pill_boxes[2]["y"] + pill_boxes[2]["height"]
+            check("add: pills rise from just above the button",
+                  8 <= bbox["y"] - lowest_bottom <= 28)
+        page.screenshot(path=os.path.join(SHOT_DIR, "logs-add-menu-open.png"))
+        add_btn2.click()  # fold the menu away via ×
+        page.wait_for_timeout(500)
+
         # --- You tab: reminders cleanup ---
         page.goto(YOU, wait_until="networkidle")
         page.wait_for_timeout(2500)
