@@ -38,6 +38,11 @@ export function TimePickerField({
 
   if (Platform.OS === 'ios') {
     // Compact renders as a small tappable field — the sheet stays compact.
+    // The pill chrome (border, radius, background) comes from the PARENT
+    // (AppointmentSheet's whenPill), which also wraps the date field — so
+    // this wrapper draws NO border of its own. An inner border here
+    // renders as a doubled, offset ring inside the parent's (iOS, Sept
+    // 20, 2026).
     return (
       <View style={styles.iosWrap}>
         <DateTimePicker
@@ -75,12 +80,12 @@ export function TimePickerField({
 }
 
 const styles = StyleSheet.create({
+  /**
+   * iOS compact-picker container. Deliberately borderless: the caller
+   * (AppointmentSheet's whenPill) draws the single pill border around
+   * both the date and time fields. Just centers the native field.
+   */
   iosWrap: {
-    borderWidth: 1.5,
-    borderColor: colors.line,
-    borderRadius: radii.card,
-    backgroundColor: colors.card,
-    paddingHorizontal: spacing.sm,
     minHeight: 54,
     justifyContent: 'center',
     alignItems: 'center',

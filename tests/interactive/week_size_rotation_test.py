@@ -75,30 +75,36 @@ def main():
         page.wait_for_function("() => !!window.__nurtureTest", timeout=45000)
         page.evaluate(SEED)
 
-        # Four successive Week-tab loads.
-        srcs = [week_art_src(page) for _ in range(4)]
+        # Six successive Week-tab loads. Rotation is RANDOM per tab load
+        # with no persistence and no sequence (src/week/sizeArt.ts: a
+        # full reload wipes the session picks, so each load is an
+        # independent draw) — assert rotation happens (more than one
+        # distinct variant across loads), not an exact cycle.
+        srcs = [week_art_src(page) for _ in range(6)]
 
         check("size hero card renders", page.get_by_test_id("week-size-hero").count() >= 1)
         hero_box = page.get_by_test_id("week-size-hero").bounding_box()
         check("size hero has real dimensions", bool(hero_box and hero_box["width"] > 100))
-        check("load 1 shows an image", srcs[0] is not None)
-        check("load 2 advances to a different variant", srcs[1] is not None and srcs[1] != srcs[0])
-        check("load 3 advances to a third variant",
-              srcs[2] is not None and srcs[2] != srcs[0] and srcs[2] != srcs[1])
-        check("load 4 cycles back to variant 1", srcs[3] == srcs[0])
+        check("every load shows an image", all(s is not None for s in srcs))
+        check("rotation shows multiple variants across loads", len(set(srcs)) > 1)
 
-        # Week paging: prev -> week 36 shows its variant 1 (fresh week);
-        # paging does not advance any sequence.
+        # Week paging: prev shows the previous week's art (date-relative —
+        # the current week depends on today); paging does not advance
+        # any sequence, so paging back replays the same image.
+        import re as _re2
+        _hdr = page.locator('[data-testid="week-screen"]').inner_text()
+        _m = _re2.search(r"Week (\d+)", _hdr)
+        _cur = int(_m.group(1)) if _m else None
         page.get_by_test_id("week-prev").click()
         page.wait_for_timeout(1200)
         prev_src = page.locator("[data-testid='week-size-art'] img").first.get_attribute("src")
-        check("paging to week 36 shows its variant 1",
-              prev_src is not None and "wk36-romaine-1" in prev_src)
+        check("paging shows the previous week's art",
+              _cur is not None and prev_src is not None and f"wk{_cur - 1}-" in prev_src)
         page.get_by_test_id("week-next").click()
         page.wait_for_timeout(1200)
         back_src = page.locator("[data-testid='week-size-art'] img").first.get_attribute("src")
-        check("paging back to week 37 replays its position (no advance)",
-              back_src == srcs[3])
+        check("paging back replays its position (no advance)",
+              back_src == srcs[-1])
 
         page.screenshot(path=os.path.join(SHOT_DIR, "week-size-rotation.png"))
         browser.close()

@@ -12,10 +12,12 @@
  * - src/labor/breathing/tone.ts and src/labor/pelvicfloor/device.ts — soft
  *   tones. On web they must NOT touch expo-audio; on native they must play
  *   their (distinct) bundled chime assets through expo-audio and never throw.
- *   The native audio session must RESPECT the iPhone silent switch
- *   (Anuraj's decision, Sept 20 2026): the audio mode must explicitly set
- *   `playsInSilentMode: false` — expo-audio v57 defaults it to `true`, so
- *   merely omitting the call would not mute the chimes.
+ *   The native audio session must PLAY THROUGH the iPhone silent switch
+ *   (Anuraj's decision, reversed Sept 20 2026 ~14:53 PDT — supersedes the
+ *   "respect the silent switch" rule): the audio mode must explicitly set
+ *   `playsInSilentMode: true`. The chime is session content the user
+ *   opted into (Soft tone toggle ON), not a notification — same as
+ *   music/meditation apps.
  *
  * Pure node — react-native / expo-keep-awake / expo-audio / .wav assets are
  * stubbed via the module loader before the sources load.
@@ -308,9 +310,9 @@ async function main() {
     );
     check('native: both chimes played', madePlayers.every((p) => p.playCalls >= 1));
     check(
-      'native: silent switch is respected (session never bypasses silent mode)',
+      'native: chime plays through the silent switch (playsInSilentMode true)',
       audioModeCalls.length > 0 &&
-        audioModeCalls.every((m: any) => m && m.playsInSilentMode === false),
+        audioModeCalls.every((m: any) => m && m.playsInSilentMode === true),
     );
   }
 

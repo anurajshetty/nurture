@@ -140,7 +140,7 @@ function pathForImageId(id: number): string | null {
   const captions = subjects.map((s) => s?.caption);
   ok(
     captions.includes('a leek') &&
-      captions.includes('a dachshund puppy in full hot-dog mode') &&
+      captions.includes('a dachshund puppy, stretched out long') &&
       captions.includes('a soprano ukulele'),
     'week 38: leek + dachshund + ukulele captions',
   );

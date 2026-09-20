@@ -198,18 +198,65 @@ export default function WeekScreen() {
    * onClose tear down a chat that just opened.
    * Consent shows on EVERY ask tap until the first question is actually
    * sent (hasAskedFirstQuestion); after that, ask opens chat directly.
+   *
+   * iOS modal-handoff (Sept 20, 2026): both the consent sheet and the
+   * chat are native Modals. Opening the chat in the same commit that
+   * dismisses the consent Modal races iOS's modal teardown — UIKit can
+   * tear down the presenting stack while the chat Modal is presenting,
+   * leaving chatVisible=true with NO modal on screen (the "stuck" bug
+   * Anuraj caught in TestFlight). So the consent sheet is ONLY ever
+   * closed here; the chat is opened from the sheet's onClose, after the
+   * exit animation completes, deferred one more tick so the native
+   * dismissal commits first.
    */
   const [consentVisible, setConsentVisible] = useState(false);
   const [chatVisible, setChatVisible] = useState(false);
+  /** True once the user has tapped "I understand" (reset on every open). */
+  const consentAcceptedRef = useRef(false);
+  /** Defers the chat open past the consent sheet's native dismissal. */
+  const chatOpenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openAsk = useCallback(() => {
     if (hasAskedFirstQuestion()) setChatVisible(true);
-    else setConsentVisible(true);
+    else {
+      // A pending deferred chat open (from a previous "I understand")
+      // is cancelled — the user re-tapped and the consent sheet is back.
+      if (chatOpenTimer.current) {
+        clearTimeout(chatOpenTimer.current);
+        chatOpenTimer.current = null;
+      }
+      consentAcceptedRef.current = false;
+      setConsentVisible(true);
+    }
   }, []);
-  const closeConsent = useCallback(() => setConsentVisible(false), []);
   const closeChat = useCallback(() => setChatVisible(false), []);
   const acceptConsent = useCallback(() => {
+    // Marks acceptance and STARTS the sheet's exit animation. The sheet
+    // stays mounted through the animation; its onClose
+    // (handleConsentClosed) opens the chat afterwards. The chat is NOT
+    // opened here — same-tick open + dismiss races iOS modal teardown.
+    consentAcceptedRef.current = true;
     setConsentVisible(false);
-    setChatVisible(true);
+  }, []);
+  /**
+   * Runs on EVERY consent-sheet dismissal: backdrop tap, "Not now"
+   * (via its own onPress AND the sheet's delayed onClose — idempotent),
+   * or the "I understand" exit animation completing. Opens the chat
+   * only when the user accepted.
+   */
+  const handleConsentClosed = useCallback(() => {
+    setConsentVisible(false);
+    if (!consentAcceptedRef.current) return;
+    consentAcceptedRef.current = false;
+    if (chatOpenTimer.current) clearTimeout(chatOpenTimer.current);
+    chatOpenTimer.current = setTimeout(() => {
+      chatOpenTimer.current = null;
+      setChatVisible(true);
+    }, 100);
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (chatOpenTimer.current) clearTimeout(chatOpenTimer.current);
+    };
   }, []);
   /**
    * Kick counter (Willow, round 4 — Anuraj approved Sept 20, 2026): the
@@ -356,6 +403,13 @@ export default function WeekScreen() {
   // on the completed-week number.
   const displayWeekNum = week + 1;
   const displayCurrentWeek = currentWeek + 1;
+  /**
+   * Pill dock visibility (Anuraj, Sept 20, 2026): the kicks pill floats
+   * 12pt above the Ask pill for displayed week 19+. The dock reserves
+   * exactly the pills' vertical space so body text can never scroll
+   * under them.
+   */
+  const showKicksPill = kicksVisibleForDisplayedWeek(displayWeekNum);
   /**
    * Kick Home card, round 4 (Anuraj, Sept 20, 2026): the DISPLAYED week's
    * sessions — State A (invitation) when empty, State B (week summary)
@@ -693,12 +747,21 @@ export default function WeekScreen() {
         Sep 2026
       </Text>
     </Screen>
-      <AskFab onPress={openAsk} />
-      {/* Kick counter entry (Anuraj, Sept 2026): the kicks pill floats
-          12pt above the Ask pill, same right edge. Displayed week 19+. */}
-      {kicksVisibleForDisplayedWeek(displayWeekNum) ? (
-        <KicksFab onPress={() => setCountingVisible(true)} />
-      ) : null}
+      {/* Pill dock (Anuraj, Sept 20, 2026): the Ask/kicks pills live in
+          reserved layout space below the scroll content instead of
+          floating OVER it — body text can never slide under the pills,
+          so highlight sentences are never visually cut mid-word. The
+          pills keep their approved look, size, and bottom-right
+          position; only the overlap is gone. */}
+      <View
+        style={[styles.pillDock, { height: showKicksPill ? 160 : 96 }]}
+        testID="week-pill-dock"
+      >
+        <AskFab onPress={openAsk} />
+        {showKicksPill ? (
+          <KicksFab onPress={() => setCountingVisible(true)} />
+        ) : null}
+      </View>
       <KickCountingScreen
         visible={countingVisible}
         onClose={closeCounting}
@@ -714,7 +777,11 @@ export default function WeekScreen() {
       />
       <ConsentSheet
         visible={consentVisible}
-        onNotNow={closeConsent}
+        // "Not now" and backdrop-dismiss both funnel through the same
+        // onClose as the "I understand" exit animation (idempotent);
+        // the chat opens only when the user accepted (see
+        // handleConsentClosed).
+        onNotNow={handleConsentClosed}
         onUnderstand={acceptConsent}
       />
       <AskChat visible={chatVisible} onClose={closeChat} />
@@ -728,6 +795,16 @@ const styles = StyleSheet.create({
    *  ask pill. No briefing UI changed. */
   askRoot: {
     flex: 1,
+  },
+  /** Pill dock (Anuraj, Sept 20, 2026): reserved layout space below the
+   *  scroll content for the Ask/kicks pills. The pills keep their
+   *  approved floating look and bottom-right position, but body text
+   *  can never slide under them — highlight sentences are never
+   *  visually cut mid-word. 160pt fits both pills (kicks at bottom:86
+   *  + 56 tall, ask at bottom:18 + 56 tall) with breathing room; 96pt
+   *  fits the Ask pill alone. */
+  pillDock: {
+    backgroundColor: colors.bg,
   },
   center: {
     flex: 1,

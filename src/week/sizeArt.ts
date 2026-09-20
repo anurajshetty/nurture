@@ -107,7 +107,7 @@ const SIZE_ART: Record<number, SizeArtSlot[]> = {
   19: [
     { image: require('../../assets/size-images/week-19/wk19-mango-1.jpg'), caption: "a mango" },
     { image: require('../../assets/size-images/week-19/wk19-sub.jpg'), caption: "a six-inch sub with all the fixings" },
-    { image: require('../../assets/size-images/week-19/wk19-guineapig.jpg'), caption: "a baby guinea pig, mid-popcorn" },
+    { image: require('../../assets/size-images/week-19/wk19-guineapig.jpg'), caption: "a baby guinea pig, mid-hop" },
   ],
   20: [
     { image: require('../../assets/size-images/week-20/wk20-banana-1.jpg'), caption: "a banana, curved and all" },
@@ -117,7 +117,7 @@ const SIZE_ART: Record<number, SizeArtSlot[]> = {
   21: [
     { image: require('../../assets/size-images/week-21/wk21-carrot-1.jpg'), caption: "a long carrot, pulled straight from the soil" },
     { image: require('../../assets/size-images/week-21/wk21-rollingpin.jpg'), caption: "a wooden rolling pin" },
-    { image: require('../../assets/size-images/week-21/wk21-ferret.jpg'), caption: "a ferret kit, mid-zoomies" },
+    { image: require('../../assets/size-images/week-21/wk21-ferret.jpg'), caption: "a ferret kit, mid-dash" },
   ],
   22: [
     { image: require('../../assets/size-images/week-22/wk22-papaya-1.jpg'), caption: "a small papaya" },
@@ -172,16 +172,16 @@ const SIZE_ART: Record<number, SizeArtSlot[]> = {
   32: [
     { image: require('../../assets/size-images/week-32/wk32-jicama-cut-2.jpg'), caption: "a jicama" },
     { image: require('../../assets/size-images/week-32/wk32-pizzabox.jpg'), caption: "a large pizza box, still warm" },
-    { image: require('../../assets/size-images/week-32/wk32-capybara.jpg'), caption: "a capybara pup, unbothered as ever" },
+    { image: require('../../assets/size-images/week-32/wk32-capybara.jpg'), caption: "a capybara pup, calm as can be" },
   ],
   33: [
     { image: require('../../assets/size-images/week-33/wk33-pineapple-plant-3.jpg'), caption: "a pineapple, crown included" },
     { image: require('../../assets/size-images/week-33/wk33-goatkid.jpg'), caption: "a goat kid, mid-bounce" },
-    { image: require('../../assets/size-images/week-33/wk33-diaperbag.jpg'), caption: "a packed diaper bag \u2014 already" },
+    { image: require('../../assets/size-images/week-33/wk33-diaperbag.jpg'), caption: "a packed diaper bag, ready to go" },
   ],
   34: [
     { image: require('../../assets/size-images/week-34/wk34-cantaloupe-vine-3.jpg'), caption: "a cantaloupe, perfectly round" },
-    { image: require('../../assets/size-images/week-34/wk34-corgi.jpg'), caption: "a corgi puppy, splooting" },
+    { image: require('../../assets/size-images/week-34/wk34-corgi.jpg'), caption: "a corgi puppy, stretched out for a nap" },
     { image: require('../../assets/size-images/week-34/wk34-blanket.jpg'), caption: "a folded throw blanket" },
   ],
   35: [
@@ -201,7 +201,7 @@ const SIZE_ART: Record<number, SizeArtSlot[]> = {
   ],
   38: [
     { image: require('../../assets/size-images/week-38/wk38-leek-1.jpg'), caption: "a leek" },
-    { image: require('../../assets/size-images/week-38/wk38-dachshund.jpg'), caption: "a dachshund puppy in full hot-dog mode" },
+    { image: require('../../assets/size-images/week-38/wk38-dachshund.jpg'), caption: "a dachshund puppy, stretched out long" },
     { image: require('../../assets/size-images/week-38/wk38-ukulele.jpg'), caption: "a soprano ukulele" },
   ],
   39: [

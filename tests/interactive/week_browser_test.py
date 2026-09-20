@@ -88,8 +88,7 @@ def main():
         page.wait_for_timeout(3000)
 
         # 1. Week screen renders
-        check(page.locator('[data-testid="week-screen"]').count() > 0 or
-              page.get_by_text("Week 37").count() > 0,
+        check(page.locator('[data-testid="week-screen"]').count() > 0,
               "week screen renders")
 
         # Size hero
@@ -121,24 +120,34 @@ def main():
             check("content updated" in ft.lower(), "footer says content updated")
             check("reviewed" not in ft.lower(), "footer does NOT claim reviewed")
 
-        # 2. Week navigation
+        # 2. Week navigation (date-relative: the current displayed week
+        # depends on today, so read it from the page instead of
+        # hardcoding — the hardcoded "Week 37" broke on Sept 20, 2026
+        # when the current week rolled to 38).
         print("Testing week navigation...")
         prev_btn = page.locator('[data-testid="week-prev"]')
         next_btn = page.locator('[data-testid="week-next"]')
         check(prev_btn.count() > 0 and next_btn.count() > 0, "nav chevrons present")
+        import re as _re
+        _hdr = page.locator('[data-testid="week-screen"]').inner_text()
+        _m = _re.search(r"Week (\d+)", _hdr)
+        _cur = int(_m.group(1)) if _m else None
+        check(_cur is not None, "current week readable from header")
 
         # Go to previous week
         prev_btn.click()
         page.wait_for_timeout(1500)
-        check(page.get_by_text("Week 36").count() > 0, "paged to week 36")
+        check(_cur is not None and page.get_by_text(f"Week {_cur - 1}").count() > 0,
+              f"paged to week {_cur - 1}" if _cur else "paged to previous week")
         # Back-to-current pill appears
         check(page.locator('[data-testid="week-back-current"]').count() > 0,
               "back-to-current pill appears")
 
-        # Next from week 36 goes to 37 (current), then disabled
+        # Next returns to the current week, then the pill hides
         next_btn.click()
         page.wait_for_timeout(1500)
-        check(page.get_by_text("Week 37").count() > 0, "back to week 37")
+        check(_cur is not None and page.get_by_text(f"Week {_cur}").count() > 0,
+              f"back to week {_cur}" if _cur else "back to current week")
         check(page.locator('[data-testid="week-back-current"]').count() == 0,
               "back-to-current pill hidden on current week")
 

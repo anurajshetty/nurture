@@ -138,12 +138,13 @@ function PhotoPlaceholder({ label }: { label: string }) {
 /* - 'summarizing': the interim feed entry ("Summarizing your report…") */
 /* - 'ready':       the summary card (serif title, plain-language body, */
 /*                  fixed disclaimer)                                   */
-/* - 'failed':      ONLY the backend-not-deployed setup state: "Report   */
-/*                  summaries aren't set up yet." with no retry and no   */
-/*                  "clearer photo" language. Every other failure        */
-/*                  hard-deletes the entry and the feed shows a          */
-/*                  transient toast instead — no persistent card, no     */
-/*                  retry, no feed entry left behind (Anuraj Sept 2026). */
+/* - 'failed':      LEGACY ONLY — nothing writes or renders this state  */
+/*                  anymore. Every failure hard-deletes the entry and   */
+/*                  the feed shows a transient toast instead. Legacy    */
+/*                  rows (including the retired 'not_configured' setup   */
+/*                  card, "Report summaries aren't set up yet.") are    */
+/*                  hard-deleted by logs.tsx's mount purge (Anuraj,      */
+/*                  Sept 20, 2026).                                     */
 /*                                                                     */
 /* The summary state lives on `event.data.reportSummary` so it          */
 /* survives reloads and syncs like any other payload change. The card   */
@@ -204,24 +205,11 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
   }
 
   if (state.status === 'failed') {
-    // Backend not deployed yet: a setup state, not a bad photo. Warm and
-    // minimal, no blame, no "clearer photo" language — and no retry button
-    // (a retry would fail identically; the deploy is a separate step).
-    // The fixed disclaimer stays visible on this state too. Any other
-    // failure deletes the entry outright (toast, no card) — a generic
-    // 'failed' state no longer renders anything by design; logs.tsx
-    // purges those legacy entries on mount.
-    if (state.reason === 'not_configured') {
-      return (
-        <View testID="report-summary-not-configured">
-          <Text style={styles.summaryFailedText}>
-            Report summaries aren&apos;t set up yet.
-          </Text>
-          {/* Fixed disclaimer — inside the card, always visible. */}
-          <Text style={styles.summaryDisclaimer}>{REPORT_SUMMARY_DISCLAIMER}</Text>
-        </View>
-      );
-    }
+    // LEGACY ONLY: nothing writes 'failed' anymore — every failure
+    // hard-deletes the entry and toasts. Legacy rows (including the
+    // retired 'not_configured' setup card) render nothing; logs.tsx
+    // purges those entries from the DB on mount. The setup copy is
+    // gone from the feed by design (Anuraj, Sept 20, 2026).
     return null;
   }
 

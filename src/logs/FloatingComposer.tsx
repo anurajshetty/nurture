@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Composer from '../composer/Composer';
+import { KeyboardAvoid } from '../components/KeyboardAvoid';
 import { colors, radii, spacing, shadow, type as typeScale } from '../theme/tokens';
 import type { LocalEvent } from '../lib/types';
 
@@ -66,7 +67,14 @@ export default function FloatingComposer({ visible, onClose, onSaved, onUnsaved 
             accessibilityLabel="Close log entry"
             testID="floating-composer-scrim"
           />
-          <View style={styles.float} pointerEvents="box-none">
+          {/* The floating card lifts above the iOS keyboard through the
+              shared KeyboardAvoid pattern (the Logs tab opts out of
+              Screen's wrapper to avoid a double shift). */}
+          <KeyboardAvoid
+            style={styles.float}
+            pointerEvents="box-none"
+            testID="floating-composer-card"
+          >
             <View style={styles.composerCard}>
               <Composer
                 onSaved={onSaved}
@@ -78,7 +86,7 @@ export default function FloatingComposer({ visible, onClose, onSaved, onUnsaved 
                 onSaveComplete={handleSaveComplete}
               />
             </View>
-          </View>
+          </KeyboardAvoid>
         </>
       )}
       {saved ? (

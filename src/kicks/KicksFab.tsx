@@ -3,8 +3,11 @@
  *
  * Coral 96×56 pill labeled "kicks" with a creative baby-foot mark (not
  * the Willow mark). Same footprint and right edge as the Ask pill,
- * stacked 12pt above it. Week tab only, displayed week 19+. Opens the
- * full-screen counting screen.
+ * stacked 12pt above it. Week tab only, displayed week 19+. Renders
+ * inside the Week tab's pill dock — reserved space below the scroll
+ * content (Anuraj, Sept 20, 2026) — so it keeps its floating look
+ * without ever covering body text. Opens the full-screen counting
+ * screen.
  */
 
 import { Pressable, StyleSheet, Text } from 'react-native';

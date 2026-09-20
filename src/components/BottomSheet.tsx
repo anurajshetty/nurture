@@ -12,6 +12,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAvoid } from './KeyboardAvoid';
 import { colors, radii, spacing } from '../theme/tokens';
 
 const { height: SCREEN_H } = Dimensions.get('window');
@@ -132,7 +133,12 @@ export default function BottomSheet({
       onRequestClose={dismiss}
       statusBarTranslucent
     >
-      <View style={styles.fill} testID={testID}>
+      {/* KeyboardAvoid wraps the fill (not just the children): on iOS the
+          padding shift lifts the bottom-anchored sheet above the keyboard,
+          so every sheet text field (appointment, journal, questions,
+          account name, consent-free inputs) stays visible. Sheets without
+          text inputs never summon the keyboard, so this is a no-op there. */}
+      <KeyboardAvoid style={styles.fill} testID={testID}>
         <Animated.View style={[styles.scrim, { opacity: scrimOpacity }]}>
           <Pressable
             style={StyleSheet.absoluteFill}
@@ -166,7 +172,7 @@ export default function BottomSheet({
           </View>
           {children}
         </Animated.View>
-      </View>
+      </KeyboardAvoid>
     </Modal>
   );
 }

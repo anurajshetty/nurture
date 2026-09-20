@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAvoid } from '../components/KeyboardAvoid';
 import { colors, radii as radius, spacing, type } from '../theme/tokens';
 import {
   AT_LIMIT_BODY,
@@ -244,8 +243,10 @@ export function AskChat({ visible, onClose }: { visible: boolean; onClose: () =>
           </Text>
         )}
 
-        {/* Composer / at-limit / unavailable */}
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        {/* Composer / at-limit / unavailable — the footer lifts above the
+            iOS keyboard through the shared KeyboardAvoid pattern (same
+            as every other text-entry surface). */}
+        <KeyboardAvoid>
           <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
             {status === 'at-limit' && quota ? (
               <View testID="ask-chat-limit" style={styles.limitCard}>
@@ -300,7 +301,7 @@ export function AskChat({ visible, onClose }: { visible: boolean; onClose: () =>
               </View>
             )}
           </View>
-        </KeyboardAvoidingView>
+        </KeyboardAvoid>
       </View>
     </Modal>
   );

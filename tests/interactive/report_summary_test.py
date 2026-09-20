@@ -534,35 +534,36 @@ def main():
             except Exception:
                 check(False, "(e) thrown-path toast auto-dismisses")
 
-        # ---- phase 5: backend not deployed → setup copy, never blame the photo
-        # (Anuraj, Sept 2026: a 503 {error:"not_configured"} means the
-        # report pipeline isn't set up yet — the card must say so, with
-        # no retry button and no "clearer photo" language.)
-        print("Phase 5: not_configured → setup copy (no reload)")
+        # ---- phase 5: backend not deployed → hard-delete + transient toast,
+        # no persistent card (BUG 3, Anuraj Sept 20, 2026 — supersedes the
+        # Sept 2026 setup-card decision: a "not set up yet" card in the
+        # feed is setup leakage that reads as a broken app).
+        print("Phase 5: not_configured → transient toast, no card (no reload)")
         stub_state["mode"] = "not-configured"
         if not add_report_via_ui(page, check, FIXTURE_1, "d"):
             print("  FAIL: phase 5 UI flow broke; skipping remaining phase-5 checks")
         else:
-            nc_card = page.locator('[data-testid="report-summary-not-configured"]')
             try:
-                nc_card.first.wait_for(state="visible", timeout=20000)
-                check(True, "(d) not-configured card renders")
+                page.wait_for_function(
+                    "() => { const el = document.querySelector('[data-testid=\"report-summary-toast\"]'); "
+                    "return !!el && (el.textContent || '').includes('Report summary failed'); }",
+                    timeout=20000)
+                check(True, "(d) not-configured failure toasts")
             except Exception:
-                check(False, "(d) not-configured card renders")
-            if nc_card.count():
-                nc_text = nc_card.first.inner_text()
-                check("Report summaries aren't set up yet." in nc_text,
-                      "(d) warm setup copy renders")
-                check("clearer photo" not in nc_text,
-                      "(d) no 'clearer photo' language")
-                check("Couldn't read this one" not in nc_text,
-                      "(d) no unreadable-file blame text")
-                check("This isn't medical advice." in nc_text,
-                      "(d) fixed disclaimer still visible")
-                check(nc_card.locator('[data-testid="report-summary-retry"]').count() == 0,
-                      "(d) no Try again on the setup card")
-                check(page.locator('[data-testid="report-summary-toast"]').count() == 0,
-                      "(d) no toast for the setup state")
+                check(False, "(d) not-configured failure toasts")
+            check(page.locator('[data-testid="report-summary-loading"]').count() == 0,
+                  "(d) interim entry hard-deleted")
+            check(page.locator('[data-testid="report-summary-not-configured"]').count() == 0,
+                  "(d) retired setup card never renders")
+            check(page.locator('[data-testid="report-summary-card"]').count() == 1,
+                  "(d) still only the phase-1 summary card")
+            try:
+                page.wait_for_function(
+                    "() => !document.querySelector('[data-testid=\"report-summary-toast\"]')",
+                    timeout=8000)
+                check(True, "(d) toast auto-dismisses")
+            except Exception:
+                check(False, "(d) toast auto-dismisses")
 
         # ---- phase 6: client-side unreadable file (0-byte PDF) → preserved
         # clearer-photo handling: the sheet toasts "That file looks empty.",

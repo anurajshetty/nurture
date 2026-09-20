@@ -6,7 +6,9 @@ import { colors } from '../theme/tokens';
 /**
  * Ask Willow floating entry (Anuraj, Sept 20, 2026): Week tab only,
  * bottom-right coral 56pt pill labeled "ask" with the Willow mark.
- * Floats while the briefing scrolls. Not a card, not a fifth tab.
+ * Renders inside the Week tab's pill dock — reserved space below the
+ * scroll content (Anuraj, Sept 20, 2026) — so it keeps its floating
+ * look without ever covering body text. Not a card, not a fifth tab.
  */
 function WillowMark({ size = 20 }: { size?: number }) {
   return (

@@ -447,6 +447,18 @@ def main():
             check("report done toasts", False)
         else:
             check("report done toasts", True)
+        # BUG 3 (Anuraj, Sept 20, 2026): with no backend the summary
+        # fails -> the interim entry is hard-deleted and a transient
+        # toast fires ("Report summary failed", 2400ms). Catch it while
+        # it's up: wait_for returns instantly if already visible.
+        try:
+            summary_toast = page.get_by_test_id("report-summary-toast")
+            summary_toast.wait_for(timeout=15000)
+        except Exception:
+            check("report failure toasts transiently", False)
+        else:
+            check("report failure toasts transiently",
+                  "Report summary failed" in (summary_toast.inner_text() or ""))
         page.wait_for_timeout(2000)
         check("report sheet closes after done",
               page.get_by_test_id("report-sheet").count() == 0)
@@ -460,27 +472,25 @@ def main():
             check("report lands in timeline", False)
         else:
             check("report lands in timeline", True)
-            # Find the report's own card by its summary state (ephemeral flow,
-            # Sept 2026: entries are text-only — no raw filename on the card).
-            # This suite doesn't stub the edge function, so the card lands in
-            # the loading or summary-card state, or — with no Supabase backend
-            # wired up — the not-configured setup card (the Sept 2026 setup
-            # card, which must never blame the photo). A genuine failure
-            # hard-deletes the entry instead (transient toast, no card), so
-            # there is no failed-card surface to allow here.
-            report_card = page.locator(
-                '[data-testid="report-summary-loading"],'
-                '[data-testid="report-summary-card"],'
-                '[data-testid="report-summary-not-configured"]').first
-            try:
-                report_card.wait_for(timeout=8000)
-            except Exception:
-                check("report card found", False)
-            else:
-                check("report card found", True)
-                check("report renders with Report label (not FILE chip)",
-                      page.get_by_text("Report", exact=True).count() > 0
-                      and "FILE" not in page.evaluate("document.body.innerText"))
+        # BUG 3 (Anuraj, Sept 20, 2026): every summary failure —
+        # including not_configured with no backend wired up — hard-
+        # deletes the interim entry and surfaces a transient toast
+        # (asserted above). No persistent card, ever: not loading, not
+        # a summary card, not the retired setup card. Wait for the flow
+        # to settle, then assert the end state. (The toast-kind
+        # signaling itself is covered by tests/report_summary.test.ts.)
+        try:
+            page.wait_for_function(
+                "() => document.querySelectorAll('[data-testid=\"report-summary-loading\"]').length === 0",
+                timeout=20000)
+        except Exception:
+            check("interim summarizing card clears", False)
+        else:
+            check("interim summarizing card clears", True)
+        check("no persistent failed summary card",
+              page.locator('[data-testid="report-summary-loading"],'
+                           '[data-testid="report-summary-card"],'
+                           '[data-testid="report-summary-not-configured"]').count() == 0)
 
         # ---- D. Log entry: floating composer ----
         page.get_by_test_id("logs-add-button").click()

@@ -14,8 +14,8 @@
  *
  * Failures surface as a typed ReportSummaryError:
  * - 'not_configured'  — the edge function has no provider key yet
- *   (or no backend is wired up). The setup card says summaries aren't
- *   set up yet.
+ *   (or no backend is wired up). The entry is hard-deleted and the UI
+ *   toasts — nothing persists a card (Anuraj, Sept 20, 2026).
  * - 'not_related'     — the function judged the document off-topic
  *   (HTTP 422 `{error:'not_related'}`). The entry is hard-deleted and
  *   the UI toasts — the document is never persisted as a feed entry.
@@ -515,8 +515,10 @@ export function resumeReportSummary(eventId: string, deps: SummarizeReportDeps =
 
 /**
  * One-time convergence for entries persisted by the old failure model:
- * a generic (non-setup) 'failed' summary state no longer has a card, so
- * those entries are hard-deleted — no persistent failed card, ever.
+ * a 'failed' summary state no longer has a card — not even the retired
+ * 'not_configured' setup card ("Report summaries aren't set up yet."),
+ * which was setup leakage in the feed (Anuraj, Sept 20, 2026). All
+ * 'failed' entries are hard-deleted: no persistent failed card, ever.
  * Best-effort, never throws.
  */
 export function purgeLegacyFailedReportEntries(): void {
@@ -533,7 +535,7 @@ export function purgeLegacyFailedReportEntries(): void {
         continue;
       }
       const state = readReportSummaryState(data);
-      if (state && state.status === 'failed' && state.reason !== 'not_configured') {
+      if (state && state.status === 'failed') {
         hardDeleteEvent(row.id);
       }
     }

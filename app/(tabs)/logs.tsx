@@ -161,8 +161,9 @@ export default function LogsScreen() {
   const reportToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     // One-time convergence: entries persisted by the old failure model
-    // (generic 'failed' card) are hard-deleted — no persistent failed
-    // card, ever.
+    // ('failed' states, including the retired 'not_configured' setup
+    // card) are hard-deleted — no persistent failed card, ever
+    // (Anuraj, Sept 20, 2026).
     purgeLegacyFailedReportEntries();
     return subscribeReportSummaryOutcome((eventId, kind) => {
       setEvents((prev) => prev.filter((e) => e.id !== eventId));
@@ -445,7 +446,15 @@ export default function LogsScreen() {
   const weekFilterLabel = weekFilter === 'all' ? 'All weeks' : displayWeekLabel(weekFilter);
 
   return (
-    <Screen scroll={false} testID="logs-screen" style={styles.root}>
+    <Screen
+      scroll={false}
+      testID="logs-screen"
+      style={styles.root}
+      // The FloatingComposer wraps its own card in the shared
+      // KeyboardAvoid — Screen's wrapper stays off to avoid a double
+      // shift when the log composer opens the keyboard.
+      keyboardAvoid={false}
+    >
       <View style={styles.header} testID="logs-header">
         <View style={styles.headerRow}>
           <Text style={styles.title}>Your story</Text>

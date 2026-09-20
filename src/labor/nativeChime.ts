@@ -6,13 +6,16 @@
  * `expo-audio`'s `createAudioPlayer`. The two sections keep their own assets
  * (distinct sound design — do not unify them).
  *
- * Silent-switch behavior (Anuraj's decision, Sept 20 2026): the native chimes
- * must RESPECT the iPhone silent switch — when the switch is on, the chimes
- * stay silent. expo-audio v57 defaults `playsInSilentMode` to `true`
- * (https://docs.expo.dev/versions/v57.0.0/sdk/audio/), so the session is
- * explicitly configured with `playsInSilentMode: false`. Do not omit the
- * call (that would silently play through silent mode) and never set it back
- * to `true` — the guard test in tests/labor-native-gaps.test.ts enforces this.
+ * Silent-switch behavior (Anuraj's decision, reversed Sept 20 2026 ~14:53
+ * PDT — supersedes the ~13:10 "respect the silent switch" decision): the
+ * native chimes must PLAY THROUGH the iPhone silent switch. Rationale:
+ * the soft tone is session content the user explicitly opted into (the
+ * Soft tone toggle ON), not a notification — same as music/meditation
+ * apps. Whenever the Soft tone toggle is on and device volume is up, the
+ * phase-change chime plays, silent switch or not. expo-audio v57 defaults
+ * `playsInSilentMode` to `true`, but the session is configured explicitly
+ * with `playsInSilentMode: true` so the intent is locked in code and the
+ * guard test in tests/labor-native-gaps.test.ts enforces it.
  *
  * Best-effort only — never throws. Players are created lazily on first use,
  * so merely importing this module never touches native audio.
@@ -38,15 +41,16 @@ function playerFor(asset: number): AudioPlayer | null {
 
 /**
  * Play a bundled chime asset (a Metro `require('…​.wav')` id) from the start.
- * The audio session is configured once with `playsInSilentMode: false` so
- * the gentle cue stays silent when the iPhone silent switch is on (Anuraj's
- * decision, Sept 20 2026). Web is untouched — WebAudio chimes play as before.
+ * The audio session is configured once with `playsInSilentMode: true` so
+ * the phase-change chime plays whenever the Soft tone toggle is on and
+ * volume is up — silent switch or not (Anuraj's reversal, Sept 20 2026).
+ * Web is untouched — WebAudio chimes play as before.
  */
 export function playNativeChime(asset: number): void {
   try {
     if (!audioModeSet) {
       audioModeSet = true;
-      void setAudioModeAsync({ playsInSilentMode: false }).catch(() => {
+      void setAudioModeAsync({ playsInSilentMode: true }).catch(() => {
         /* ignore — play through whatever session is active */
       });
     }

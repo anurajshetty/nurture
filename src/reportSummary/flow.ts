@@ -13,15 +13,19 @@
  * Flow states on `event.data.reportSummary`:
  * - 'summarizing' — interim entry in the feed ("Summarizing your report…")
  * - 'ready'       — summary card (title, body, fixed disclaimer)
- * - 'failed'      — ONLY for the backend-not-deployed setup state
- *                   (reason 'not_configured'): "Report summaries aren't
- *                   set up yet.", no retry. Every other failure
- *                   hard-deletes the entry and surfaces a transient toast
- *                   instead — no persistent card, no retry (Anuraj Sept 2026).
+ * - 'failed'      — LEGACY ONLY (read for old rows, purged on Logs mount).
+ *                   No new 'failed' states are written: every failure —
+ *                   including a backend that isn't deployed — hard-deletes
+ *                   the entry and surfaces a transient toast instead. A
+ *                   persistent "not set up yet" card confused the feed
+ *                   (Anuraj, Sept 20, 2026: uploading any file produced a
+ *                   REPORT card reading "Report summaries aren't set up
+ *                   yet."). The backend state is not the user's problem to
+ *                   stare at.
  *
  * Legacy note: the pre-ephemeral flow persisted 'reading'. Readers map it
  * to 'summarizing'; with no stashed bytes left it degrades to 'failed',
- * which is the honest state for a summary that can never complete.
+ * which the Logs-mount purge removes.
  */
 
 /**
@@ -71,12 +75,10 @@ export type ReportSummaryState =
   | {
       status: 'failed';
       /**
-       * Why it failed, when the reason changes what the card should say.
-       * 'not_configured' — the edge function has no provider key yet
-       * (backend not deployed): a setup state, not a bad photo. The card
-       * says summaries aren't set up yet and offers no retry (a retry
-       * would fail identically). Any other failure never reaches this
-       * state: the entry is hard-deleted and the UI toasts instead.
+       * LEGACY ONLY. Old rows may carry reason 'not_configured' (the
+       * retired setup card); the reader preserves it so the Logs-mount
+       * purge can find and remove those rows. Nothing writes 'failed'
+       * anymore — every failure hard-deletes the entry instead.
        */
       reason?: 'not_configured';
     };
@@ -86,22 +88,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * Structural check for the client's ReportSummaryError('not_configured').
- * flow.ts stays dependency-free (client.ts imports from here, not vice
- * versa); `code` is the documented stable UI-branching field on that error.
- */
-function isNotConfiguredError(e: unknown): boolean {
-  return (
-    typeof e === 'object' &&
-    e !== null &&
-    (e as { code?: unknown }).code === 'not_configured'
-  );
-}
-
-/**
  * Structural check for the client's ReportSummaryError('not_related') —
  * the edge function's off-topic verdict (HTTP 422). Same shape contract
- * as isNotConfiguredError above.
+ * as the client's other errors: `code` is the documented stable
+ * UI-branching field.
  */
 function isNotRelatedError(e: unknown): boolean {
   return (
@@ -122,9 +112,9 @@ export function readReportSummaryState(data: Record<string, unknown>): ReportSum
   if (!isRecord(raw)) return null;
   if (raw.status === 'summarizing' || raw.status === 'reading') return { status: 'summarizing' };
   if (raw.status === 'failed') {
-    // Only 'not_configured' survives the round-trip (the setup card).
-    // A legacy generic 'failed' reads back as-is; the UI no longer
-    // renders it — logs.tsx purges those entries on mount.
+    // LEGACY ONLY: nothing writes 'failed' anymore. Old rows read back
+    // as-is (including the retired 'not_configured' setup card) so the
+    // Logs-mount purge can find and remove them.
     return raw.reason === 'not_configured'
       ? { status: 'failed', reason: 'not_configured' }
       : { status: 'failed' };
@@ -220,8 +210,8 @@ export interface ReportFlowDeps {
   summarize(input: ReportSummaryInput): Promise<ReportSummaryResult>;
   /**
    * Called after a failure deletes the entry, so the UI can show the
-   * transient toast for the matching kind. Never called for the
-   * 'not_configured' setup state (that one keeps its card).
+   * transient toast for the matching kind. Called for EVERY failure —
+   * nothing persists a card anymore.
    */
   onFailure?: (kind: ReportFailureKind) => void;
 }
@@ -240,12 +230,11 @@ export function isReportSummaryInflight(eventId: string): boolean {
  * 1. Writes 'summarizing' (the interim feed entry).
  * 2. Sends the stashed bytes inline to the edge function.
  * 3. On success writes 'ready' (+ smart entry name) and drops the bytes.
- * 4. On a backend-not-deployed failure ('not_configured') writes the
- *    setup 'failed' state — the card says summaries aren't set up yet.
- * 5. On ANY other failure (provider error, unreadable doc, off-topic
- *    422, timeout…) hard-deletes the entry and reports the kind via
- *    `onFailure` so the UI can toast — no persistent card, no retry,
- *    no feed entry left behind (Anuraj Sept 2026).
+ * 4. On ANY failure (provider error, unreadable doc, off-topic 422,
+ *    timeout, OR a backend that isn't deployed 'not_configured')
+ *    hard-deletes the entry and reports the kind via `onFailure` so the
+ *    UI can toast — no persistent card, no retry, no feed entry left
+ *    behind (Anuraj Sept 2026).
  *
  * When the bytes are gone (e.g. the app restarted mid-summary) the
  * entry is deleted immediately instead of hanging on "Summarizing…"
@@ -287,16 +276,12 @@ export async function runReportSummaryFlow(
     store.setEntryName?.(result.attachmentName);
     return 'ready';
   } catch (e) {
-    // A missing backend deploy ('not_configured') is a setup state, not a
-    // bad photo — persist the reason so the card can say so honestly and
-    // skip the retry button (a retry would fail identically).
-    if (isNotConfiguredError(e)) {
-      store.writeState({ status: 'failed', reason: 'not_configured' });
-      return 'failed';
-    }
-    // Every other failure: the interim entry is hard-deleted and the UI
-    // toasts the matching copy. Off-topic documents are never persisted
-    // as a feed entry or card, anywhere (Anuraj's standing rule).
+    // EVERY failure — network, timeout, bad response, off-topic verdict,
+    // OR a backend that isn't deployed ('not_configured') — hard-deletes
+    // the interim entry and surfaces a transient toast. No failure leaves
+    // a persistent card: a "not set up yet" card in the feed is setup
+    // leakage that reads as a broken app (Anuraj, Sept 20, 2026). The
+    // bytes are cleared either way so no document lingers in memory.
     const kind: ReportFailureKind = isNotRelatedError(e) ? 'not_related' : 'failed';
     deps.clearBytes();
     store.deleteEntry();

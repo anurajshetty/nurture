@@ -582,27 +582,27 @@ async function main(): Promise<void> {
     check('not_related signals the off-topic toast kind', h.getFailures(), ['not_related']);
   }
 
-  // --- not_configured: backend not deployed → setup state, no retry copy ---
+  // --- not_configured: backend not deployed → same as any failure:
+  // hard-delete + toast, NO persistent setup card (Anuraj, Sept 20, 2026) ---
   {
     const h = makeFlowHarness({ status: 'summarizing' });
     const notConfigured = new Error('edge function has no provider key');
     notConfigured.name = 'ReportSummaryError';
     (notConfigured as { code?: string }).code = 'not_configured';
+    let bytesCleared = false;
     const outcome = await runReportSummaryFlow({
       eventId: 'flow-e2b',
       store: h.store,
       takeBytes: () => ({ dataBase64: 'QUJD', mimeType: 'application/pdf' }),
-      clearBytes: () => {},
+      clearBytes: () => { bytesCleared = true; },
       summarize: () => Promise.reject(notConfigured),
       onFailure: h.deps.onFailure,
     });
     check('not_configured failure resolves failed', outcome, 'failed');
-    check('not_configured persists the reason', h.getState(), {
-      status: 'failed',
-      reason: 'not_configured',
-    });
-    check('not_configured does NOT delete the entry (setup card stays)', h.getDeleted(), 0);
-    check('not_configured signals NO toast', h.getFailures(), []);
+    check('not_configured writes NO failed state (no card)', h.writes.length, 1); // only the interim 'summarizing'
+    check('not_configured hard-deletes the interim entry', h.getDeleted(), 1);
+    check('not_configured drops the bytes', bytesCleared, true);
+    check('not_configured signals the toast kind', h.getFailures(), ['failed']);
   }
 
   // --- stale entry: no stashed bytes → entry deleted, toast signaled, summarize never called ---
@@ -651,7 +651,7 @@ async function main(): Promise<void> {
   });
   check('absent state is null', readReportSummaryState({}), null);
   check('malformed ready state is null', readReportSummaryState({ reportSummary: { status: 'ready' } }), null);
-  check('not_configured reason survives the round-trip',
+  check('not_configured reason survives the round-trip (legacy read for the purge)',
     readReportSummaryState({ reportSummary: { status: 'failed', reason: 'not_configured' } }),
     { status: 'failed', reason: 'not_configured' });
   check('generic failure reads back with no reason',

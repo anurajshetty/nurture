@@ -7,6 +7,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAvoid } from './KeyboardAvoid';
 import { colors, spacing } from '../theme/tokens';
 
 type ScreenProps = {
@@ -15,6 +16,13 @@ type ScreenProps = {
   scroll?: boolean;
   /** Extra space below the content — pass a larger value on tab screens so the tab bar never covers content. */
   bottomPadding?: number;
+  /**
+   * iOS keyboard avoidance (default true). The whole screen lifts above
+   * the keyboard via the shared KeyboardAvoid pattern. Opt OUT only
+   * when the surface manages its own avoidance (e.g. the Logs tab, whose
+   * FloatingComposer wraps its own card).
+   */
+  keyboardAvoid?: boolean;
   style?: StyleProp<ViewStyle>;
   contentStyle?: StyleProp<ViewStyle>;
   testID?: string;
@@ -29,43 +37,44 @@ export default function Screen({
   children,
   scroll = true,
   bottomPadding = spacing.xxxl,
+  keyboardAvoid = true,
   style,
   contentStyle,
   testID,
 }: ScreenProps) {
   const insets = useSafeAreaInsets();
 
-  if (!scroll) {
-    return (
-      <View
-        testID={testID}
-        style={[
-          styles.root,
-          { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, spacing.lg) },
-          style,
-        ]}
-      >
-        {children}
-      </View>
-    );
-  }
+  const content = scroll ? (
+    <ScrollView
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: bottomPadding + insets.bottom },
+        contentStyle,
+      ]}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
+      {children}
+    </ScrollView>
+  ) : (
+    children
+  );
+
+  const rootStyle: StyleProp<ViewStyle> = scroll
+    ? [styles.root, { paddingTop: insets.top }, style]
+    : [
+        styles.root,
+        { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, spacing.lg) },
+        style,
+      ];
 
   return (
-    <View
-      testID={testID}
-      style={[styles.root, { paddingTop: insets.top }, style]}
-    >
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: bottomPadding + insets.bottom },
-          contentStyle,
-        ]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {children}
-      </ScrollView>
+    <View testID={testID} style={rootStyle}>
+      {keyboardAvoid ? (
+        <KeyboardAvoid style={styles.avoid}>{content}</KeyboardAvoid>
+      ) : (
+        content
+      )}
     </View>
   );
 }
@@ -74,6 +83,10 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: colors.bg,
+  },
+  /** KeyboardAvoid must fill the screen for the padding shift to work. */
+  avoid: {
+    flex: 1,
   },
   content: {
     flexGrow: 1,

@@ -6,6 +6,7 @@ export { default as FilterChip } from './FilterChip';
 export { default as Toggle } from './Toggle';
 export { default as Segmented } from './Segmented';
 export { default as BottomSheet } from './BottomSheet';
+export { KeyboardAvoid } from './KeyboardAvoid';
 export { default as EmptyState } from './EmptyState';
 export { default as SettingsRow } from './SettingsRow';
 export { default as SectionHeader } from './SectionHeader';
