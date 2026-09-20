@@ -53,6 +53,13 @@ export interface ContractionEntry {
   startedAt: string;
   /** Length in whole seconds. */
   durationSec: number;
+  /**
+   * Frozen start-to-start gap (seconds) to the next (newer) contraction.
+   * Recorded once, at the moment the successor is logged — never derived
+   * from "now", so history rows never render a live-ticking clock.
+   * `null` for the newest entry, which has no successor yet (renders "—").
+   */
+  apartSec?: number | null;
 }
 
 const CONTRACTIONS_KV_KEY = 'labor.contractions.v1';
@@ -124,8 +131,15 @@ export function readContraction(raw: unknown): ContractionEntry | null {
       typeof r.durationSec === 'number' && Number.isFinite(r.durationSec)
         ? Math.max(1, Math.round(r.durationSec))
         : null;
+    // apartSec is optional (legacy rows predate it); tolerate garbage.
+    const apartSec =
+      typeof r.apartSec === 'number' &&
+      Number.isFinite(r.apartSec) &&
+      r.apartSec >= 0
+        ? Math.round(r.apartSec)
+        : null;
     if (!id || !startedAt || durationSec === null) return null;
-    return { id, startedAt, durationSec };
+    return { id, startedAt, durationSec, apartSec };
   } catch {
     return null;
   }
@@ -159,11 +173,65 @@ export function loadContractions(): ContractionEntry[] {
 
 function persistAll(entries: readonly ContractionEntry[]): void {
   try {
-    const trimmed = [...entries].sort(byNewest).slice(0, MAX_STORED);
+    // apartSec is (re)frozen here — the only place values are recorded —
+    // so renders never need "now" and history rows never tick.
+    const trimmed = backfillAparts(entries).slice(0, MAX_STORED);
     kvSet(CONTRACTIONS_KV_KEY, JSON.stringify(trimmed));
   } catch {
     /* never throw outward */
   }
+}
+
+/**
+ * Freezes every entry's `apartSec` (start-to-start gap to its successor,
+ * newest first). The newest entry has no successor yet → `apartSec: null`,
+ * rendered as a static "—". Recomputed only when the stored list changes
+ * (log / edit / delete), so deleting a middle entry correctly re-points
+ * its older neighbor at the new successor. Idempotent and never throws.
+ */
+export function backfillAparts(
+  entries: readonly ContractionEntry[],
+): ContractionEntry[] {
+  const sorted = [...entries].sort(byNewest);
+  return sorted.map((e, i) => {
+    if (i === 0) return { ...e, apartSec: null };
+    const newerMs = Date.parse(sorted[i - 1].startedAt);
+    const mineMs = Date.parse(e.startedAt);
+    const apartSec =
+      !Number.isNaN(newerMs) &&
+      !Number.isNaN(mineMs) &&
+      newerMs >= mineMs
+        ? intervalSecBetween(mineMs, newerMs)
+        : null;
+    return { ...e, apartSec };
+  });
+}
+
+/**
+ * Display value for a history row's "apart" segment. Prefers the frozen
+ * `apartSec` recorded when the successor was logged; for legacy rows that
+ * predate it, derives the gap statically from the successor's start.
+ * The newest entry (no successor) → `null`, rendered as a static "—".
+ * Never derived from "now" — no live-ticking numbers on history rows.
+ */
+export function apartForRow(
+  entry: ContractionEntry,
+  successor: ContractionEntry | null,
+): number | null {
+  if (
+    typeof entry.apartSec === 'number' &&
+    Number.isFinite(entry.apartSec) &&
+    entry.apartSec >= 0
+  ) {
+    return entry.apartSec;
+  }
+  if (!successor) return null;
+  const newerMs = Date.parse(successor.startedAt);
+  const mineMs = Date.parse(entry.startedAt);
+  if (Number.isNaN(newerMs) || Number.isNaN(mineMs) || newerMs < mineMs) {
+    return null;
+  }
+  return intervalSecBetween(mineMs, newerMs);
 }
 
 /** Appends one logged contraction; returns the new full list. */
@@ -783,10 +851,10 @@ function HistoryView({
       )}
 
       {recent.map((e, i) => {
-        const nextNewer = i > 0 ? recent[i - 1] : null;
-        const gapSec = nextNewer
-          ? intervalSecBetween(Date.parse(nextNewer.startedAt), Date.parse(e.startedAt))
-          : Math.max(0, Math.round((nowMs - Date.parse(e.startedAt)) / 1000));
+        const successor = i > 0 ? recent[i - 1] : null;
+        // Frozen at log time (or statically derived for legacy rows);
+        // the newest entry shows a static "—" — never a running clock.
+        const apartSec = apartForRow(e, successor);
         return (
           <Pressable
             key={e.id}
@@ -804,7 +872,8 @@ function HistoryView({
                 {formatTimeOfDay(e.startedAt)}
               </Text>
               <Text style={[styles.hs, { color: p.muted }]}>
-                {formatClock(e.durationSec)} long · {formatClock(gapSec)} apart
+                {formatClock(e.durationSec)} long ·{' '}
+                {apartSec !== null ? `${formatClock(apartSec)} apart` : '— apart'}
               </Text>
             </View>
             <Text style={[styles.chev, { color: p.muted }]}>›</Text>

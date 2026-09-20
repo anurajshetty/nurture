@@ -79,12 +79,14 @@ const timer = require('../app/labor/contractions') as {
   formatApproxInterval: (s: number) => string;
   durationSecBetween: (a: number, b: number) => number;
   intervalSecBetween: (a: number, b: number) => number;
-  readContraction: (raw: unknown) => { id: string; startedAt: string; durationSec: number } | null;
+  readContraction: (raw: unknown) => { id: string; startedAt: string; durationSec: number; apartSec: number | null } | null;
   newContractionId: () => string;
-  loadContractions: () => { id: string; startedAt: string; durationSec: number }[];
-  logContraction: (e: { id: string; startedAt: string; durationSec: number }) => { id: string; startedAt: string; durationSec: number }[];
-  updateContractionDuration: (id: string, s: number) => { id: string; startedAt: string; durationSec: number }[];
-  removeContraction: (id: string) => { id: string; startedAt: string; durationSec: number }[];
+  loadContractions: () => { id: string; startedAt: string; durationSec: number; apartSec: number | null }[];
+  logContraction: (e: { id: string; startedAt: string; durationSec: number }) => { id: string; startedAt: string; durationSec: number; apartSec: number | null }[];
+  updateContractionDuration: (id: string, s: number) => { id: string; startedAt: string; durationSec: number; apartSec: number | null }[];
+  removeContraction: (id: string) => { id: string; startedAt: string; durationSec: number; apartSec: number | null }[];
+  backfillAparts: (entries: readonly { id: string; startedAt: string; durationSec: number; apartSec?: number | null }[]) => { id: string; startedAt: string; durationSec: number; apartSec: number | null }[];
+  apartForRow: (entry: { id: string; startedAt: string; durationSec: number; apartSec?: number | null }, successor: { id: string; startedAt: string; durationSec: number; apartSec?: number | null } | null) => number | null;
   recentContractions: (all: { id: string; startedAt: string; durationSec: number }[], nowMs: number) => { id: string; startedAt: string; durationSec: number }[];
   averageIntervalSec: (entries: { id: string; startedAt: string; durationSec: number }[]) => number | null;
   showsFiveOneOneNote: (all: { id: string; startedAt: string; durationSec: number }[], nowMs: number) => boolean;
@@ -105,7 +107,7 @@ const copy = require('../src/labor/copy') as {
   TIMER_COPY: { fiveOneOneLead: string; fiveOneOneBody: string };
 };
 
-type E = { id: string; startedAt: string; durationSec: number };
+type E = { id: string; startedAt: string; durationSec: number; apartSec?: number | null };
 
 /* ----------------------------- harness ----------------------------- */
 
@@ -252,6 +254,62 @@ check(
 );
 check('5-1-1: empty → hidden', timer.showsFiveOneOneNote([], now) === false);
 
+/* -------- frozen "apart" values — no live-ticking history rows -------- */
+
+const t0 = 1_000_000_000_000;
+const frozen3: E[] = [
+  entry('c', t0 + 600_000, 60), // newest
+  entry('b', t0 + 300_000, 58),
+  entry('a', t0, 62), // oldest
+];
+const backfilled = timer.backfillAparts(frozen3);
+eq('apart: newest entry → null (static placeholder, never a clock)', backfilled[0].apartSec, null);
+eq('apart: middle entry frozen at start-to-start gap', backfilled[1].apartSec, 300);
+eq('apart: oldest entry frozen at start-to-start gap', backfilled[2].apartSec, 300);
+eq('apart: empty list → empty', timer.backfillAparts([]).length, 0);
+eq('apart: single entry → null', timer.backfillAparts([entry('solo', t0, 60)])[0].apartSec, null);
+
+// The regression: the newest row must NEVER derive "now − start".
+const newestRow = backfilled[0];
+check(
+  'apart: newest row has no "now"-derived value even far in the future',
+  timer.apartForRow(newestRow, null) === null,
+);
+eq(
+  'apart: frozen value preferred over successor derivation',
+  timer.apartForRow({ ...newestRow, apartSec: 300 }, { ...frozen3[0] }),
+  300,
+);
+// Legacy rows (stored before apartSec existed) derive statically from the
+// successor — still no "now" involved.
+eq(
+  'apart: legacy row derives statically from successor',
+  timer.apartForRow({ id: 'x', startedAt: iso(t0), durationSec: 60 }, { id: 'y', startedAt: iso(t0 + 308_000), durationSec: 55 }),
+  308,
+);
+eq(
+  'apart: legacy newest row → null',
+  timer.apartForRow({ id: 'x', startedAt: iso(t0), durationSec: 60 }, null),
+  null,
+);
+
+// readContraction parses apartSec tolerantly.
+eq(
+  'read: apartSec round-trips',
+  timer.readContraction({ id: 'a', startedAt: iso(t0), durationSec: 60, apartSec: 308 })?.apartSec,
+  308,
+);
+eq(
+  'read: missing apartSec → null',
+  timer.readContraction({ id: 'a', startedAt: iso(t0), durationSec: 60 })?.apartSec,
+  null,
+);
+eq(
+  'read: garbage apartSec → null',
+  timer.readContraction({ id: 'a', startedAt: iso(t0), durationSec: 60, apartSec: 'soon' })?.apartSec,
+  null,
+);
+
 /* ------------------------- KV persistence --------------------------- */
 
 kvMem.clear();
@@ -277,6 +335,40 @@ check('persist: edit keeps other entries', timer.loadContractions().length === 2
 all = timer.removeContraction(e2.id);
 eq('persist: delete removes it', timer.loadContractions().length, 1);
 eq('persist: delete keeps the other', timer.loadContractions()[0].id, e1.id);
+
+// apart is backfilled at log time and frozen in storage.
+kvMem.clear();
+const f1 = entry(timer.newContractionId(), now - 308_000, 62);
+timer.logContraction(f1);
+let stored = timer.loadContractions();
+eq('persist: first entry has no apart yet (newest → null)', stored[0].apartSec, null);
+const f2 = entry(timer.newContractionId(), now, 55);
+timer.logContraction(f2);
+stored = timer.loadContractions();
+eq('persist: second log backfills the previous entry', stored[1].apartSec, 308);
+eq('persist: newest still null after backfill', stored[0].apartSec, null);
+// The frozen value does not move with "now": reloading later returns the
+// same number — a render can never turn it into a ticking clock.
+const later = timer.loadContractions();
+eq('persist: apart stays frozen on reload', later[1].apartSec, 308);
+check(
+  'persist: newest row still renders placeholder, never now-derived',
+  timer.apartForRow(later[0], null) === null,
+);
+// Deleting a middle entry re-points its older neighbor at the new
+// successor instead of leaving a stale frozen value.
+kvMem.clear();
+const g1 = entry(timer.newContractionId(), now - 600_000, 60);
+const g2 = entry(timer.newContractionId(), now - 300_000, 60);
+const g3 = entry(timer.newContractionId(), now, 60);
+timer.logContraction(g1);
+timer.logContraction(g2);
+timer.logContraction(g3);
+timer.removeContraction(g2.id);
+const afterDel = timer.loadContractions();
+eq('persist: delete recomputes neighbor apart to new successor', afterDel[1].apartSec, 600);
+
+kvMem.clear();
 
 kvRawSet('labor.contractions.v1', 'not-json{{');
 eq('persist: corrupt JSON loads as empty', timer.loadContractions().length, 0);
