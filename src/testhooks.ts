@@ -66,5 +66,26 @@ export function installTestHooks(): void {
     setCreatedAt: (id: string, iso: string) => {
       getDb().runSync('UPDATE events SET created_at = ? WHERE id = ?', iso, id);
     },
+    /** Ask Willow test state (Sept 2026): clear on-device chat history
+     *  + the first-question flag so consent/quota flows restart cleanly. */
+    resetAiChat: () => {
+      const { clearAiChatState } = require('../src/aiChat/history') as {
+        clearAiChatState: () => void;
+      };
+      clearAiChatState();
+    },
+    /** On-device chat history, for asserting history never leaves the phone. */
+    getAiChatHistoryJson: () => {
+      const { loadChatHistory } = require('../src/aiChat/history') as {
+        loadChatHistory: () => unknown[];
+      };
+      return JSON.stringify(loadChatHistory());
+    },
+    hasAskedFirstQuestion: () => {
+      const { hasAskedFirstQuestion } = require('../src/aiChat/history') as {
+        hasAskedFirstQuestion: () => boolean;
+      };
+      return hasAskedFirstQuestion();
+    },
   };
 }

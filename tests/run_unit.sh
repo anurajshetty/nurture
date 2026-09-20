@@ -26,6 +26,9 @@ tsc1 tests/briefing_matrix.test.ts src/briefing/engine.ts src/briefing/matrix.ts
 OUT=/tmp/nurture-tests-brief
 tsc1 tests/briefing_context.test.ts src/briefing/context.ts src/onboarding/dates.ts src/lib/types.ts src/logging/symptoms.ts && run "briefing_context" env TZ=UTC node $OUT/tests/briefing_context.test.js
 
+OUT=/tmp/nurture-tests-chat
+tsc1 tests/pregnancy_chat.test.ts supabase/functions/pregnancy-chat/lib.ts && run "pregnancy_chat" node $OUT/tests/pregnancy_chat.test.js
+
 OUT=/tmp/nurture-tests-wb
 tsc1 tests/week_briefing.test.ts supabase/functions/week-briefing/lib.ts && run "week_briefing" node $OUT/tests/week_briefing.test.js
 

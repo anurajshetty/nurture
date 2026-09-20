@@ -42,6 +42,10 @@ import { addDaysISO, todayISO } from '../../src/onboarding/dates';
 import { sizeArtSlot, randomSizeArtSlotIndex, SizeArtSlot } from '../../src/week/sizeArt';
 import type { Pregnancy } from '../../src/lib/types';
 import AppointmentEditor from '../../src/logs/AppointmentEditor';
+import { AskFab } from '../../src/aiChat/AskFab';
+import { ConsentSheet } from '../../src/aiChat/ConsentSheet';
+import { AskChat } from '../../src/aiChat/AskChat';
+import { hasAskedFirstQuestion } from '../../src/aiChat/history';
 import {
   MAX_WEEK,
   MIN_WEEK,
@@ -171,6 +175,27 @@ export default function WeekScreen() {
   const [editorId, setEditorId] = useState<string | null>(null);
   /** Current size-card slot (image + caption together) for the size hero. */
   const [sizeArt, setSizeArt] = useState<SizeArtSlot | null>(null);
+  /**
+   * Ask Willow entry state (Anuraj, Sept 20, 2026): the floating ask
+   * pill is Week-tab only. Two independent flags — the consent
+   * BottomSheet calls its onClose AFTER its exit animation (see
+   * BottomSheet), so sharing one flag would let the consent's delayed
+   * onClose tear down a chat that just opened.
+   * Consent shows on EVERY ask tap until the first question is actually
+   * sent (hasAskedFirstQuestion); after that, ask opens chat directly.
+   */
+  const [consentVisible, setConsentVisible] = useState(false);
+  const [chatVisible, setChatVisible] = useState(false);
+  const openAsk = useCallback(() => {
+    if (hasAskedFirstQuestion()) setChatVisible(true);
+    else setConsentVisible(true);
+  }, []);
+  const closeConsent = useCallback(() => setConsentVisible(false), []);
+  const closeChat = useCallback(() => setChatVisible(false), []);
+  const acceptConsent = useCallback(() => {
+    setConsentVisible(false);
+    setChatVisible(true);
+  }, []);
   /** Mirror of viewWeek for the focus callback below (stable [] deps). */
   const viewWeekRef = useRef<number | null>(null);
   useEffect(() => {
@@ -306,6 +331,7 @@ export default function WeekScreen() {
   };
 
   return (
+    <View style={styles.askRoot}>
     <Screen bottomPadding={120} testID="week-screen">
       {/* Week navigation */}
       <View style={styles.topbar}>
@@ -577,10 +603,24 @@ export default function WeekScreen() {
         Sep 2026
       </Text>
     </Screen>
+      <AskFab onPress={openAsk} />
+      <ConsentSheet
+        visible={consentVisible}
+        onNotNow={closeConsent}
+        onUnderstand={acceptConsent}
+      />
+      <AskChat visible={chatVisible} onClose={closeChat} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  /** Ask Willow entry (Anuraj, Sept 20, 2026): the only structural
+   *  addition to the Week screen — a positioning root for the floating
+   *  ask pill. No briefing UI changed. */
+  askRoot: {
+    flex: 1,
+  },
   center: {
     flex: 1,
     alignItems: 'center',
