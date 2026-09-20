@@ -150,6 +150,35 @@ def main():
               page.get_by_text("Nudge time").count() >= 1)
         page.screenshot(path=os.path.join(SHOT_DIR, "you-reminders.png"), full_page=True)
 
+        # --- You tab icon: v3 "bowed mother" SVG ---
+        icon = page.evaluate("""() => {
+          const svgs = Array.from(document.querySelectorAll('svg'));
+          const youSvg = svgs.find(s =>
+            s.getAttribute('viewBox') === '0 0 24 24' &&
+            s.querySelectorAll('circle').length === 2 &&
+            s.querySelectorAll('path').length === 3);
+          if (!youSvg) return { found: false };
+          const r = youSvg.getBoundingClientRect();
+          const btn = youSvg.closest('a,button,[role="tab"]');
+          const btnRect = btn ? btn.getBoundingClientRect() : null;
+          return { found: true, w: r.width, h: r.height,
+                   nearBottom: r.bottom > window.innerHeight - 140,
+                   btnH: btnRect ? btnRect.height : 0, btnW: btnRect ? btnRect.width : 0 };
+        }""")
+        check("you: v3 bowed-mother SVG renders (2 circles + 3 paths, 24x24 viewBox)",
+              icon.get("found") is True)
+        check("you: icon sits in the tab bar (near viewport bottom)",
+              icon.get("nearBottom") is True)
+        check("you: icon renders at tab-icon size (~24px)",
+              20 <= (icon.get("w") or 0) <= 28 and 20 <= (icon.get("h") or 0) <= 28)
+        check("you: tab target >= 44pt",
+              (icon.get("btnH") or 0) >= 44 and (icon.get("btnW") or 0) >= 44)
+        check("you: old ☺ text glyph is gone",
+              page.evaluate("() => !document.body.innerHTML.includes('☺')"))
+        # tab-bar close-up screenshot (bottom strip)
+        page.screenshot(path=os.path.join(SHOT_DIR, "you-tab-icon.png"),
+                        clip={"x": 0, "y": 844 - 110, "width": 390, "height": 110})
+
         check("zero page errors", len(errors) == 0)
         for e in errors[:5]:
             print("  pageerror:", e[:200])

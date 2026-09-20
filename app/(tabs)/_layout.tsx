@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
-import { Tabs, useFocusEffect, useRouter } from 'expo-router';
+import { Tabs, useFocusEffect, useRouter, useSegments } from 'expo-router';
 import { StyleSheet, Text } from 'react-native';
+import type { ColorValue } from 'react-native';
 import { colors, spacing } from '../../src/theme/tokens';
+import { YouTabIcon } from '../../src/components/YouTabIcon';
 import {
   installReminderSurfaces,
   takeColdStartAppointmentResponse,
@@ -11,18 +13,35 @@ import { refreshAppointmentReminders } from '../../src/notifications/appointment
 const TAB_GLYPHS = {
   week: '◍',
   logs: '☰',
-  you: '☺',
 } as const;
 
-function TabGlyph({ glyph, focused }: { glyph: string; focused: boolean }) {
+type TabName = 'week' | 'logs' | 'you';
+
+/**
+ * Active-tab tint, derived from the route (not the tabBarIcon callback
+ * props). The tabBarIcon `focused`/`color` props are not reliably
+ * per-tab on web (Expo 57: every tab's icon renders with the active
+ * tint), while the route always reflects the focused tab — on every
+ * platform. Verified Sept 2026.
+ */
+function useTabTint(tab: TabName): ColorValue {
+  const segments = useSegments();
+  const here = segments.filter((s) => !s.startsWith('(')).pop();
+  return here === tab ? colors.coralDeep : colors.muted;
+}
+
+function TabGlyph({ tab, glyph }: { tab: 'week' | 'logs'; glyph: string }) {
+  const color = useTabTint(tab);
   return (
-    <Text
-      style={[styles.glyph, focused ? styles.glyphFocused : styles.glyphIdle]}
-      accessibilityElementsHidden
-    >
+    <Text style={[styles.glyph, { color }]} accessibilityElementsHidden>
       {glyph}
     </Text>
   );
+}
+
+function YouTabBarIcon() {
+  const color = useTabTint('you');
+  return <YouTabIcon color={color} />;
 }
 
 /**
@@ -81,27 +100,21 @@ export default function TabsLayout() {
         name="week"
         options={{
           title: 'Week',
-          tabBarIcon: ({ focused }) => (
-            <TabGlyph glyph={TAB_GLYPHS.week} focused={focused} />
-          ),
+          tabBarIcon: () => <TabGlyph tab="week" glyph={TAB_GLYPHS.week} />,
         }}
       />
       <Tabs.Screen
         name="logs"
         options={{
           title: 'Logs',
-          tabBarIcon: ({ focused }) => (
-            <TabGlyph glyph={TAB_GLYPHS.logs} focused={focused} />
-          ),
+          tabBarIcon: () => <TabGlyph tab="logs" glyph={TAB_GLYPHS.logs} />,
         }}
       />
       <Tabs.Screen
         name="you"
         options={{
           title: 'You',
-          tabBarIcon: ({ focused }) => (
-            <TabGlyph glyph={TAB_GLYPHS.you} focused={focused} />
-          ),
+          tabBarIcon: () => <YouTabBarIcon />,
         }}
       />
     </Tabs>
@@ -128,11 +141,5 @@ const styles = StyleSheet.create({
   glyph: {
     fontSize: 22,
     lineHeight: 26,
-  },
-  glyphFocused: {
-    color: colors.coralDeep,
-  },
-  glyphIdle: {
-    color: colors.muted,
   },
 });
