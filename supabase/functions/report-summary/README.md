@@ -7,6 +7,14 @@ The API key lives **only here** as an Edge Function secret — it is never
 in the app, never in git, never in a response, and document content is
 never logged.
 
+**Relevance gate (Anuraj Sept 2026):** Gemini first judges whether the
+document is related to pregnancy or the baby, in the SAME structured
+call (one call, not two — the response schema carries an
+`isPregnancyRelated` boolean verdict). Unrelated documents are NOT
+summarized: the function answers HTTP 422 `{ "error": "not_related" }`
+and the app shows its transient "Report summary failed" toast. The
+check can't be bypassed — it lives server-side in this function.
+
 **Ephemeral (Anuraj Sept 2026):** the app reads the picked file into
 memory and sends the bytes INLINE in the invoke body
 (`{ dataBase64, mimeType }`). The function decodes them, forwards them
@@ -109,6 +117,7 @@ Response (strict JSON, no other fields):
 
 ```json
 {
+  "isPregnancyRelated": true,
   "title": "Glucose results",
   "summary": "Your glucose screening came back in the typical range. It checks how your body handles sugar during pregnancy — one routine piece your care team is already watching.",
   "attachmentName": "Glucose screening – Sep 19",
@@ -117,6 +126,12 @@ Response (strict JSON, no other fields):
 }
 ```
 
+- `isPregnancyRelated`: the model's verdict — true when the document is
+  related to pregnancy or the baby (prenatal labs, ultrasound/scan
+  printouts, OB/midwife visit notes, delivery/postpartum discharge
+  summaries, newborn/pediatric documents for the baby). When false, the
+  text fields are empty strings and the document is not summarized —
+  the function returns 422 `{ "error": "not_related" }` instead.
 - `title`: 2–4 words naming the report, plain language, ≤50 chars.
 - `summary`: the body per the content rule above, ≤400 chars.
 - `attachmentName`: descriptive attachment name derived from the report's
@@ -163,6 +178,7 @@ Errors:
 | 400 | `{ error: "unsupported_type" }` | file type Gemini can't read inline |
 | 405 | `{ error: "method_not_allowed" }` | non-POST |
 | 422 | `{ error: "unreadable" }` | inline payload missing/corrupt/empty/too large — app shows the "Couldn't read this one" card immediately |
+| 422 | `{ error: "not_related" }` | Gemini judged the document NOT pregnancy-or-baby related — not summarized; app shows the transient "Report summary failed" toast |
 | 502 | `{ error: "provider_error" }` | Gemini failed — safe to retry later with backoff |
 | 503 | `{ error: "not_configured" }` | secret missing — app shows the "Couldn't read this one" card with Try again |
 

@@ -114,63 +114,83 @@ def main():
         page.keyboard.press("Escape")
         page.wait_for_timeout(500)
 
-        # --- Week-number consistency (Anuraj ~22:59 PDT, top priority) ---
-        # ONE week number everywhere: displayed = completed + 1. The seed
-        # (due 2026-10-08, LMP 2026-01-01) gives displayed week 38 today;
-        # the expected number is computed from the same formula, not
-        # hardcoded. Assert: heading "Week {d}", size art from week d's
-        # subject set (leek — NOT week-{d-1}'s chard), rotation still
-        # cycles its 3 variants, You account row "Week {d}".
-        import datetime as _dt
+        # --- Week size card: 3-subject RANDOM rotation (Anuraj Sept 20, 2026) ---
+        # Displayed week d = completed + 1. MANIFEST.json maps week d to 3
+        # subjects [keeper, slot2, slot3]; every Week-tab load picks a RANDOM
+        # one, image + caption TOGETHER. Assert: heading "Week {d}"; every
+        # load's image is one of week d's 3 manifest files; the caption
+        # (week-size-name) is that file's CAPTIONS.json entry; nothing from
+        # week {d-1}'s set leaks in; repeated loads vary (randomness);
+        # You account row "Week {d}".
+        import datetime as _dt, json as _json
         _lmp = _dt.date(2026, 1, 1)  # EDD 2026-10-08 minus 280 days
         _completed = (_dt.date.today() - _lmp).days // 7
         _displayed = _completed + 1
-        _weekdir = os.path.join(DIST, "assets", "assets", "size-images",
-                                f"week-{_displayed:02d}")
-        _prevdir = os.path.join(DIST, "assets", "assets", "size-images",
-                                f"week-{_completed:02d}")
-        def _slugs(d):
-            out = set()
-            for f in _glob.glob(os.path.join(d, "*.jpg")):
-                out.add(os.path.basename(f).split(".")[0].rsplit("-", 1)[0])
-            return out
-        _slugs_now = _slugs(_weekdir)
-        _slugs_prev = _slugs(_prevdir)
-        _subject = sorted(_slugs_now)[0].split("-")[1] if _slugs_now else None
-        _prev_subject = (sorted(_slugs_prev)[0].split("-")[1]
-                         if _slugs_prev else None)
-        check("week-consistency: displayed week + subject resolve from seed",
-              5 <= _displayed <= 40 and _subject is not None)
+        _design_dir = "/home/hatch/workspace/app-ideas/pregnancy-tracker/design/size-images"
+        _manifest = _json.load(open(os.path.join(_design_dir, "MANIFEST.json")))
+        _captions = _json.load(open(os.path.join(_design_dir, "CAPTIONS.json")))
+        _week_paths = _manifest.get(str(_displayed), [])
+        _prev_paths = _manifest.get(str(_completed), [])
+        _stems = [os.path.splitext(os.path.basename(p))[0] for p in _week_paths]
+        _prev_stems = [os.path.splitext(os.path.basename(p))[0] for p in _prev_paths]
+        _prev_captions = [_captions[p] for p in _prev_paths]
+        check("size-3subject: displayed week resolves with 3 manifest subjects",
+              12 <= _displayed <= 40 and len(_week_paths) == 3)
         page.goto(WEEK, wait_until="networkidle")
         page.wait_for_timeout(2500)
         _title = page.get_by_test_id("week-title")
-        check("week-consistency: heading reads 'Week {d}' (displayed)".format(d=_displayed),
+        check("size-3subject: heading reads 'Week {d}' (displayed)".format(d=_displayed),
               _title.count() == 1 and _title.first.inner_text().strip() == f"Week {_displayed}")
-        # 4 tab loads -> rotation must cycle the week's variants, all from
-        # week d's subject set. Phase-independent: earlier sections in this
-        # run already advanced the rotation.
-        _srcs = []
-        for _i in range(4):
+        # 8 tab loads: every image must be one of week d's 3 subjects, and
+        # the caption must be that subject's own caption.
+        _loads = []
+        for _i in range(8):
             page.goto(WEEK, wait_until="networkidle")
             page.wait_for_timeout(2000)
             # RNW puts the testID on the Image wrapper div; the real src
             # lives on the inner <img>.
             _img = page.get_by_test_id("week-size-art").locator("img")
-            _srcs.append(_img.get_attribute("src") if _img.count() else None)
-        check("week-consistency: size art renders on every load",
-              all(_srcs))
-        check("week-consistency: size art is week-{d} subject '{s}'".format(d=_displayed, s=_subject),
-              all(_subject in (_s or "") for _s in _srcs))
-        check("week-consistency: no week-{c} '{p}' bleed-through (the old bug)".format(c=_completed, p=_prev_subject),
-              all(_prev_subject not in (_s or "") for _s in _srcs))
-        check("week-consistency: per-load rotation still cycles 3 variants",
-              len(set(_srcs)) == 3)
+            _src = _img.get_attribute("src") if _img.count() else None
+            _cap = page.get_by_test_id("week-size-name")
+            _cap_text = _cap.first.inner_text().strip() if _cap.count() else None
+            _loads.append((_src, _cap_text))
+        def _stem_of(src):
+            for _s in _stems:
+                if _s in (src or ""):
+                    return _s
+            return None
+        check("size-3subject: size art renders on every load",
+              all(_s for _s, _ in _loads))
+        check("size-3subject: every load's image is a week-{d} subject".format(d=_displayed),
+              all(_stem_of(_s) is not None for _s, _ in _loads))
+        _captions_match = True
+        for _src, _cap_text in _loads:
+            _stem = _stem_of(_src)
+            if _stem is None:
+                _captions_match = False
+                continue
+            _mpath = next(p for p in _week_paths
+                          if os.path.splitext(os.path.basename(p))[0] == _stem)
+            if _cap_text != _captions[_mpath]:
+                _captions_match = False
+        check("size-3subject: caption is the shown subject's own caption (image+caption together)",
+              _captions_match)
+        _no_prev = all(
+            not any(_ps in (_s or "") for _ps in _prev_stems)
+            and _cap not in _prev_captions
+            for _s, _cap in _loads
+        )
+        check("size-3subject: no week-{c} image/caption bleed-through".format(c=_completed),
+              _no_prev)
+        _distinct = len(set(_s for _s, _ in _loads))
+        check("size-3subject: repeated loads vary across the 3 subjects (random)",
+              _distinct >= 2)
         page.screenshot(path=os.path.join(SHOT_DIR, "week-size-art.png"))
         # You tab account row
         page.goto(YOU, wait_until="networkidle")
         page.wait_for_timeout(2500)
         _you_line = page.get_by_test_id("you-pregnancy-line")
-        check("week-consistency: You account row reads 'Week {d}' (displayed)".format(d=_displayed),
+        check("size-3subject: You account row reads 'Week {d}' (displayed)".format(d=_displayed),
               _you_line.count() == 1
               and _you_line.first.inner_text().strip().startswith(f"Week {_displayed} ·"))
 

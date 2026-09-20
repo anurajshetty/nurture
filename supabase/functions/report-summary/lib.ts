@@ -159,6 +159,9 @@ export function buildSystemInstruction(): string {
   return [
     'You explain a pregnancy health document to the person it belongs to, in plain, warm, everyday language.',
     '',
+    'RELEVANCE RULE (hard — decide this first):',
+    '0. Decide whether the document is related to pregnancy or the baby: prenatal labs, ultrasound or scan printouts, OB/midwife visit notes, delivery or postpartum discharge summaries, and newborn or pediatric documents for the baby all count. If it is NOT related to pregnancy or the baby, set "isPregnancyRelated" to false, leave "title", "summary" and "attachmentName" as empty strings, set "needsAttention" to false, and do NOT summarize it.',
+    '',
     'CONTENT RULE (hard):',
     '1. SHORT and precise. Lead with anything in the report that needs attention — an abnormal or borderline value, or a follow-up the report requests. Say it first, in plain words.',
     '2. Otherwise keep it very brief: what the report is, in plain language, and that nothing in it asks anything of her right now.',
@@ -171,6 +174,7 @@ export function buildSystemInstruction(): string {
     '7. Never repeat API keys, credentials, or anything that looks like one.',
     '',
     'OUTPUT (strict JSON, no other fields):',
+    '- "isPregnancyRelated": true when the document is related to pregnancy or the baby (see the relevance rule), otherwise false. When false, the text fields below are empty strings and the document is not summarized.',
     '- "title": 2-4 words naming the report in plain language, max 50 chars.',
     '- "summary": the body per the content rule above, max 400 chars.',
     '- "attachmentName": a descriptive name for the file derived from the report\'s content plus the upload date, format "<What it is> – <Mon D>", max 60 chars. Never the raw upload filename.',
@@ -182,8 +186,8 @@ export function buildSystemInstruction(): string {
 
 export function buildUserPrompt(todayLong: string): string {
   return [
-    `The attached document is a pregnancy health document (lab report, ultrasound printout, or discharge summary). Today's date is ${todayLong}.`,
-    'Summarize it for the person it belongs to, following the system instruction exactly.',
+    `The attached document may or may not be related to pregnancy or the baby — for example a lab report, ultrasound printout, or discharge summary. Today's date is ${todayLong}.`,
+    'Follow the system instruction exactly — including the relevance rule.',
     'Output JSON only.',
   ].join('\n');
 }
@@ -199,6 +203,21 @@ export class ProviderError extends Error {
   }
 }
 
+/**
+ * Deliberate refusal (Anuraj, Sept 2026): Gemini judged the document NOT
+ * related to pregnancy or the baby, so it must not be summarized. This
+ * is a verdict, not a structural failure — it skips the repair retry and
+ * the caller maps it to a generic failure (the app shows its transient
+ * "Report summary failed" toast).
+ */
+export class NotRelatedError extends Error {
+  readonly problem = 'not_related' as const;
+  constructor() {
+    super('not_related');
+    this.name = 'NotRelatedError';
+  }
+}
+
 const MAX_TITLE_CHARS = 50;
 const MAX_SUMMARY_CHARS = 400;
 const MAX_ATTACHMENT_NAME_CHARS = 60;
@@ -206,12 +225,13 @@ const MAX_ATTACHMENT_NAME_CHARS = 60;
 const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
+    isPregnancyRelated: { type: 'boolean' },
     title: { type: 'string' },
     summary: { type: 'string' },
     attachmentName: { type: 'string' },
     needsAttention: { type: 'boolean' },
   },
-  required: ['title', 'summary', 'attachmentName', 'needsAttention'],
+  required: ['isPregnancyRelated', 'title', 'summary', 'attachmentName', 'needsAttention'],
 };
 
 export interface ReportSummary {
@@ -335,6 +355,15 @@ async function generateOnce(
     if (e instanceof ProviderError) throw e;
     throw new ProviderError();
   }
+  // Relevance gate (Anuraj Sept 2026): the model renders its verdict in
+  // the structured output. A deliberate "not related" verdict is NOT a
+  // structural failure — it skips the repair retry and surfaces as
+  // NotRelatedError. A missing verdict falls through to the old path
+  // (treated as related), so a model that ignores the field can't break
+  // summaries.
+  if (isRecord(json) && json.isPregnancyRelated === false) {
+    throw new NotRelatedError();
+  }
   const summary = validateSummary(json);
   if (!summary) throw new ProviderError();
   return summary;
@@ -344,9 +373,12 @@ async function generateOnce(
  * Summarizes the document bytes via Gemini and returns the validated
  * summary. One automatic retry with a repair note when the first output
  * fails validation; every other failure mode (HTTP error, timeout,
- * unparsable output) → ProviderError. The caller maps ProviderError →
- * HTTP 502 `{ error: 'provider_error' }` and must never log the request
- * body, document bytes, or provider internals.
+ * unparsable output) → ProviderError. A deliberate "not related"
+ * verdict → NotRelatedError (no retry — it is a verdict, not a
+ * structural failure). The caller maps ProviderError → HTTP 502
+ * `{ error: 'provider_error' }` and NotRelatedError → HTTP 422
+ * `{ error: 'not_related' }`, and must never log the request body,
+ * document bytes, or provider internals.
  */
 export async function callGemini(
   mimeType: string,
@@ -368,6 +400,6 @@ export async function callGemini(
     todayLong,
     apiKey,
     fetchImpl,
-    `the JSON must have exactly the fields "title" (≤ ${MAX_TITLE_CHARS} chars), "summary" (≤ ${MAX_SUMMARY_CHARS} chars), "attachmentName" (≤ ${MAX_ATTACHMENT_NAME_CHARS} chars), and "needsAttention" (boolean).`,
+    `the JSON must have exactly the fields "isPregnancyRelated" (boolean), "title" (≤ ${MAX_TITLE_CHARS} chars), "summary" (≤ ${MAX_SUMMARY_CHARS} chars), "attachmentName" (≤ ${MAX_ATTACHMENT_NAME_CHARS} chars), and "needsAttention" (boolean).`,
   );
 }

@@ -1,20 +1,22 @@
 /**
- * Size-art per-load rotation tests (src/week/sizeArt.ts) — pure, no native
- * modules, no network.
+ * Size-art 3-subject random rotation tests (src/week/sizeArt.ts) — pure,
+ * no native modules, no network.
  *
- * Rotation model (Anuraj, Sept 20, 2026): every Week-tab load advances to
- * the next of the week's variants in sequence (load 1 -> variant 1,
- * load 2 -> variant 2, load 3 -> variant 3, load 4 -> variant 1, ...).
- * The position persists under `willow.size_variant.<week>` (see
- * sizeArtVariantKey), so the sequence survives app restarts; the key
- * includes the week, so a new week starts at variant 1.
+ * Model (Anuraj, Sept 20, 2026): RANDOM. Every Week-tab load picks a
+ * random slot from the DISPLAYED week's 3-subject set (displayed =
+ * completed weeks + 1). Image and caption always rotate TOGETHER: each
+ * slot pairs one image with its own "Your baby is the size of ..."
+ * caption from design/size-images/CAPTIONS.json. No persistence, no
+ * sequence. Weeks 12-40 have 3 slots each per MANIFEST.json; weeks 1-11
+ * keep a single legacy picture (caption null — caller falls back to the
+ * content row); unknown weeks resolve to null.
  *
  * The real asset table needs image requires, which plain node can't load,
  * so the suite stubs image extensions before importing the module: each
- * distinct required path gets a unique numeric id (like Metro asset ids),
- * and tests the pure pickers with the real table's structure (weeks 1–11
- * single legacy .png; weeks 12–40 triple bundled .jpg per
- * design/size-images/MANIFEST.json).
+ * distinct required path gets a unique numeric id (like Metro asset ids).
+ * The pairing assertions cross-check the stubbed request paths against
+ * the REAL design MANIFEST.json + CAPTIONS.json, so a wrong image or a
+ * mismatched caption fails loudly.
  *
  * Run with:
  *   npx tsc tests/size_art_rotation.test.ts src/week/sizeArt.ts \
@@ -39,8 +41,8 @@ function ok(cond: boolean, name: string): void {
 }
 
 // Stub image requires: unique numeric id per requested path, like Metro
-// asset ids. Must handle both the legacy .png weeks (1–11) and the bundled
-// .jpg weeks (12–40). Hook before path resolution.
+// asset ids. Record request path -> id so pairing checks can map an id
+// back to its source file.
 const Module = require('module');
 const origLoad = Module._load;
 const seenPaths = new Map<string, number>();
@@ -55,131 +57,155 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
   return origLoad.call(this, request, parent, isMain);
 };
 
+interface SizeArtSlot {
+  image: number;
+  caption: string | null;
+}
+
 const {
-  sizeArtForWeek,
-  sizeArtVariantCount,
-  sizeArtVariantForWeek,
-  sizeArtVariantKey,
-  nextSizeArtIndex,
-  parseStoredSizeArtIndex,
+  sizeArtSlotCount,
+  sizeArtSlot,
+  randomSizeArtSlotIndex,
 } = require('../src/week/sizeArt') as {
-  sizeArtForWeek: (w: number) => number | null;
-  sizeArtVariantCount: (w: number) => number;
-  sizeArtVariantForWeek: (w: number, i: number) => number | null;
-  sizeArtVariantKey: (w: number) => string;
-  nextSizeArtIndex: (count: number, stored: string | null) => number;
-  parseStoredSizeArtIndex: (count: number, stored: string | null) => number | null;
+  sizeArtSlotCount: (w: number) => number;
+  sizeArtSlot: (w: number, i: number) => SizeArtSlot | null;
+  randomSizeArtSlotIndex: (w: number) => number | null;
 };
 
-{
-  // Variant counts: weeks 1–11 single legacy picture, weeks 12–40 three
-  // bundled variants, unknown weeks zero.
-  let countsOk = true;
-  for (let w = 1; w <= 11; w++) if (sizeArtVariantCount(w) !== 1) countsOk = false;
-  for (let w = 12; w <= 40; w++) if (sizeArtVariantCount(w) !== 3) countsOk = false;
-  if (sizeArtVariantCount(0) !== 0) countsOk = false;
-  if (sizeArtVariantCount(41) !== 0) countsOk = false;
-  if (sizeArtVariantCount(99) !== 0) countsOk = false;
-  ok(countsOk, 'rotation: variant counts are 1 (weeks 1-11), 3 (weeks 12-40), 0 (unknown)');
-}
+// Real design data — the table must match these exactly.
+const MANIFEST = require('/home/hatch/workspace/app-ideas/pregnancy-tracker/design/size-images/MANIFEST.json') as Record<
+  string,
+  string[]
+>;
+const CAPTIONS = require('/home/hatch/workspace/app-ideas/pregnancy-tracker/design/size-images/CAPTIONS.json') as Record<
+  string,
+  string
+>;
 
-{
-  // First load (nothing stored) shows variant 1 (index 0).
-  ok(nextSizeArtIndex(3, null) === 0, 'rotation: first load -> index 0');
-  ok(nextSizeArtIndex(1, null) === 0, 'rotation: single-variant week first load -> index 0');
-}
-
-{
-  // Sequence advances 0 -> 1 -> 2 -> 0 -> 1 ... across loads.
-  ok(nextSizeArtIndex(3, '0') === 1, 'rotation: load 2 -> index 1');
-  ok(nextSizeArtIndex(3, '1') === 2, 'rotation: load 3 -> index 2');
-  ok(nextSizeArtIndex(3, '2') === 0, 'rotation: load 4 wraps -> index 0');
-  ok(nextSizeArtIndex(3, '0') === 1, 'rotation: load 5 -> index 1');
-}
-
-{
-  // Corrupt / out-of-range stored values restart the sequence safely.
-  ok(nextSizeArtIndex(3, 'banana') === 0, 'rotation: garbage stored -> index 0');
-  ok(nextSizeArtIndex(3, '') === 0, 'rotation: empty stored -> index 0');
-  ok(nextSizeArtIndex(3, '-1') === 0, 'rotation: negative stored -> index 0');
-  ok(nextSizeArtIndex(3, '7') === 0, 'rotation: out-of-range stored -> index 0');
-  ok(nextSizeArtIndex(3, '1.5') === 0, 'rotation: fractional stored -> index 0');
-}
-
-{
-  // Single-variant weeks never advance.
-  ok(nextSizeArtIndex(1, '0') === 0, 'rotation: single variant stays at 0');
-}
-
-{
-  // Full simulated session: 5 consecutive loads of week 37 visit the
-  // variants in order 1,2,3,1,2.
-  const seen: Array<number | null> = [];
-  let stored: string | null = null;
-  for (let load = 0; load < 5; load++) {
-    const idx = nextSizeArtIndex(3, stored);
-    stored = String(idx);
-    seen.push(sizeArtVariantForWeek(37, idx));
+function pathForImageId(id: number): string | null {
+  for (const [path, seen] of seenPaths) {
+    if (seen === id) {
+      const m = path.match(/assets\/size(-images)?\/(.+)$/);
+      return m ? m[2] : null;
+    }
   }
-  const distinct = new Set(seen);
-  ok(distinct.size === 3, 'rotation: 5 loads visit all 3 variants');
-  ok(seen[0] === seen[3], 'rotation: load 4 repeats load 1 (cycle)');
-  ok(seen[1] === seen[4], 'rotation: load 5 repeats load 2 (cycle)');
-  ok(seen[0] !== seen[1] && seen[1] !== seen[2], 'rotation: consecutive loads differ');
+  return null;
 }
 
 {
-  // parseStoredSizeArtIndex: exact canonical integers parse, everything
-  // else is null (so paging/peeking falls back to variant 1).
-  ok(parseStoredSizeArtIndex(3, '0') === 0, 'parse: "0" -> 0');
-  ok(parseStoredSizeArtIndex(3, '2') === 2, 'parse: "2" -> 2');
-  ok(parseStoredSizeArtIndex(3, null) === null, 'parse: null -> null');
-  ok(parseStoredSizeArtIndex(3, 'banana') === null, 'parse: garbage -> null');
-  ok(parseStoredSizeArtIndex(3, '1.5') === null, 'parse: fraction -> null');
-  ok(parseStoredSizeArtIndex(3, ' 1') === 1, 'parse: surrounding whitespace trimmed');
-  ok(parseStoredSizeArtIndex(3, '3') === null, 'parse: out-of-range -> null');
-  ok(parseStoredSizeArtIndex(0, '0') === null, 'parse: zero count -> null');
+  // Slot counts: weeks 1-11 single legacy slot, weeks 12-40 three slots,
+  // unknown weeks zero.
+  let countsOk = true;
+  for (let w = 1; w <= 11; w++) if (sizeArtSlotCount(w) !== 1) countsOk = false;
+  for (let w = 12; w <= 40; w++) if (sizeArtSlotCount(w) !== 3) countsOk = false;
+  if (sizeArtSlotCount(0) !== 0) countsOk = false;
+  if (sizeArtSlotCount(41) !== 0) countsOk = false;
+  if (sizeArtSlotCount(99) !== 0) countsOk = false;
+  ok(countsOk, 'slots: 1 (weeks 1-11), 3 (weeks 12-40), 0 (unknown)');
 }
 
 {
-  // Paging between weeks does not advance: peeking the stored position
-  // replays the last shown variant, and a fresh week starts at variant 1.
-  // (Simulates the component's peek path: parse stored or fall back to 0.)
-  const peekIdx = (count: number, stored: string | null) =>
-    parseStoredSizeArtIndex(count, stored) ?? 0;
-  ok(peekIdx(3, '1') === 1, 'peek: stored "1" replays index 1 (no advance)');
-  ok(peekIdx(3, null) === 0, 'peek: fresh week starts at variant 1');
-  ok(peekIdx(3, 'oops') === 0, 'peek: corrupt stored falls back to variant 1');
+  // Image+caption pairing: every week-12..40 slot's image resolves to the
+  // manifest path for that (week, slot) and its caption is exactly the
+  // CAPTIONS.json entry for that path. No cross-week bleed, no stale
+  // completed-week captions.
+  let pairingOk = true;
+  let checked = 0;
+  for (let w = 12; w <= 40; w++) {
+    const expected = MANIFEST[String(w)];
+    if (!expected || expected.length !== 3) {
+      pairingOk = false;
+      continue;
+    }
+    for (let i = 0; i < 3; i++) {
+      const slot = sizeArtSlot(w, i);
+      const manifestPath = expected[i];
+      if (!slot || manifestPath === undefined) {
+        pairingOk = false;
+        continue;
+      }
+      const rel = pathForImageId(slot.image);
+      if (rel !== manifestPath) pairingOk = false;
+      if (slot.caption !== CAPTIONS[manifestPath]) pairingOk = false;
+      checked++;
+    }
+  }
+  ok(pairingOk && checked === 87, `pairing: all 87 slots image+caption match MANIFEST+CAPTIONS (checked ${checked})`);
 }
 
 {
-  // Storage keys include the week: a new week starts its own sequence.
-  ok(sizeArtVariantKey(37) === 'willow.size_variant.37', 'rotation: key format');
-  ok(sizeArtVariantKey(37) !== sizeArtVariantKey(38), 'rotation: keys differ per week');
+  // Week 38 spot check: the three subjects are leek / dachshund / ukulele
+  // with their own captions — never a week-37 chard caption.
+  const subjects = [0, 1, 2].map((i) => sizeArtSlot(38, i));
+  const captions = subjects.map((s) => s?.caption);
   ok(
-    nextSizeArtIndex(3, null) === 0,
-    'rotation: fresh key (new week) starts at variant 1',
+    captions.includes('a leek') &&
+      captions.includes('a dachshund puppy in full hot-dog mode') &&
+      captions.includes('a soprano ukulele'),
+    'week 38: leek + dachshund + ukulele captions',
   );
+  ok(
+    !captions.some((c) => typeof c === 'string' && /chard/i.test(c)),
+    'week 38: no swiss-chard caption bleed',
+  );
+  const images = subjects.map((s) => s?.image);
+  ok(new Set(images).size === 3, 'week 38: three distinct images');
 }
 
 {
-  // Variant lookup wraps and handles unknown weeks.
-  const first = sizeArtVariantForWeek(37, 0);
-  ok(first !== null, 'rotation: week 37 index 0 resolves');
-  ok(sizeArtVariantForWeek(37, 3) === first, 'rotation: index wraps to first variant');
-  ok(sizeArtVariantForWeek(37, 4) === sizeArtVariantForWeek(37, 1), 'rotation: index 4 == index 1');
-  ok(sizeArtVariantForWeek(99, 0) === null, 'rotation: unknown week -> null');
-  ok(sizeArtVariantForWeek(5, 0) === sizeArtVariantForWeek(5, 9), 'rotation: single-variant week wraps to itself');
+  // Legacy weeks 1-11: single slot, image resolves, caption null so the
+  // caller falls back to the content row's caption.
+  let legacyOk = true;
+  for (let w = 1; w <= 11; w++) {
+    const slot = sizeArtSlot(w, 0);
+    if (!slot || slot.caption !== null || slot.image == null) legacyOk = false;
+    const rel = slot ? pathForImageId(slot.image) : null;
+    if (rel !== `week-${String(w).padStart(2, '0')}.png`) legacyOk = false;
+  }
+  ok(legacyOk, 'legacy: weeks 1-11 single slot, image resolves, caption null');
 }
 
 {
-  // sizeArtForWeek (first-variant accessor) is unchanged: first variant
-  // for known weeks, null for unknown.
-  ok(sizeArtForWeek(37) === sizeArtVariantForWeek(37, 0), 'sizeArtForWeek: week 37 first variant');
-  ok(sizeArtForWeek(5) !== null, 'sizeArtForWeek: legacy week resolves');
-  ok(sizeArtForWeek(99) === null, 'sizeArtForWeek: unknown week -> null');
-  ok(sizeArtForWeek(0) === null, 'sizeArtForWeek: week 0 -> null');
+  // Out-of-range / unknown lookups are null (never crash).
+  ok(sizeArtSlot(38, 3) === null, 'slot: index 3 on 3-slot week -> null');
+  ok(sizeArtSlot(38, -1) === null, 'slot: negative index -> null');
+  ok(sizeArtSlot(99, 0) === null, 'slot: unknown week -> null');
+  ok(sizeArtSlot(0, 0) === null, 'slot: week 0 -> null');
+  ok(sizeArtSlot(5, 1) === null, 'slot: index 1 on single-slot legacy week -> null');
 }
 
-console.log(`=== size_art_rotation: ${passed} passed, ${failed} failed ===`);
+{
+  // Random pick: null for art-less weeks; in-range for the rest; over
+  // many draws a 3-slot week visits all three slots.
+  ok(randomSizeArtSlotIndex(99) === null, 'random: unknown week -> null');
+  ok(randomSizeArtSlotIndex(0) === null, 'random: week 0 -> null');
+  ok(randomSizeArtSlotIndex(41) === null, 'random: week 41 -> null');
+  let rangeOk = true;
+  for (let w = 12; w <= 40; w++) {
+    const idx = randomSizeArtSlotIndex(w);
+    if (idx === null || idx < 0 || idx > 2) rangeOk = false;
+  }
+  const legacy = randomSizeArtSlotIndex(5);
+  if (legacy !== 0) rangeOk = false;
+  ok(rangeOk, 'random: in-range indices for known weeks (0 for legacy)');
+  const seen = new Set<number>();
+  for (let i = 0; i < 60; i++) {
+    const idx = randomSizeArtSlotIndex(38);
+    if (idx !== null) seen.add(idx);
+  }
+  ok(seen.size === 3, `random: 60 draws visit all 3 slots of week 38 (saw ${seen.size})`);
+}
+
+{
+  // The old sequential-rotation surface is gone: no KV persistence keys,
+  // no next/parse helpers. (If any still existed on the module export,
+  // this would catch the leftover.)
+  const mod = require('../src/week/sizeArt') as Record<string, unknown>;
+  const leaked = ['sizeArtVariantKey', 'nextSizeArtIndex', 'parseStoredSizeArtIndex', 'sizeArtVariantForWeek', 'sizeArtVariantCount', 'sizeArtForWeek'].filter(
+    (k) => k in mod,
+  );
+  ok(leaked.length === 0, `rotation: old sequential API removed (leaked: ${leaked.join(',') || 'none'})`);
+}
+
+console.log(`=== size_art_3subject: ${passed} passed, ${failed} failed ===`);
 process.exit(failed === 0 ? 0 : 1);

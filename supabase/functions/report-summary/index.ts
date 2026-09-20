@@ -3,7 +3,10 @@
  *
  * Sends a pregnancy health document to the Gemini API for a short
  * plain-language summary, and returns a short title plus an auto-derived
- * attachment name. The API key NEVER leaves this function: it is read
+ * attachment name. Gemini first judges whether the document is related
+ * to pregnancy or the baby — unrelated documents are refused with
+ * `{ error: 'not_related' }` (422) and never summarized. The API key
+ * NEVER leaves this function: it is read
  * from the `GEMINI_API_KEY` env secret (Supabase dashboard → nurture
  * project → Edge Functions → Secrets).
  *
@@ -25,6 +28,7 @@ import {
   callGemini,
   decodeRequestDocument,
   DocumentError,
+  NotRelatedError,
   ProviderError,
   REPORT_DISCLAIMER,
   validateRequest,
@@ -99,6 +103,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
       // app shows the "Couldn't read this one" card immediately.
       console.error('report-summary unreadable');
       return json(422, { error: 'unreadable' });
+    }
+    if (e instanceof NotRelatedError) {
+      // Deliberate refusal: Gemini judged the document not related to
+      // pregnancy or the baby, so it was not summarized. The app treats
+      // any non-200 as a generic failure → the transient
+      // "Report summary failed" toast. Nothing about the document is logged.
+      console.error('report-summary not_related');
+      return json(422, { error: 'not_related' });
     }
     if (e instanceof ProviderError) {
       // Privacy: no provider internals (status, body) are logged or returned.

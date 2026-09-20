@@ -26,6 +26,7 @@ import {
   DocumentError,
   MAX_DOCUMENT_BYTES,
   MODEL,
+  NotRelatedError,
   ProviderError,
   REPORT_DISCLAIMER,
   validateRequest,
@@ -173,10 +174,14 @@ check('system: care-team framing', system.includes('care team'), true);
 check('system: never invent values', system.includes('Never invent values'), true);
 check('system: never repeat API keys', system.includes('Never repeat API keys'), true);
 check('system: JSON-only output', system.includes('Output JSON only'), true);
+check('system: relevance rule decides first', system.includes('RELEVANCE RULE'), true);
+check('system: relevance verdict field named', system.includes('"isPregnancyRelated"'), true);
+check('system: unrelated documents are not summarized', system.includes('do NOT summarize it'), true);
 
 const userPrompt = buildUserPrompt('September 19, 2026');
 check('user prompt carries today', userPrompt.includes('September 19, 2026'), true);
 check('user prompt names the document kinds', userPrompt.includes('lab report'), true);
+check('user prompt allows non-pregnancy documents', userPrompt.includes('may or may not be related'), true);
 check('user prompt is JSON-only', userPrompt.includes('Output JSON only'), true);
 
 /* ---------------- base64 (Deno-free, no btoa/Buffer) ---------------- */
@@ -217,6 +222,13 @@ check('rejects empty summary', validateSummary({ ...goodModelJson(), summary: ''
 check('rejects empty attachmentName', validateSummary({ ...goodModelJson(), attachmentName: '' }), null);
 check('rejects non-object', validateSummary('nope'), null);
 check('rejects null', validateSummary(null), null);
+// The relevance verdict rides alongside the summary fields — a true
+// verdict is accepted and otherwise ignored by the shape validator.
+check(
+  'verdict true with valid fields passes',
+  validateSummary({ ...goodModelJson(), isPregnancyRelated: true }) !== null,
+  true,
+);
 
 const clamped = validateSummary({
   ...goodModelJson(),
@@ -289,7 +301,13 @@ async function main(): Promise<void> {
     check('response is JSON', payload.generationConfig.responseMimeType, 'application/json');
     check('response schema requires the four fields', true, true);
     const schema = payload.generationConfig.responseSchema as { required: string[] };
-    check('schema requires title/summary/attachmentName/needsAttention', schema.required.sort(), ['attachmentName', 'needsAttention', 'summary', 'title']);
+    check('schema requires the verdict + four summary fields', schema.required.sort(), [
+      'attachmentName',
+      'isPregnancyRelated',
+      'needsAttention',
+      'summary',
+      'title',
+    ]);
     const userText = payload.contents[0].parts.map((p) => p.text ?? '').join('');
     check('user prompt carries today', userText.includes(todayLong), true);
   }
@@ -317,6 +335,88 @@ async function main(): Promise<void> {
     };
     const secondText = secondPayload.contents[0].parts.map((p) => p.text ?? '').join('');
     check('second call carries the correction note', secondText.includes('CORRECTION'), true);
+  }
+
+  // --- relevance gate: "not related" verdict → NotRelatedError, no repair retry ---
+  {
+    const notRelated = {
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                text: JSON.stringify({
+                  isPregnancyRelated: false,
+                  title: '',
+                  summary: '',
+                  attachmentName: '',
+                  needsAttention: false,
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const { seen, impl } = stubFetch(notRelated);
+    try {
+      await callGemini('application/pdf', docBytes, todayLong, 'TEST_KEY', impl as never);
+      check('not-related verdict throws', 'no-throw', 'NotRelatedError');
+    } catch (e) {
+      check('not-related verdict → NotRelatedError', e instanceof NotRelatedError, true);
+      check('not-related is not a ProviderError', e instanceof ProviderError, false);
+    }
+    check('no repair retry for a deliberate verdict', seen.length, 1);
+  }
+
+  // --- relevance gate on the repair attempt: first invalid, then not-related ---
+  {
+    const invalid = { candidates: [{ content: { parts: [{ text: JSON.stringify({ title: 'x' }) }] } }] };
+    const notRelated = {
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                text: JSON.stringify({
+                  isPregnancyRelated: false,
+                  title: '',
+                  summary: '',
+                  attachmentName: '',
+                  needsAttention: false,
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const calls: SeenCall[] = [];
+    const impl = async (url: string, init: { method: string; headers: Record<string, string>; body: string }) => {
+      const n = calls.length;
+      calls.push({ url, init });
+      const canned = n === 0 ? invalid : notRelated;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify(canned),
+        arrayBuffer: async () => new ArrayBuffer(0),
+      };
+    };
+    try {
+      await callGemini('application/pdf', docBytes, todayLong, 'TEST_KEY', impl as never);
+      check('not-related on retry throws', 'no-throw', 'NotRelatedError');
+    } catch (e) {
+      check('not-related on retry → NotRelatedError', e instanceof NotRelatedError, true);
+    }
+    check('verdict surfaces after the repair attempt', calls.length, 2);
+  }
+
+  // --- missing verdict falls through to the old path (treated as related) ---
+  {
+    const { impl } = stubFetch(cannedModelOutput());
+    const summary = await callGemini('application/pdf', docBytes, todayLong, 'TEST_KEY', impl as never);
+    check('missing verdict still summarizes', summary.title, 'Glucose results');
   }
 
   // --- provider failures → ProviderError ---

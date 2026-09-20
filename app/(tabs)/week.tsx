@@ -39,8 +39,7 @@ import {
   saveEvent,
 } from '../../src/sync/store';
 import { addDaysISO, todayISO } from '../../src/onboarding/dates';
-import { sizeArtVariantCount, sizeArtVariantForWeek, sizeArtVariantKey, nextSizeArtIndex, parseStoredSizeArtIndex } from '../../src/week/sizeArt';
-import { kvGet, kvSet } from '../../src/lib/db';
+import { sizeArtSlot, randomSizeArtSlotIndex, SizeArtSlot } from '../../src/week/sizeArt';
 import type { Pregnancy } from '../../src/lib/types';
 import AppointmentEditor from '../../src/logs/AppointmentEditor';
 import {
@@ -119,45 +118,42 @@ function Kicker({ children }: { children: string }) {
 }
 
 /**
- * Per-load watercolor rotation (Anuraj, Sept 20, 2026): every Week-tab
- * load advances to the next of the week's variants in sequence, persisted
- * in the local KV store so it survives app restarts. The storage key
- * includes the week, so a new week starts at variant 1. Never throws —
- * a storage hiccup falls back to the first variant without advancing.
+ * Random 3-subject size card (Anuraj, Sept 20, 2026): every Week-tab load
+ * picks a RANDOM slot from the DISPLAYED week's 3-subject set (displayed
+ * = completed weeks + 1). Image and caption always change together — the
+ * caption comes from the same slot as the image, never from the
+ * completed-week content row. No persistence, no sequence.
+ *
+ * Within a session, paging between weeks reuses the already-picked slot
+ * for each week (sessionSizeArtPicks) so the card doesn't re-roll while
+ * she browses; only an actual tab load re-rolls.
  */
-function advanceSizeArt(week: number): number | null {
-  const count = sizeArtVariantCount(week);
-  if (count === 0) return null;
-  let stored: string | null = null;
-  try {
-    stored = kvGet(sizeArtVariantKey(week));
-  } catch {
-    return sizeArtVariantForWeek(week, 0);
-  }
-  const next = nextSizeArtIndex(count, stored);
-  try {
-    kvSet(sizeArtVariantKey(week), String(next));
-  } catch {
-    // Persist failed — still show the next variant for this load.
-  }
-  return sizeArtVariantForWeek(week, next);
+
+/** Session-level week -> picked slot index (in memory only). */
+const sessionSizeArtPicks = new Map<number, number>();
+
+/** Fresh random pick for a tab load; stores the pick for the session. */
+function pickSizeArt(week: number): SizeArtSlot | null {
+  const idx = randomSizeArtSlotIndex(week);
+  if (idx === null) return null;
+  sessionSizeArtPicks.set(week, idx);
+  return sizeArtSlot(week, idx);
 }
 
 /**
- * Reads the week's current rotation position WITHOUT advancing it —
- * used when paging between weeks (prev/next), which is not a tab load.
- * A week with no stored position shows variant 1.
+ * The week's session pick WITHOUT re-rolling — used when paging between
+ * weeks (prev/next), which is not a tab load. A week with no session pick
+ * yet gets a fresh random one.
  */
-function peekSizeArt(week: number): number | null {
-  const count = sizeArtVariantCount(week);
-  if (count === 0) return null;
-  let idx = 0;
-  try {
-    idx = parseStoredSizeArtIndex(count, kvGet(sizeArtVariantKey(week))) ?? 0;
-  } catch {
-    idx = 0;
+function peekSizeArt(week: number): SizeArtSlot | null {
+  let idx = sessionSizeArtPicks.get(week);
+  if (idx === undefined) {
+    const fresh = randomSizeArtSlotIndex(week);
+    if (fresh === null) return null;
+    sessionSizeArtPicks.set(week, fresh);
+    idx = fresh;
   }
-  return sizeArtVariantForWeek(week, idx);
+  return sizeArtSlot(week, idx);
 }
 
 export default function WeekScreen() {
@@ -173,8 +169,8 @@ export default function WeekScreen() {
   const [babyName, setBabyName] = useState<string | null>(null);
   /** Appointment editor sheet, opened by tapping a "Coming up" card. */
   const [editorId, setEditorId] = useState<string | null>(null);
-  /** Current watercolor variant for the size hero (per-load rotation). */
-  const [sizeArt, setSizeArt] = useState<number | null>(null);
+  /** Current size-card slot (image + caption together) for the size hero. */
+  const [sizeArt, setSizeArt] = useState<SizeArtSlot | null>(null);
   /** Mirror of viewWeek for the focus callback below (stable [] deps). */
   const viewWeekRef = useRef<number | null>(null);
   useEffect(() => {
@@ -202,11 +198,11 @@ export default function WeekScreen() {
         setViewWeek((v) =>
           v === null ? s.currentWeek : Math.min(v, s.currentWeek),
         );
-        // Advance the size-art rotation once per tab load, for the week
-        // actually displayed (mirrors the viewWeek clamp above) — keyed by
-        // the DISPLAYED week (completed + 1). Anuraj ~22:59 PDT.
+        // Fresh random pick once per tab load, for the week actually
+        // displayed — keyed by the DISPLAYED week (completed + 1).
+        // Anuraj Sept 20, 2026.
         const w = Math.min(viewWeekRef.current ?? s.currentWeek, s.currentWeek);
-        setSizeArt(advanceSizeArt(w + 1));
+        setSizeArt(pickSizeArt(w + 1));
         setMoments(countWeekMoments());
         try {
           setBabyName(getBabyName());
@@ -379,10 +375,10 @@ export default function WeekScreen() {
       <View style={styles.sizeHero} testID="week-size-hero">
         {sizeArt ? (
           <Image
-            source={sizeArt}
+            source={sizeArt.image}
             style={styles.sizeArt}
             testID="week-size-art"
-            accessibilityLabel={`Illustration: your baby is the size of ${content.size?.staple ?? 'a growing baby'}`}
+            accessibilityLabel={`Illustration: your baby is the size of ${sizeArt.caption ?? content.size?.staple ?? 'a growing baby'}`}
           />
         ) : (
           <View
@@ -393,8 +389,11 @@ export default function WeekScreen() {
         {content.size ? (
           <>
             <Text style={styles.sizeKicker}>Your baby is the size of</Text>
+            {/* Caption rotates WITH the image: the slot's own caption for
+                weeks 12-40 (never the completed-week content row's), the
+                content row as fallback for legacy weeks 1-11. */}
             <Text style={styles.sizeName} testID="week-size-name">
-              {content.size.staple}
+              {sizeArt?.caption ?? content.size.staple}
             </Text>
             <Text style={styles.sizeSpec} testID="week-size-spec">
               {content.size.length} · {content.size.weight}
