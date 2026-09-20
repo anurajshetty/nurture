@@ -103,6 +103,12 @@ OUT=/tmp/nurture-createdat-tests
 npx tsc --ignoreConfig tests/created_at_repair.test.ts src/lib/schema.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "created_at_repair" node $OUT/tests/created_at_repair.test.js
 OUT=/tmp/nurture-anonid-tests
 npx tsc --ignoreConfig tests/anonymous_identity.test.ts src/auth/anonymousSession.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "anonymous_identity" node $OUT/tests/anonymous_identity.test.js
+OUT=/tmp/nurture-labor-tests
+npx tsc --ignoreConfig tests/labor-contractions.test.ts app/labor/contractions.tsx src/labor/copy.ts src/theme/tokens.ts --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "labor_contractions" env NODE_PATH=$PWD/node_modules node $OUT/tests/labor-contractions.test.js
+OUT=/tmp/nurture-pf-tests
+npx tsc --ignoreConfig tests/labor-pelvicfloor.test.ts src/labor/pelvicfloor/exercises.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "labor_pelvicfloor" node $OUT/tests/labor-pelvicfloor.test.js
+OUT=/tmp/nurture-labor-breath-tests
+npx tsc --ignoreConfig tests/labor-breathing.test.ts src/labor/breathing/patterns.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "labor_breathing" node $OUT/tests/labor-breathing.test.js
 
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

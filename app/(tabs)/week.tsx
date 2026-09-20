@@ -54,6 +54,11 @@ import {
   kicksVisibleForDisplayedWeek,
   sessionsInDisplayedWeek,
 } from '../../src/kicks/session';
+import {
+  LABOR_READINESS_MIN_WEEK,
+  WEEK_CARD_COPY,
+  laborCardVisibleForDisplayedWeek,
+} from '../../src/labor/copy';
 import { displayWeekRange } from '../../src/onboarding/dates';
 import { hasAskedFirstQuestion } from '../../src/aiChat/history';
 import {
@@ -511,6 +516,31 @@ export default function WeekScreen() {
         visible={editorId !== null}
         onClose={() => setEditorId(null)}
       />
+
+      {/* Labor-readiness entry card (Anuraj, Sept 20, 2026): the entry
+          card renders ONLY for displayed weeks at or above
+          LABOR_READINESS_MIN_WEEK (35; single one-line knob in
+          src/labor/copy.ts), through end of pregnancy. Positioned below
+          the "Coming up" appointment reminder/editor and immediately
+          ABOVE the kick-counting card. One tap opens the /labor hub;
+          the contraction timer is two taps from Week. */}
+      {laborCardVisibleForDisplayedWeek(displayWeekNum) ? (
+        <Card
+          testID="week-labor-card"
+          onPress={() => router.push('/labor')}
+          accessibilityLabel={`${WEEK_CARD_COPY.title}. ${WEEK_CARD_COPY.body} Tap to open.`}
+          style={styles.laborCard}
+        >
+          <View style={styles.laborKickerRow}>
+            <View style={styles.laborPill}>
+              <Text style={styles.laborPillText}>{WEEK_CARD_COPY.pill}</Text>
+            </View>
+            <Text style={styles.laborKicker}>{WEEK_CARD_COPY.kicker}</Text>
+          </View>
+          <Text style={styles.laborTitle}>{WEEK_CARD_COPY.title}</Text>
+          <Text style={styles.laborBody}>{WEEK_CARD_COPY.body}</Text>
+        </Card>
+      ) : null}
 
       {/* Kick counter Home card (round 4, Anuraj approved Sept 20, 2026):
           displayed week 19+, below the "Coming up" appointment cards and
@@ -1023,6 +1053,50 @@ const styles = StyleSheet.create({
   reminderCard: {
     padding: spacing.md,
     marginBottom: spacing.sm,
+  },
+  /* Labor-readiness entry card: outlined in coral, pill + kicker row,
+     tappable to the /labor hub. Renders only for displayed weeks at or
+     above LABOR_READINESS_MIN_WEEK (see src/labor/copy.ts). */
+  laborCard: {
+    borderWidth: 2,
+    borderColor: colors.coral,
+    marginBottom: spacing.sm,
+  },
+  laborKickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: 6,
+  },
+  laborPill: {
+    backgroundColor: colors.blush,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  laborPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    color: colors.coralDeep,
+    textTransform: 'uppercase',
+  },
+  laborKicker: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.coralDeep,
+  },
+  laborTitle: {
+    fontFamily: 'Georgia',
+    fontSize: 20,
+    fontWeight: '600',
+    color: colors.ink,
+    marginBottom: 4,
+  },
+  laborBody: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: '#5C554D',
   },
   storyCopy: {
     fontSize: 14.5,
