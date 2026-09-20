@@ -5,7 +5,7 @@
  * arguments, so these tests never touch Expo, SQLite, or the network. Run with:
  *
  *   npx tsc tests/briefing_context.test.ts src/briefing/context.ts \
- *     src/onboarding/dates.ts src/lib/types.ts src/logging/symptoms.ts \
+ *     src/onboarding/dates.ts src/lib/types.ts \
  *     --outDir /tmp/nurture-tests-brief --module commonjs --target es2022 \
  *     --skipLibCheck --esModuleInterop
  *   TZ=UTC node /tmp/nurture-tests-brief/tests/briefing_context.test.js
