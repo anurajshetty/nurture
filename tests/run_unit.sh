@@ -87,8 +87,11 @@ tsc1 tests/onboarding_profile.test.ts src/onboarding/dates.ts src/onboarding/sha
 
 OUT=/tmp/nurture-addmenu-tests
 tsc1 tests/add_menu.test.ts src/logs/appointmentInput.ts src/lib/types.ts && run "add_menu" env TZ=UTC node $OUT/tests/add_menu.test.js
-OUT=/tmp/nurture-rt-tests
-tsc1 tests/reminder_timing.test.ts src/notifications/reminderTiming.ts && run "reminder_timing" node $OUT/tests/reminder_timing.test.js
+# reminder_timing suite retired Sept 20, 2026: the mockup-14 per-appointment
+# timing editor was dropped entirely (Anuraj's call) — the 2-day default
+# applies to all appointments; stored per-appointment overrides are ignored.
+OUT=/tmp/nurture-rd-tests
+npx tsc --ignoreConfig tests/reminder_default.test.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "reminder_default" env TZ=UTC node $OUT/tests/reminder_default.test.js
 OUT=/tmp/nurture-pp-tests
 tsc1 tests/photo_persistence.test.ts src/sync/photoPersistence.ts && run "photo_persistence" node $OUT/tests/photo_persistence.test.js
 

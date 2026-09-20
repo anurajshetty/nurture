@@ -2,12 +2,11 @@
  * Appointment reminders (Epic 6, §6.1).
  *
  * Schedules one local notification per upcoming appointment, firing at the
- * appointment's OWN lead time (`data.reminderLeadMinutes` on the event),
- * falling back to the global default (`Prefs.appointmentLeadMinutes`,
- * 2 days) for appointments that never set one. Copy is neutral by
- * construction (see ./reminderCopy.ts). Deep-link data carries
- * `{ kind: 'appointment', appointmentId }` so "View" lands on the
- * appointment detail in the Plan tab.
+ * global default lead (`Prefs.appointmentLeadMinutes`, 2 days) for every
+ * appointment. Per-appointment reminder customization (the mockup-14 timing
+ * editor) was dropped by Anuraj's call (Sept 19, 2026) — there is no
+ * per-appointment lead time anymore; stored `data.reminderLeadMinutes`
+ * values from before the drop are ignored.
  *
  * Module shape (repo convention for node-testability, cf. src/briefing/context.ts):
  * - Module scope is dependency-free: every native import (expo-notifications,
@@ -20,8 +19,8 @@
  * Scheduling rules (pure planner):
  * - Nothing when: reminders disabled, globally paused, pregnancy stopped
  *   (contract C3), no OS permission, or no future appointments.
- * - Fire time = appointment start − lead minutes, where each appointment's
- *   own `data.reminderLeadMinutes` overrides the global default. If the
+ * - Fire time = appointment start − the global default lead minutes
+ *   (`Prefs.appointmentLeadMinutes`, 2 days) for every appointment. If the
  *   lead window already
  *   passed (she logged the appointment late), fire gently one minute out
  *   rather than nagging about a missed window.
@@ -43,7 +42,6 @@
 
 import type { Prefs } from '../lib/types';
 import { appointmentReminderCopy } from './reminderCopy';
-import { appointmentLeadMinutes } from './reminderTiming';
 import { inQuietHours, parseHM } from './nudgeLogic';
 
 /* ------------------------------------------------------------------ */
@@ -101,8 +99,8 @@ export interface ReminderPlan {
 
 export interface PlanInput {
   appointments: UpcomingAppointment[];
-  /** The global default lead (Prefs.appointmentLeadMinutes); each
-   * appointment's own `data.reminderLeadMinutes` overrides it. */
+  /** The global default lead (Prefs.appointmentLeadMinutes, 2 days) —
+   * applies to every appointment. */
   leadMinutes: number;
   remindersEnabled: boolean;
   /** You-tab convention: any non-null globalPauseUntil = paused. */
@@ -166,9 +164,10 @@ export function planAppointmentReminders(input: PlanInput): ReminderPlan[] {
   for (const appt of input.appointments) {
     const at = new Date(appt.occurredAt).getTime();
     if (Number.isNaN(at) || at <= input.nowMs) continue; // past visit — nothing to schedule
-    // Per-appointment timing: the event's own value wins, the global
-    // default (input.leadMinutes) applies when it never set one.
-    const leadMs = Math.max(0, appointmentLeadMinutes(appt.data ?? {}, input.leadMinutes)) * 60_000;
+    // The 2-day default applies to every appointment (per-appointment
+    // timing was dropped Sept 2026 — any stored `data.reminderLeadMinutes`
+    // is ignored).
+    const leadMs = Math.max(0, input.leadMinutes) * 60_000;
     let fireAt = at - leadMs;
     if (fireAt <= input.nowMs) fireAt = input.nowMs + LATE_APPOINTMENT_GRACE_MS;
     fireAt = adjustForQuietHours(fireAt, at, input.quietStart, input.quietEnd, input.nowMs);
@@ -233,53 +232,6 @@ export function listUpcomingAppointments(limit = 20): UpcomingAppointment[] {
     out.push({ id: row.id, occurredAt: row.occurred_at, data });
   }
   return out;
-}
-
-/**
- * Persists ONE appointment's own reminder lead time
- * (`data.reminderLeadMinutes`, minutes): rewrites the event's data bag,
- * marks the row dirty, and queues an upsert so the next text sync carries
- * the change (same pattern as `setEventAttachments` in ../sync/store).
- * Appointments that never get a value keep falling back to the global
- * default (`Prefs.appointmentLeadMinutes`) at read time — this never
- * touches the global pref. No-op when the event doesn't exist.
- * Never throws.
- */
-export function saveReminderLeadMinutes(eventId: string, minutes: number): boolean {
-  try {
-    const db = lazyDb();
-    const row = db.getDb().getFirstSync('SELECT data FROM events WHERE id = ?', eventId) as {
-      data: string;
-    } | null;
-    if (!row) return false;
-    let data: Record<string, unknown> = {};
-    try {
-      data = JSON.parse(row.data) as Record<string, unknown>;
-    } catch {
-      data = {};
-    }
-    data.reminderLeadMinutes = Math.max(1, Math.round(minutes));
-    const now = new Date().toISOString();
-    db.getDb().withTransactionSync(() => {
-      db
-        .getDb()
-        .runSync(
-          'UPDATE events SET data = ?, updated_at = ?, dirty = 1 WHERE id = ?',
-          JSON.stringify(data),
-          now,
-          eventId,
-        );
-      db.getDb().runSync(
-        `INSERT INTO outbox (id, event_id, op, attempts, created_at) VALUES (?, ?, 'upsert', 0, ?)`,
-        `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`,
-        eventId,
-        now,
-      );
-    });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function permissionGranted(): Promise<boolean> {

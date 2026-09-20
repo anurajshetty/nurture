@@ -268,6 +268,14 @@ export interface EventCardProps {
    * title and the dynamic "{n} questions to ask" line.
    */
   onAppointmentPress?: (eventId: string) => void;
+  /**
+   * When present and the event is an appointment, a small × appears in the
+   * card's top-right corner (44×44 hit area). Tapping it calls this with
+   * the appointment's event id (opens the delete confirmation) and does
+   * NOT trigger onAppointmentPress — the × is a sibling of the card
+   * Pressable, never nested inside it. Mockup 18.
+   */
+  onAppointmentDelete?: (eventId: string) => void;
 }
 
 /** "1 question to ask" / "2 questions to ask" — proper pluralization. */
@@ -275,7 +283,7 @@ function questionsLine(count: number): string {
   return count === 1 ? '1 question to ask' : `${count} questions to ask`;
 }
 
-export default function EventCard({ event, onAppointmentPress }: EventCardProps) {
+export default function EventCard({ event, onAppointmentPress, onAppointmentDelete }: EventCardProps) {
   const meta = metaFor(event.type);
   const data = event.data;
   const text = typeof data.text === 'string' ? data.text : typeof data.note === 'string' ? data.note : '';
@@ -288,6 +296,8 @@ export default function EventCard({ event, onAppointmentPress }: EventCardProps)
   const isAppointment = event.type === 'appointment';
   const appointmentQuestions = isAppointment ? readQuestions(event) : [];
   const appointmentPressable = isAppointment && !!onAppointmentPress;
+  // Mockup 18: the delete × renders on appointment cards in the Logs feed.
+  const appointmentDeletable = isAppointment && !!onAppointmentDelete;
 
   let title: string | null = null;
   let chips: string[] = [];
@@ -308,16 +318,17 @@ export default function EventCard({ event, onAppointmentPress }: EventCardProps)
   // "Backing up…" state may be shown — for photos or files.
 
   return (
-    <Card
-      style={styles.card}
-      testID={`event-card-${event.id}`}
-      onPress={
-        appointmentPressable ? () => onAppointmentPress!(event.id) : undefined
-      }
-      accessibilityLabel={
-        appointmentPressable ? `Appointment. ${title ?? ''}. Tap to open.` : undefined
-      }
-    >
+    <View style={appointmentDeletable ? styles.apptWrap : undefined}>
+      <Card
+        style={[styles.card, appointmentDeletable && styles.cardDeletable]}
+        testID={`event-card-${event.id}`}
+        onPress={
+          appointmentPressable ? () => onAppointmentPress!(event.id) : undefined
+        }
+        accessibilityLabel={
+          appointmentPressable ? `Appointment. ${title ?? ''}. Tap to open.` : undefined
+        }
+      >
       <View style={styles.meta}>
         <View style={styles.typeRow}>
           <View style={[styles.dot, { backgroundColor: eventDots[meta.dot] }]}>
@@ -364,13 +375,56 @@ export default function EventCard({ event, onAppointmentPress }: EventCardProps)
         </View>
       ) : null}
       {isReport ? <ReportSummarySection event={event} /> : null}
-    </Card>
+      </Card>
+      {appointmentDeletable ? (
+        <Pressable
+          testID={`event-card-delete-${event.id}`}
+          accessibilityRole="button"
+          accessibilityLabel="Delete appointment"
+          onPress={() => onAppointmentDelete!(event.id)}
+          hitSlop={8}
+          style={({ pressed }) => [styles.delBtn, pressed && styles.delPressed]}
+        >
+          <Text style={styles.delGlyph}>×</Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
     marginBottom: spacing.md,
+  },
+  /**
+   * Mockup 18: relative wrapper so the delete × can sit in the card's
+   * top-right corner as a sibling of the card Pressable — a sibling never
+   * triggers the card's onPress, so tapping × never opens the editor.
+   */
+  apptWrap: {
+    position: 'relative',
+  },
+  /** Extra right padding keeps the meta row clear of the × hit zone. */
+  cardDeletable: {
+    paddingRight: 52,
+  },
+  /** Mockup 18 delete ×: 44×44 hit area, top-right, muted stone. */
+  delBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  delPressed: {
+    opacity: 0.5,
+  },
+  delGlyph: {
+    fontSize: 19,
+    lineHeight: 24,
+    color: '#B7ACA0',
   },
   meta: {
     flexDirection: 'row',

@@ -77,6 +77,18 @@ def main():
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.route(ORIGIN + "/**", serve_dist)
 
+        # --- Bundle markers: the dist bundle under test must carry the
+        # v3 "bowed mother" You-tab icon path. If this marker is missing,
+        # the release must NOT ship — stop and report.
+        import glob as _glob
+        _bundles = _glob.glob(os.path.join(DIST, "_expo", "static", "js", "web", "entry-*.js"))
+        _bundle_text = ""
+        for _b in _bundles:
+            with open(_b, encoding="utf-8", errors="replace") as _f:
+                _bundle_text += _f.read(2_000_000)
+        check("bundle: v3 You-tab icon marker M10.6 9.6 present",
+              "M10.6 9.6" in _bundle_text)
+
         # --- Week tab: Coming up card ---
         # Seed first, then (re)navigate so the tab picks up the events.
         page.goto(WEEK, wait_until="networkidle")
@@ -212,10 +224,14 @@ def main():
           const btnRect = btn ? btn.getBoundingClientRect() : null;
           return { found: true, w: r.width, h: r.height,
                    nearBottom: r.bottom > window.innerHeight - 140,
-                   btnH: btnRect ? btnRect.height : 0, btnW: btnRect ? btnRect.width : 0 };
+                   btnH: btnRect ? btnRect.height : 0, btnW: btnRect ? btnRect.width : 0,
+                   v3path: Array.from(youSvg.querySelectorAll('path'))
+                     .some(p => (p.getAttribute('d') || '').includes('M10.6 9.6')) };
         }""")
         check("you: v3 bowed-mother SVG renders (2 circles + 3 paths, 24x24 viewBox)",
               icon.get("found") is True)
+        check("you: v3 path marker M10.6 9.6 present",
+              icon.get("v3path") is True)
         check("you: icon sits in the tab bar (near viewport bottom)",
               icon.get("nearBottom") is True)
         check("you: icon renders at tab-icon size (~24px)",

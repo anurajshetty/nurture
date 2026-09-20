@@ -28,7 +28,8 @@ import {
   spacing,
   type as typeScale,
 } from '../../src/theme/tokens';
-import { countEvents, listEventsInRange, listEventsPage } from '../../src/sync/store';
+import { countEvents, deleteEvent, listEventsInRange, listEventsPage } from '../../src/sync/store';
+import { refreshAppointmentReminders } from '../../src/notifications/appointments';
 import { kvGet, kvSet } from '../../src/lib/db';
 import type { LocalEvent } from '../../src/lib/types';
 import { useOnboarding } from '../../src/onboarding/useOnboarding';
@@ -111,6 +112,41 @@ export default function LogsScreen() {
   const closeAppointmentEditor = useCallback(() => {
     setEditorVisible(false);
   }, []);
+  /**
+   * Mockup 18 — delete appointment. deleteTarget is the appointment event
+   * awaiting confirmation; the dialog is stateless. Confirming soft-deletes
+   * the event (tombstone + sync outbox), cancels its reminder, removes it
+   * from the feed, and shows "Appointment deleted" — no undo.
+   */
+  const [deleteTarget, setDeleteTarget] = useState<LocalEvent | null>(null);
+  const [deleteToastKey, setDeleteToastKey] = useState<number | null>(null);
+  const deleteToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openDeleteConfirm = useCallback(
+    (eventId: string) => {
+      setDeleteTarget(events.find((e) => e.id === eventId) ?? null);
+    },
+    [events],
+  );
+  const closeDeleteConfirm = useCallback(() => {
+    setDeleteTarget(null);
+  }, []);
+  const confirmDeleteAppointment = useCallback(() => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    deleteEvent(id);
+    // The deleted appointment must not fire its reminder — reconcile the
+    // scheduled set against the surviving events.
+    void refreshAppointmentReminders().catch(() => {});
+    setEvents((prev) => prev.filter((e) => e.id !== id));
+    setDeleteTarget(null);
+    if (deleteToastTimer.current) clearTimeout(deleteToastTimer.current);
+    setDeleteToastKey(Date.now());
+    deleteToastTimer.current = setTimeout(() => {
+      setDeleteToastKey(null);
+      deleteToastTimer.current = null;
+    }, 1800);
+    void syncNow().catch(() => {});
+  }, [deleteTarget, syncNow]);
   const { appointment: appointmentParam } =
     useLocalSearchParams<{ appointment?: string | string[] }>();
   useEffect(() => {
@@ -378,6 +414,7 @@ export default function LogsScreen() {
             onDismissLookBack={dismissLookBack}
             onRevisitLookBack={scrollToEvent}
             onAppointmentPress={openAppointment}
+            onAppointmentDelete={openDeleteConfirm}
             onEndReached={loadMore}
             refreshing={refreshing}
             onRefresh={onRefresh}
@@ -392,6 +429,59 @@ export default function LogsScreen() {
         visible={editorVisible}
         onClose={closeAppointmentEditor}
       />
+      {deleteTarget ? (
+        <View style={styles.delScrim} testID="delete-appointment-dialog">
+          <Pressable
+            testID="delete-appointment-scrim"
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss delete confirmation"
+            onPress={closeDeleteConfirm}
+            style={styles.delScrimPress}
+          />
+          <View
+            style={styles.delDialog}
+            accessibilityRole="alert"
+            accessibilityLabel="Delete this appointment?"
+          >
+            <Text style={styles.delTitle}>Delete this appointment?</Text>
+            <Text style={styles.delBody}>
+              It'll disappear from your feed and your Week. This can't be
+              undone.
+            </Text>
+            <Pressable
+              testID="delete-appointment-confirm"
+              accessibilityRole="button"
+              accessibilityLabel="Delete appointment"
+              onPress={confirmDeleteAppointment}
+              style={({ pressed }) => [
+                styles.delBtn,
+                pressed && styles.delBtnPressed,
+              ]}
+            >
+              <Text style={styles.delBtnText}>Delete</Text>
+            </Pressable>
+            <Pressable
+              testID="delete-appointment-keep"
+              accessibilityRole="button"
+              accessibilityLabel="Keep it"
+              onPress={closeDeleteConfirm}
+              style={({ pressed }) => [
+                styles.keepBtn,
+                pressed && styles.keepPressed,
+              ]}
+            >
+              <Text style={styles.keepText}>Keep it</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+      {deleteToastKey !== null ? (
+        <View style={styles.delToastWrap} pointerEvents="none">
+          <View style={styles.delToast} testID="delete-appointment-toast">
+            <Text style={styles.delToastText}>Appointment deleted</Text>
+          </View>
+        </View>
+      ) : null}
     </Screen>
   );
 }
@@ -476,5 +566,94 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.ink,
     textAlign: 'center',
+  },
+  /* Mockup 18 — delete-appointment confirmation + toast. */
+  delScrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(90,74,62,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 50,
+  },
+  delScrimPress: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
+  delDialog: {
+    position: 'relative',
+    width: '85%',
+    maxWidth: 340,
+    backgroundColor: colors.card,
+    borderRadius: 22,
+    padding: 26,
+  },
+  delTitle: {
+    fontFamily: fontDisplay,
+    fontSize: 22,
+    color: colors.ink,
+    marginBottom: 10,
+  },
+  delBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.muted,
+    marginBottom: 22,
+  },
+  delBtn: {
+    backgroundColor: colors.coralDeep,
+    borderRadius: 16,
+    minHeight: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  delBtnPressed: {
+    opacity: 0.85,
+  },
+  delBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  keepBtn: {
+    backgroundColor: '#FAF6F0',
+    borderRadius: 16,
+    minHeight: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  keepPressed: {
+    opacity: 0.7,
+  },
+  keepText: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  delToastWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 96,
+    alignItems: 'center',
+    zIndex: 60,
+  },
+  delToast: {
+    backgroundColor: '#3A332E',
+    borderRadius: 999,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  delToastText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
