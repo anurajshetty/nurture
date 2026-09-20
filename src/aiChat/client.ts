@@ -7,6 +7,8 @@
  *   invalid_response, never rendered.
  * - Quota numbers (remaining / dailyLimit) come ONLY from the server;
  *   the client never hardcodes the 10/day cap.
+ * - No sign-in gate: the server serves anonymous callers from a shared,
+ *   tightly-capped quota bucket (Anuraj, Sept 20, 2026 — temporary).
  * - Injectable seam mirrors src/reportSummary/client.ts: production
  *   goes through supabase functions.invoke (POST) + a plain GET for
  *   quota; the interactive suite sets `window.__askWillowTestTransport =
@@ -50,7 +52,6 @@ export interface AskWillowContext {
 
 export type AskWillowErrorCode =
   | 'not_configured'
-  | 'unauthenticated'
   | 'network'
   | 'invalid_response'
   | 'limit_reached'
@@ -244,9 +245,10 @@ function classifyInvokeFailure(error: unknown, data: unknown): AskWillowError {
     if (data.error === 'quota_unavailable') return new AskWillowError('network');
   }
   const status = statusOf(error);
-  if (status === 401) return new AskWillowError('unauthenticated');
   if (status === 503) return new AskWillowError('not_configured');
   if (status === 429) return new AskWillowError('limit_reached');
+  // Any other HTTP failure (including an unexpected 401) is a plain
+  // send failure — there is no sign-in gate (Anuraj, Sept 20, 2026).
   return new AskWillowError('network');
 }
 
@@ -288,8 +290,9 @@ export async function getChatQuota(deps: AskWillowDeps = {}): Promise<ChatQuota>
   } catch (e) {
     if (e instanceof AskWillowError) throw e;
     const status = statusOf(e);
-    if (status === 401) throw new AskWillowError('unauthenticated');
     if (status === 503) throw new AskWillowError('not_configured');
+    // A failed quota load never gates the chat: the screen stays
+    // usable and the send path shows a plain failure instead.
     throw new AskWillowError('network');
   }
 }

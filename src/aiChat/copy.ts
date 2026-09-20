@@ -6,7 +6,9 @@
  * were NOT in the mockups (flagged as Anuraj product decisions):
  *   - UNAVAILABLE: the quiet not-deployed state.
  *   - SEND_FAILED: the transient send-failure line.
- *   - UNAUTHENTICATED: the signed-out state.
+ *
+ * There is no sign-in copy: sign-in is not required to ask (Anuraj,
+ * Sept 20, 2026 — temporary).
  *
  * The daily cap is NEVER hardcoded here: every count comes from the
  * server (remaining + dailyLimit in each response).
@@ -74,6 +76,3 @@ export const UNAVAILABLE =
 
 /** Transient send failure — Anuraj product decision (not in mockups). */
 export const SEND_FAILED = 'That didn’t go through — try again in a moment.';
-
-/** Signed-out state — Anuraj product decision (not in mockups). */
-export const UNAUTHENTICATED = 'Sign in to ask Willow.';

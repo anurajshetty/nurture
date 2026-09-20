@@ -7,6 +7,8 @@
  *   - strict request-schema validation (unknown fields rejected)
  *   - server-side urgent-symptom pre-check (before quota)
  *   - per-person daily quota + short-window rate limit
+ *   - a SHARED anonymous quota bucket (temporary: no sign-in required
+ *     for now; the real auth story is decided later)
  *   - pregnancy/baby relevance + safety gates around Gemini
  *   - structured-output validation with one repair pass
  *   - the app-facing fixed copy (disclaimer, refusal, handoff)
@@ -27,6 +29,15 @@ export const CHAT_MODEL = 'gemini-2.0-flash';
  *  this: the function returns the effective dailyLimit in every response
  *  and the client displays exactly what the server says. */
 export const DAILY_LIMIT_DEFAULT = 10;
+/**
+ * Temporary anonymous cap (Anuraj, Sept 20, 2026): sign-in is NOT
+ * required to ask, so callers without a JWT share ONE small daily
+ * bucket enforced atomically on the server (see README.md Step 1).
+ * The endpoint URL is public, so this stays modest: anyone with the
+ * URL can burn it, and the worst case is bounded to this many Gemini
+ * calls per day. Configurable via CHAT_ANON_DAILY_LIMIT (1–100).
+ */
+export const ANON_DAILY_LIMIT_DEFAULT = 30;
 /** Short-window rate limit: 5 questions per 60-second rolling window. */
 export const RATE_WINDOW_SECONDS = 60;
 export const RATE_BURST = 5;
@@ -189,18 +200,21 @@ export interface QuotaStore {
    * Questions remaining today WITHOUT consuming one. Used by the urgent
    * pre-check path (which never consumes) for its display line. Returns
    * null when the store can't be read — callers fall back to the daily
-   * limit for display rather than failing the handoff.
+   * limit for display rather than failing the handoff. userId is null
+   * for anonymous callers (Anuraj, Sept 20, 2026): the store decides
+   * its own keying (per-person RPC vs. the shared anonymous bucket).
    */
-  peekRemaining(userId: string, day: string, dailyLimit: number): Promise<number | null>;
+  peekRemaining(userId: string | null, day: string, dailyLimit: number): Promise<number | null>;
   /**
    * Atomically check-and-consume one question. Production implements
-   * this as the `ai_chat_try_consume` Postgres function (single
-   * statement under a row lock): concurrent requests cannot over-admit,
-   * and a store failure fails CLOSED (`unavailable` → HTTP 503) instead
-   * of silently under-counting like a swallowed save would.
+   * this as the `ai_chat_try_consume` / `ai_chat_try_consume_anon`
+   * Postgres functions (single statement under a row lock): concurrent
+   * requests cannot over-admit, and a store failure fails CLOSED
+   * (`unavailable` → HTTP 503) instead of silently under-counting like
+   * a swallowed save would.
    */
   tryConsume(
-    userId: string,
+    userId: string | null,
     day: string,
     dailyLimit: number,
   ): Promise<
@@ -213,7 +227,7 @@ export interface QuotaStore {
    * a missed refund over-counts by one — the safe direction for
    * enforcement).
    */
-  refund(userId: string, day: string): Promise<void>;
+  refund(userId: string | null, day: string): Promise<void>;
 }
 
 export type QuotaVerdict =
@@ -252,13 +266,13 @@ export function applyQuota(
 }
 
 /**
- * Read the server-configured daily limit. CHAT_DAILY_LIMIT is the only
- * knob; it must be a sane integer 1–100, else the default applies.
+ * Read the server-configured daily limit. The env value must be a sane
+ * integer 1–100, else the given fallback applies.
  */
-export function parseDailyLimit(raw: string | undefined | null): number {
+export function parseDailyLimit(raw: string | undefined | null, fallback = DAILY_LIMIT_DEFAULT): number {
   const n = Number.parseInt(String(raw ?? ''), 10);
   if (Number.isInteger(n) && n >= 1 && n <= 100) return n;
-  return DAILY_LIMIT_DEFAULT;
+  return fallback;
 }
 
 // ------------------------------------------------------- prompt assembly
@@ -479,13 +493,21 @@ export async function callGeminiJson(
 
 export type HttpVerdict =
   | { status: 200; body: ChatAnswer }
-  | { status: 401 | 405 | 422 | 429 | 502 | 503; body: PublicError };
+  | { status: 405 | 422 | 429 | 502 | 503; body: PublicError };
 
 /**
  * Handle one POST. `nowISO` is injected for tests; production passes the
- * current time. Auth (userId) is supplied by the wrapper; auth failure is
- * 401, never a chat answer. `quota` counts successful questions only —
- * pre-check handoffs and not-configured states never persist a row.
+ * current time.
+ *
+ * Auth (Anuraj, Sept 20, 2026 — temporary): sign-in is NOT required.
+ * - userId non-null → the wrapper's per-person store + per-person
+ *   dailyLimit (CHAT_DAILY_LIMIT, default 10).
+ * - userId null → the wrapper's anonymous store (shared daily bucket)
+ *   + anonymous dailyLimit (CHAT_ANON_DAILY_LIMIT, default 30).
+ * lib.ts itself stays auth-agnostic: it never 401s, it just spends
+ * from the store it was given. `quota` counts successful questions
+ * only — pre-check handoffs and not-configured states never persist
+ * a row.
  */
 export async function handleChatPost(opts: {
   body: unknown;
@@ -498,7 +520,6 @@ export async function handleChatPost(opts: {
   gemini: GeminiCall;
 }): Promise<HttpVerdict> {
   const { userId, apiKey, dailyLimit, store, nowISO, dayKey, gemini } = opts;
-  if (!userId) return { status: 401, body: { error: 'unauthorized' } };
   const req = validateChatRequest(opts.body);
   if (!req) return { status: 422, body: { error: 'invalid_request' } };
   if (!apiKey) return { status: 503, body: { error: 'not_configured' } };

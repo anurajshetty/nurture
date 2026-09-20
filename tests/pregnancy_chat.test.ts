@@ -4,10 +4,14 @@
  *
  * Locked product rules under test (Anuraj, Sept 20, 2026):
  * - Strict schema: unknown fields anywhere → invalid_request (422).
+ * - No sign-in gate: null userId → anonymous, served from the shared
+ *   anonymous bucket (temporary; the real auth story is decided later).
  * - Urgent-symptom pre-check runs BEFORE quota: the care-team handoff
  *   always works and never consumes quota.
- * - 10 questions/day per person, server-configurable; a 5-per-minute
- *   short window; nothing client-side hardcodes the cap.
+ * - 10 questions/day per signed-in person, server-configurable;
+ *   30 questions/day shared by ALL anonymous callers
+ *   (CHAT_ANON_DAILY_LIMIT); a 5-per-minute short window; nothing
+ *   client-side hardcodes the cap.
  * - Structured Gemini output is validated, with ONE repair pass.
  * - No conversation storage; quota rows are counters only.
  *
@@ -25,6 +29,7 @@ import {
   buildContextBlock,
   buildModelMessages,
   callGeminiJson,
+  ANON_DAILY_LIMIT_DEFAULT,
   CHAT_DISCLAIMER,
   DAILY_LIMIT_DEFAULT,
   decideAnswer,
@@ -194,6 +199,12 @@ check(parseDailyLimit(undefined) === DAILY_LIMIT_DEFAULT, 'dailyLimit: unset →
 check(parseDailyLimit('abc') === DAILY_LIMIT_DEFAULT, 'dailyLimit: garbage → default 10');
 check(parseDailyLimit('0') === DAILY_LIMIT_DEFAULT, 'dailyLimit: 0 → default 10');
 check(parseDailyLimit('500') === DAILY_LIMIT_DEFAULT, 'dailyLimit: 500 → default 10');
+// Anonymous bucket: its own default and override knob.
+check(ANON_DAILY_LIMIT_DEFAULT === 30, 'dailyLimit: anon default is 30');
+check(parseDailyLimit(undefined, ANON_DAILY_LIMIT_DEFAULT) === 30, 'dailyLimit: anon unset → 30');
+check(parseDailyLimit('abc', ANON_DAILY_LIMIT_DEFAULT) === 30, 'dailyLimit: anon garbage → 30');
+check(parseDailyLimit('25', ANON_DAILY_LIMIT_DEFAULT) === 25, 'dailyLimit: anon "25" → 25');
+check(parseDailyLimit('0', ANON_DAILY_LIMIT_DEFAULT) === 30, 'dailyLimit: anon 0 → 30');
 
 // ------------------------------------------------------- model-output gate
 
@@ -310,21 +321,129 @@ const fakeGemini = async (): Promise<RawModelJson> => ({
 });
 
 async function main(): Promise<void> {
-  // No identity → 401, no quota touch.
+  // Anonymous: no sign-in required (Anuraj, Sept 20, 2026 — temporary).
+  // A null userId is served from the shared anonymous bucket, not 401.
   {
     const store = fakeStore(null, T0);
     const v = await handleChatPost({
       body: validBody(),
       userId: null,
       apiKey: 'key',
-      dailyLimit: 10,
+      dailyLimit: ANON_DAILY_LIMIT_DEFAULT,
       store,
       nowISO: T0,
       dayKey: '2026-09-20',
       gemini: fakeGemini,
     });
-    check(v.status === 401, 'post: no user → 401');
-    check(store.consumed === 0 && store.peeked === 0, 'post: no user → store untouched');
+    check(v.status === 200, 'post: anonymous → 200, not 401');
+    if (v.status === 200) {
+      check(v.body.kind === 'answer', 'post: anonymous → answer kind');
+      check(v.body.remaining === 29 && v.body.dailyLimit === 30, 'post: anonymous → 29 of 30 left');
+    }
+    check(store.consumed === 1 && store.count() === 1, 'post: anonymous consumes from its bucket');
+  }
+  // Anonymous bucket exhausted → 429 limit_reached with the anon cap.
+  {
+    const store = fakeStore({ count: 30, windowStart: null, windowCount: 0 }, T61);
+    const v = await handleChatPost({
+      body: validBody(),
+      userId: null,
+      apiKey: 'key',
+      dailyLimit: ANON_DAILY_LIMIT_DEFAULT,
+      store,
+      nowISO: T61,
+      dayKey: '2026-09-20',
+      gemini: fakeGemini,
+    });
+    check(
+      v.status === 429 && v.body.error === 'limit_reached' && v.body.dailyLimit === 30,
+      'post: anonymous at shared cap → 429 limit_reached + dailyLimit 30',
+    );
+    check(store.count() === 30, 'post: anonymous 429 consumes nothing');
+  }
+  // Anonymous burst: 6th inside 60s → rate_limited.
+  {
+    const store = fakeStore({ count: 1, windowStart: T0, windowCount: 5 }, T30);
+    const v = await handleChatPost({
+      body: validBody(),
+      userId: null,
+      apiKey: 'key',
+      dailyLimit: ANON_DAILY_LIMIT_DEFAULT,
+      store,
+      nowISO: T30,
+      dayKey: '2026-09-20',
+      gemini: fakeGemini,
+    });
+    check(v.status === 429 && v.body.error === 'rate_limited', 'post: anonymous burst → 429 rate_limited');
+  }
+  // Anonymous urgent handoff: free, no quota consumed.
+  {
+    const store = fakeStore({ count: 30, windowStart: null, windowCount: 0 }, T61);
+    const v = await handleChatPost({
+      body: {
+        question: 'I am bleeding heavily, what do I do?',
+        context: validContext(),
+      },
+      userId: null,
+      apiKey: 'key',
+      dailyLimit: ANON_DAILY_LIMIT_DEFAULT,
+      store,
+      nowISO: T61,
+      dayKey: '2026-09-20',
+      gemini: fakeGemini,
+    });
+    check(v.status === 200, 'post: anonymous urgent → 200 even at the shared cap');
+    if (v.status === 200) check(v.body.kind === 'handoff', 'post: anonymous urgent → handoff kind');
+    check(store.consumed === 0, 'post: anonymous urgent consumes no quota');
+  }
+  // Anonymous provider failure: 502 and the question is refunded.
+  {
+    const store = fakeStore(null, T0);
+    const v = await handleChatPost({
+      body: validBody(),
+      userId: null,
+      apiKey: 'key',
+      dailyLimit: ANON_DAILY_LIMIT_DEFAULT,
+      store,
+      nowISO: T0,
+      dayKey: '2026-09-20',
+      gemini: async () => null,
+    });
+    check(v.status === 502, 'post: anonymous provider down → 502');
+    check(store.refunded === 1 && store.count() === 0, 'post: anonymous 502 refunds the question');
+  }
+  // Anonymous quota store down → 503 quota_unavailable: fail closed.
+  {
+    const v = await handleChatPost({
+      body: validBody(),
+      userId: null,
+      apiKey: 'key',
+      dailyLimit: ANON_DAILY_LIMIT_DEFAULT,
+      store: brokenStore(),
+      nowISO: T0,
+      dayKey: '2026-09-20',
+      gemini: fakeGemini,
+    });
+    check(
+      v.status === 503 && v.body.error === 'quota_unavailable',
+      'post: anonymous quota store down → 503 quota_unavailable (fail closed)',
+    );
+  }
+  // Anonymous with no Gemini key: not-configured wins, bucket untouched.
+  {
+    const store = fakeStore(null, T0);
+    const v = await handleChatPost({
+      body: validBody(),
+      userId: null,
+      apiKey: null,
+      dailyLimit: ANON_DAILY_LIMIT_DEFAULT,
+      store,
+      nowISO: T0,
+      dayKey: '2026-09-20',
+      gemini: fakeGemini,
+    });
+    check(v.status === 503 && v.body.error === 'not_configured', 'post: anonymous no key → 503 not_configured');
+    check(store.consumed === 0, 'post: anonymous 503 consumes no quota');
   }
   // Bad body → 422.
   {

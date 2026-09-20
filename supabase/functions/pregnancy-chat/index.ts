@@ -5,15 +5,23 @@
  * GET   /pregnancy-chat                          →  200 { remaining, dailyLimit, configured }
  *
  * Contract:
- * - Auth: the caller's Supabase JWT is required (per-person quota). The
- *   function reads the user id from the token and stores quota against
- *   it. No conversation content is ever stored.
+ * - Auth (Anuraj, Sept 20, 2026 — TEMPORARY): sign-in is NOT required.
+ *   A caller WITH a valid Supabase JWT gets the per-person quota
+ *   (CHAT_DAILY_LIMIT, default 10/day). A caller WITHOUT one shares a
+ *   small server-enforced daily bucket (CHAT_ANON_DAILY_LIMIT, default
+ *   30/day for ALL anonymous callers combined) — tight, because the
+ *   endpoint URL is public and anyone with it can burn Gemini calls.
+ *   The real auth story is decided later. No conversation content is
+ *   ever stored.
  * - Quota is server-enforced and atomic: the `ai_chat_try_consume`
- *   Postgres function checks and increments the per-person counter in
- *   one locked statement, so concurrent requests cannot over-admit.
- *   Quota reads/writes go through the caller's JWT under an RLS policy
- *   (`auth.uid() = user_id`) — never a broad anon upsert.
- * - 401 unauthorized — missing/invalid JWT.
+ *   (per-person) and `ai_chat_try_consume_anon` (shared bucket)
+ *   Postgres functions check and increment the counter in one locked
+ *   statement, so concurrent requests cannot over-admit.
+ *   Per-person reads/writes go through the caller's JWT under an RLS
+ *   policy (`auth.uid() = user_id`) — never a broad anon upsert. The
+ *   anonymous bucket is touched ONLY through `security definer` RPCs
+ *   granted to `anon` (the table itself has RLS enabled with no
+ *   permissive policies, so direct PostgREST access is denied).
  * - 422 invalid_request — schema violation (unknown fields rejected).
  * - 429 limit_reached / rate_limited — daily cap (default 10, server-
  *   configurable via CHAT_DAILY_LIMIT) or 5-per-minute burst window.
@@ -31,6 +39,7 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.116.0';
 import {
+  ANON_DAILY_LIMIT_DEFAULT,
   handleChatPost,
   callGeminiJson,
   parseDailyLimit,
@@ -59,8 +68,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
   const authHeader = req.headers.get('Authorization') ?? '';
 
-  // Identify the caller from their own JWT. No identity → 401, and
-  // nothing else happens (no model call, no quota touch).
+  // Identify the caller from their own JWT. No identity → anonymous:
+  // the shared, tightly-capped anonymous quota bucket (Anuraj, Sept 20,
+  // 2026 — temporary; the real auth story is decided later). Nothing is
+  // 401'd: the shared bucket is enforced atomically by the
+  // ai_chat_try_consume_anon Postgres function, so concurrent requests
+  // cannot over-admit it.
   let userId: string | null = null;
   try {
     const sb = createClient(supabaseUrl, supabaseKey, {
@@ -74,30 +87,46 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const apiKey = Deno.env.get('GEMINI_API_KEY') ?? null;
   const dailyLimit = parseDailyLimit(Deno.env.get('CHAT_DAILY_LIMIT'));
+  const anonDailyLimit = parseDailyLimit(Deno.env.get('CHAT_ANON_DAILY_LIMIT'), ANON_DAILY_LIMIT_DEFAULT);
 
   if (method === 'GET') {
-    if (!userId) return json(401, { error: 'unauthorized' });
     if (!apiKey) return json(503, { error: 'not_configured' });
     const dayKey = new Date().toISOString().slice(0, 10);
-    // Quota read under the caller's JWT: the RLS policy limits rows to
-    // auth.uid() = user_id, so one person can never see another's count.
-    let remaining = dailyLimit;
+    if (userId) {
+      // Quota read under the caller's JWT: the RLS policy limits rows to
+      // auth.uid() = user_id, so one person can never see another's count.
+      let remaining = dailyLimit;
+      try {
+        const sb = createClient(supabaseUrl, supabaseKey, {
+          global: { headers: { Authorization: authHeader } },
+        });
+        const { data, error } = await sb
+          .from('ai_chat_quota')
+          .select('count')
+          .eq('user_id', userId)
+          .eq('day', dayKey)
+          .maybeSingle();
+        if (!error && data) remaining = Math.max(0, dailyLimit - (data.count ?? 0));
+      } catch {
+        remaining = dailyLimit;
+      }
+      logCounters('GET', 200, Date.now() - started);
+      return json(200, { remaining, dailyLimit, configured: true });
+    }
+    // Anonymous: shared daily bucket via the security-definer peek RPC
+    // (the table itself has no anon RLS policy, so direct reads are
+    // denied). Read errors fail open to the cap for display; the POST
+    // path still fails closed on consume errors.
+    let anonRemaining = anonDailyLimit;
     try {
-      const sb = createClient(supabaseUrl, supabaseKey, {
-        global: { headers: { Authorization: authHeader } },
-      });
-      const { data, error } = await sb
-        .from('ai_chat_quota')
-        .select('count')
-        .eq('user_id', userId)
-        .eq('day', dayKey)
-        .maybeSingle();
-      if (!error && data) remaining = Math.max(0, dailyLimit - (data.count ?? 0));
+      const sb = createClient(supabaseUrl, supabaseKey);
+      const { data, error } = await sb.rpc('ai_chat_anon_peek', { p_day: dayKey });
+      if (!error && typeof data === 'number') anonRemaining = Math.max(0, anonDailyLimit - data);
     } catch {
-      remaining = dailyLimit;
+      anonRemaining = anonDailyLimit;
     }
     logCounters('GET', 200, Date.now() - started);
-    return json(200, { remaining, dailyLimit, configured: true });
+    return json(200, { remaining: anonRemaining, dailyLimit: anonDailyLimit, configured: true });
   }
 
   if (method !== 'POST') return json(405, { error: 'method_not_allowed' });
@@ -112,12 +141,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const sbAuthed = createClient(supabaseUrl, supabaseKey, {
     global: { headers: { Authorization: authHeader } },
   });
-  const store: QuotaStore = supabaseQuotaStore(sbAuthed);
+  // Signed-in callers spend from their per-person quota (CHAT_DAILY_LIMIT);
+  // anonymous callers share ONE small daily bucket (CHAT_ANON_DAILY_LIMIT).
+  const sbAnon = createClient(supabaseUrl, supabaseKey);
+  const store: QuotaStore = userId ? supabaseQuotaStore(sbAuthed) : anonQuotaStore(sbAnon);
   const verdict = await handleChatPost({
     body,
     userId,
     apiKey,
-    dailyLimit,
+    dailyLimit: userId ? dailyLimit : anonDailyLimit,
     store,
     nowISO: new Date().toISOString(),
     dayKey: new Date().toISOString().slice(0, 10),
@@ -184,6 +216,56 @@ function supabaseQuotaStore(sbAuthed: ReturnType<typeof createClient>): QuotaSto
     async refund(userId, day) {
       try {
         await sbAuthed.rpc('ai_chat_refund', { p_user_id: userId, p_day: day });
+      } catch {
+        // Best-effort: a missed refund over-counts by one — the safe
+        // direction for enforcement.
+      }
+    },
+  };
+}
+
+/**
+ * Shared anonymous quota bucket (temporary: sign-in not required for
+ * now — Anuraj, Sept 20, 2026). One row per day; ALL anonymous callers
+ * share it. Access goes ONLY through the `ai_chat_*_anon` security
+ * definer RPCs granted to `anon` — the `ai_chat_anon_quota` table has
+ * RLS enabled with no permissive policies, so direct PostgREST
+ * reads/writes are denied. The cap (CHAT_ANON_DAILY_LIMIT, default 30)
+ * stays modest because the endpoint URL is public: anyone with it can
+ * burn this bucket, and the worst case is bounded to the cap in Gemini
+ * calls per day. Rows carry day counters only — no IPs, no identifiers.
+ */
+function anonQuotaStore(sbAnon: ReturnType<typeof createClient>): QuotaStore {
+  return {
+    async peekRemaining(_userId, day, dailyLimit) {
+      try {
+        const { data, error } = await sbAnon.rpc('ai_chat_anon_peek', { p_day: day });
+        if (error || typeof data !== 'number') return error ? null : dailyLimit;
+        return Math.max(0, dailyLimit - data);
+      } catch {
+        return null;
+      }
+    },
+    async tryConsume(_userId, day, dailyLimit) {
+      try {
+        const { data, error } = await sbAnon.rpc('ai_chat_try_consume_anon', {
+          p_day: day,
+          p_limit: dailyLimit,
+        });
+        if (error || !data || typeof data !== 'object') return { ok: false, kind: 'unavailable' };
+        const r = data as { ok?: unknown; reason?: unknown; remaining?: unknown };
+        if (r.ok === true)
+          return { ok: true, remaining: typeof r.remaining === 'number' ? r.remaining : 0 };
+        if (r.reason === 'daily') return { ok: false, kind: 'daily' };
+        if (r.reason === 'burst') return { ok: false, kind: 'rate' };
+        return { ok: false, kind: 'unavailable' };
+      } catch {
+        return { ok: false, kind: 'unavailable' };
+      }
+    },
+    async refund(_userId, day) {
+      try {
+        await sbAnon.rpc('ai_chat_refund_anon', { p_day: day });
       } catch {
         // Best-effort: a missed refund over-counts by one — the safe
         // direction for enforcement.

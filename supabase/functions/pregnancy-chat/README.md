@@ -107,6 +107,106 @@ end $$;
 
 grant execute on function ai_chat_try_consume(uuid, date, int) to authenticated;
 grant execute on function ai_chat_refund(uuid, date) to authenticated;
+
+-- ================================================================
+-- TEMPORARY anonymous bucket (Anuraj, Sept 20, 2026): sign-in is NOT
+-- required to ask for now, so callers without a login share ONE small
+-- daily bucket instead of being turned away. The endpoint URL is
+-- public, so this stays modest (default 30 questions/day for ALL
+-- anonymous callers combined, set CHAT_ANON_DAILY_LIMIT on the
+-- function to change it) — anyone with the URL can burn it, and the
+-- worst case is bounded to that many Gemini calls per day. Same atomic
+-- consume + refund rules as the per-person path.
+--
+-- Access goes ONLY through the security-definer RPCs below (granted to
+-- `anon`). The table has RLS enabled with NO permissive policies, so
+-- direct PostgREST reads/writes to the table itself are denied — the
+-- bucket can only be spent through these capped functions. No IPs and
+-- no identifiers are stored, only day counters.
+-- ================================================================
+
+create table if not exists ai_chat_anon_quota (
+  day date primary key,
+  count int not null default 0,
+  window_start timestamptz,
+  window_count int not null default 0
+);
+
+alter table ai_chat_anon_quota enable row level security;
+-- (No policies: deny-all for direct access. The RPCs below run as the
+-- function owner via `security definer`.)
+
+create or replace function ai_chat_try_consume_anon(p_day date, p_limit int)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  now_ts timestamptz := now();
+  r record;
+begin
+  insert into ai_chat_anon_quota (day, count, window_start, window_count)
+  values (p_day, 0, now_ts, 0)
+  on conflict (day) do nothing;
+  select * into r from ai_chat_anon_quota
+  where day = p_day
+  for update;
+  if r.window_start is null or r.window_start <= now_ts - make_interval(secs => 60) then
+    r.window_start := now_ts;
+    r.window_count := 0;
+  end if;
+  if r.count >= p_limit then
+    update ai_chat_anon_quota
+    set window_start = r.window_start, window_count = r.window_count
+    where day = p_day;
+    return jsonb_build_object('ok', false, 'reason', 'daily', 'remaining', 0);
+  end if;
+  if r.window_count >= 5 then
+    update ai_chat_anon_quota
+    set window_start = r.window_start, window_count = r.window_count
+    where day = p_day;
+    return jsonb_build_object('ok', false, 'reason', 'burst',
+      'remaining', greatest(p_limit - r.count, 0));
+  end if;
+  update ai_chat_anon_quota
+  set count = r.count + 1,
+      window_start = r.window_start,
+      window_count = r.window_count + 1
+  where day = p_day;
+  return jsonb_build_object('ok', true,
+    'remaining', greatest(p_limit - r.count - 1, 0));
+end $$;
+
+create or replace function ai_chat_anon_peek(p_day date)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  c int;
+begin
+  select count into c from ai_chat_anon_quota where day = p_day;
+  return coalesce(c, 0);
+end $$;
+
+create or replace function ai_chat_refund_anon(p_day date)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update ai_chat_anon_quota
+  set count = greatest(count - 1, 0),
+      window_count = greatest(window_count - 1, 0)
+  where day = p_day;
+end $$;
+
+grant execute on function ai_chat_try_consume_anon(date, int) to anon;
+grant execute on function ai_chat_anon_peek(date) to anon;
+grant execute on function ai_chat_refund_anon(date) to anon;
 ```
 
 Expected: `Success. No rows returned.`
@@ -139,9 +239,16 @@ Dashboard → project **nurture** → left nav **Edge Functions** →
 
 Save. (No redeploy needed after adding a secret.)
 
-Optional: to change the daily question cap, add another secret named
-`CHAT_DAILY_LIMIT` with a whole number (1–100). Default is 10; the app
-always shows whatever the server reports.
+Optional: to change the per-person daily question cap, add another
+secret named `CHAT_DAILY_LIMIT` with a whole number (1–100). Default is
+10; the app always shows whatever the server reports.
+
+Optional: to change the temporary shared anonymous bucket (the small
+daily cap for callers WITHOUT a login — Anuraj, Sept 20, 2026), add a
+secret named `CHAT_ANON_DAILY_LIMIT` with a whole number (1–100).
+Default is 30 questions/day **shared by all anonymous callers** — keep
+it modest, because the endpoint URL is public and anyone with it can
+burn the bucket.
 
 ## Step 4 — Verify
 
@@ -149,8 +256,10 @@ In the `pregnancy-chat` function page, use **Test** / **Invoke**:
 
 - Method **GET** → should return
   `{"remaining": 10, "dailyLimit": 10, "configured": true}` (or the
-  configured limit). A 401 here means the test call carried no user
-  token — check auth, not the function.
+  configured limit) **when the test call carries a user token**, and
+  `{"remaining": 30, "dailyLimit": 30, "configured": true}` (or the
+  configured anonymous cap) **when it carries no token**. No token no
+  longer means a 401 — anonymous callers get the shared bucket.
 - Method **POST** with body
   `{"question": "Is light walking okay?", "context": {"week": 36, "stage": "third trimester", "dueDate": "2026-10-08", "babyName": null, "recentLogs": [], "reportSummaries": [], "history": []}}`
   → 200 with `{"kind": "answer", "text": "…", "disclaimer": "This isn't medical advice.", "remaining": 9, "dailyLimit": 10}`.
@@ -168,18 +277,24 @@ says Ask Willow isn't available yet, and nothing crashes.
 - Answers pregnancy/baby questions via Gemini with a strict relevance
   + safety gate; off-topic, diagnostic, dosing, and crisis requests are
   refused or handed to the care team with fixed app copy.
-- Enforces 10 questions/day per person (server-configurable) plus a
-  5-per-minute rolling window — atomically on the server, so the cap
-  can't be slipped past and one person can never touch another's
-  counter. If the quota store itself is unreachable, the request fails
-  closed rather than silently over-admitting. A provider failure
-  refunds the question. Urgent-symptom handoffs bypass quota and never
-  consume it.
-- Stores NO conversations: only the per-day counter row above. History
+- Enforces 10 questions/day per signed-in person (server-configurable)
+  plus a 5-per-minute rolling window — atomically on the server, so the
+  cap can't be slipped past and one person can never touch another's
+  counter. Callers WITHOUT a login share ONE small daily bucket
+  (default 30/day for all anonymous callers combined,
+  server-configurable via `CHAT_ANON_DAILY_LIMIT`) — temporary until the
+  auth story is decided; tight because the endpoint URL is public.
+  Anonymous spend goes only through the `ai_chat_*_anon` RPCs (the
+  bucket table has no anon RLS policies), and stores no identifiers.
+  If the quota store itself is unreachable, the request fails closed
+  rather than silently over-admitting. A provider failure refunds the
+  question. Urgent-symptom handoffs bypass quota and never consume it.
+- Stores NO conversations: only the per-day counter rows above. History
   lives on her phone only.
 
-## Changing the daily limit later
+## Changing the daily limits later
 
 Edge Functions → `pregnancy-chat` → Secrets → edit `CHAT_DAILY_LIMIT`
-→ Save. Takes effect immediately; the app reads the new number from the
+(per-person cap) or `CHAT_ANON_DAILY_LIMIT` (shared anonymous bucket) →
+Save. Takes effect immediately; the app reads the new number from the
 server and shows it without an app update.

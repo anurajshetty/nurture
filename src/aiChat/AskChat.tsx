@@ -27,7 +27,6 @@ import {
   lastQuestionLine,
   quotaLine,
   SEND_FAILED,
-  UNAUTHENTICATED,
   UNAVAILABLE,
 } from './copy';
 import {
@@ -95,13 +94,11 @@ export function AskChat({ visible, onClose }: { visible: boolean; onClose: () =>
         if (e instanceof AskWillowError && e.code === 'not_configured') {
           setStatus('unavailable');
           setUnavailableCopy(UNAVAILABLE);
-        } else if (e instanceof AskWillowError && e.code === 'unauthenticated') {
-          setStatus('unavailable');
-          setUnavailableCopy(UNAUTHENTICATED);
         }
         // Other quota failures (network): chat stays usable; the send
         // path surfaces its own error. The quota line hides until the
-        // server answers.
+        // server answers. There is no sign-in gate (Anuraj, Sept 20,
+        // 2026), so nothing here shows an "unavailable" state.
       });
     return () => {
       cancelled = true;
@@ -162,11 +159,6 @@ export function AskChat({ visible, onClose }: { visible: boolean; onClose: () =>
         if (e.code === 'not_configured') {
           setStatus('unavailable');
           setUnavailableCopy(UNAVAILABLE);
-          return;
-        }
-        if (e.code === 'unauthenticated') {
-          setStatus('unavailable');
-          setUnavailableCopy(UNAUTHENTICATED);
           return;
         }
       }

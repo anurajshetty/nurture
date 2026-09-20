@@ -31,6 +31,9 @@ Locked behaviors under test:
   (h) history on device only: KV holds the turns; Q&A never enters the
       feed (Logs shows none of it).
   (i) zero page errors throughout.
+  (k) no sign-in gate: a backend 401 (old server / misconfigured) is a
+      plain send failure — never a sign-in prompt, never the quiet
+      unavailable state.
 
 Run: python3 tests/interactive/ai_chat_test.py
 """
@@ -94,6 +97,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             # Quota store unreachable: server fails closed (503). The client
             # must show a plain send failure, NOT the unavailable state.
             self._send_json(503, json.dumps({"error": "quota_unavailable", "dailyLimit": limit}).encode())
+            return
+        if mode == "unauthorized-401":
+            # Simulates an OLD server that still 401s callers without a
+            # login. There is no sign-in gate (Anuraj, Sept 20, 2026), so
+            # the client must degrade to a plain send failure — never a
+            # sign-in prompt, never the quiet unavailable state.
+            self._send_json(401, b'{"error":"unauthorized"}')
             return
         if mode == "limit":
             # Urgent questions still get the free handoff at the limit.
@@ -175,6 +185,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             limit = stub_state["dailyLimit"]
             if stub_state["mode"] == "not-configured":
                 self._send_json(503, b'{"error":"not_configured"}')
+            elif stub_state["mode"] == "unauthorized-401":
+                self._send_json(401, b'{"error":"unauthorized"}')
             else:
                 self._send_json(
                     200,
@@ -547,6 +559,50 @@ def run():
         check(page4.get_by_test_id("ask-chat-input").count() == 1,
               "(j) chat stays usable after the failed send")
         ctx4.close()
+
+        # (k) no sign-in gate: a backend 401 is a plain send failure.
+        ctx5 = browser.new_context(viewport={"width": 390, "height": 844})
+        page5 = ctx5.new_page()
+        page5.on("pageerror", lambda e: errors.append(str(e)))
+        page5.add_init_script(INIT_SCRIPT)
+        stub_state["mode"] = "unauthorized-401"
+        stub_state["used"] = 0
+        page5.goto(BASE, wait_until="networkidle")
+        page5.wait_for_function("() => typeof window.__nurtureTest !== 'undefined'", timeout=30000)
+        page5.evaluate(
+            """() => {
+                window.__nurtureTest.completeOnboarding();
+                window.__nurtureTest.seedPregnancy({ dueDate: '2026-10-08', parity: 'first' });
+                window.__nurtureTest.resetAiChat();
+            }"""
+        )
+        page5.goto(WEEK, wait_until="domcontentloaded")
+        page5.get_by_test_id("week-screen").wait_for(timeout=15000)
+        page5.wait_for_timeout(500)
+        page5.get_by_test_id("ask-fab").click()
+        page5.get_by_test_id("consent-sheet").wait_for(timeout=5000)
+        page5.get_by_test_id("consent-understand").click()
+        # A 401 on the quota load must NOT gate the chat.
+        try:
+            page5.get_by_test_id("ask-chat-input").wait_for(timeout=8000)
+            check(True, "(k) chat opens after a 401 quota load (no sign-in gate)")
+        except Exception:
+            check(False, "(k) chat opens after a 401 quota load (no sign-in gate)")
+        check(page5.get_by_test_id("ask-chat-unavailable").count() == 0,
+              "(k) 401 quota load is not the unavailable state")
+        page5.get_by_test_id("ask-chat-input").fill("Is light walking okay?")
+        page5.get_by_test_id("ask-chat-send").click()
+        try:
+            page5.get_by_text("try again in a moment").wait_for(timeout=8000)
+            check(True, "(k) 401 on send → plain send failure")
+        except Exception:
+            check(False, "(k) 401 on send → plain send failure")
+        body5 = page5.get_by_test_id("ask-chat-messages").inner_text()
+        check("Sign in" not in body5 and "sign in" not in body5.lower(),
+              "(k) no sign-in copy anywhere")
+        check(page5.get_by_test_id("ask-chat-unavailable").count() == 0,
+              "(k) 401 on send is not the unavailable state")
+        ctx5.close()
         ctx.close()
 
         # (i) zero page errors.
