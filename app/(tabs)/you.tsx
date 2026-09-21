@@ -69,8 +69,8 @@ import {
   Toggle,
 } from '../../src/components';
 import { colors, radii, spacing, type as typeScale } from '../../src/theme/tokens';
-import { getPartnerLink, type PartnerLink } from '../../src/partner/model';
-import PartnerSheet from '../../src/partner/PartnerSheet';
+import ShareCodeScreen from '../../src/partner/ShareCodeScreen';
+import { getOwnerLinkStatus } from '../../src/partner/inviteCodes';
 
 
 const NUDGE_MIN = 17 * 60; // 5:00 PM
@@ -316,33 +316,30 @@ export default function YouScreen() {
   const [dobSheetOpen, setDobSheetOpen] = useState(false);
   const [dobDraft, setDobDraft] = useState<string | null>(null);
 
-  // Partner sharing (Epic 7): the settings row opens the partner sheet;
-  // the subtitle always reflects the live link state.
+  // Partner sharing (mockup 33, Sept 2026): the settings row opens the
+  // invite-code sheet; the subtitle reflects the live server link state.
   const [partnerOpen, setPartnerOpen] = useState(false);
-  const [partnerLink, setPartnerLink] = useState<PartnerLink>(() => {
-    try {
-      return getPartnerLink();
-    } catch {
-      return { status: 'none', partnerName: 'Alex' };
-    }
-  });
+  const [partnerConnected, setPartnerConnected] = useState<boolean | null>(null);
 
-  const refreshPartnerLink = useCallback(() => {
+  const refreshPartnerStatus = useCallback(async () => {
     try {
-      setPartnerLink(getPartnerLink());
+      const r = await getOwnerLinkStatus();
+      setPartnerConnected(r.status === 'ok' ? r.connected === true : null);
     } catch {
       // The row keeps its last reading; the sheet surfaces errors itself.
     }
   }, []);
 
+  useEffect(() => {
+    void refreshPartnerStatus();
+  }, [refreshPartnerStatus]);
+
   const partnerSubtitle =
-    partnerLink.status === 'active'
-      ? `${partnerLink.partnerName} · connected`
-      : partnerLink.status === 'invited'
-        ? 'Invite sent — waiting for your partner'
-        : partnerLink.status === 'revoked'
-          ? 'Access revoked — nothing shared'
-          : 'No one connected yet';
+    partnerConnected === true
+      ? 'Connected'
+      : partnerConnected === false
+        ? 'Share your code to link up'
+        : 'Partner sharing';
 
   const paused = globalPauseUntil !== null;
 
@@ -956,12 +953,9 @@ export default function YouScreen() {
       <View style={styles.rows}>
         <SettingsRow
           icon="♥"
-          title="Partner sharing"
+          title="Share with your partner"
           subtitle={partnerSubtitle}
-          onPress={() => {
-            refreshPartnerLink();
-            setPartnerOpen(true);
-          }}
+          onPress={() => setPartnerOpen(true)}
           testID="partner-sharing-row"
         />
         <SettingsRow
@@ -1356,12 +1350,16 @@ export default function YouScreen() {
         visible={partnerOpen}
         onClose={() => {
           setPartnerOpen(false);
-          refreshPartnerLink();
+          void refreshPartnerStatus();
         }}
-        accessibilityLabel="Partner sharing"
+        accessibilityLabel="Share with your partner"
         testID="partner-sheet"
       >
-        <PartnerSheet onChanged={refreshPartnerLink} />
+        <ShareCodeScreen
+          onBack={() => setPartnerOpen(false)}
+          onToast={showToast}
+          onChanged={() => void refreshPartnerStatus()}
+        />
       </BottomSheet>
 
       </ScrollView>

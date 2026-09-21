@@ -126,5 +126,8 @@ npx tsc --ignoreConfig tests/labor-native-gaps.test.ts src/labor/keepAwake.ts sr
 OUT=/tmp/nurture-pilldock-tests
 npx tsc --ignoreConfig tests/week_pill_dock.test.ts src/week/pillDock.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "week_pill_dock" node $OUT/tests/week_pill_dock.test.js
 
+OUT=/tmp/nurture-partner-tests
+npx tsc --ignoreConfig tests/partner_invites.test.ts src/partner/inviteCodes.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "partner_invites" node $OUT/tests/partner_invites.test.js
+
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

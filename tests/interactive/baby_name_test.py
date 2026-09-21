@@ -9,7 +9,7 @@ dist/ served under /willow/ via Playwright route interception.
 
 Flows (all real UI, no stubs):
   1. Tab structure: Week is the first tab and the default landing tab;
-     tab order is Week · Logs · Plan · You; no Home tab exists.
+     tab order is Week · Logs · You; no Home tab exists.
   2. Fresh profile -> onboarding renders.
      Step 2: fill the optional baby-name field with "Wren", finish onboarding
      -> lands on the Week tab.
@@ -92,19 +92,25 @@ def main():
         # 1. Onboarding with a name -------------------------------------
         page.goto(ONBOARDING_URL, timeout=30000)
         try:
-            page.get_by_test_id("onboarding-get-started").wait_for(timeout=30000)
+            # The role split renders before the old welcome screen.
+            page.get_by_test_id("role-split").wait_for(timeout=30000)
             check("onboarding renders", True)
         except Exception:
             check("onboarding renders", False)
             browser.close()
             sys.exit(1)
 
+        page.get_by_test_id("role-split-mom").click()
+        page.wait_for_timeout(500)
         page.get_by_test_id("onboarding-get-started").click()
-        # Screen 1 requires her name; the due date defaults to a valid date.
+        # Screen 1 requires her name AND an actively-picked due date.
         page.get_by_test_id("onboarding-owner-name").fill("Priya")
+        page.get_by_test_id("onboarding-date-card").click()
+        page.get_by_test_id("onboarding-date-picker").fill("2026-10-08")
+        page.wait_for_timeout(500)
         page.get_by_test_id("onboarding-profile-continue").click()
         # Sharing screen (new): skip the invite, keep walking the flow.
-        page.get_by_test_id("onboarding-share-skip").click()
+        page.get_by_test_id("onboarding-share-continue").click()
         name_field = page.get_by_test_id("onboarding-baby-name")
         name_field.wait_for(timeout=10000)
         check("onboarding step 2 has the optional name field", name_field.count() > 0)
@@ -121,8 +127,8 @@ def main():
             check("onboarding finish lands on the Week tab", False)
 
         tab_names = [t.strip().split("\n")[-1] for t in page.get_by_role("tab").all_inner_texts()]
-        check("tab order is Week, Logs, Plan, You",
-              tab_names == ["Week", "Logs", "Plan", "You"])
+        check("tab order is Week, Logs, You",
+              tab_names == ["Week", "Logs", "You"])
         check("no Home tab", not any(n == "Home" for n in tab_names))
 
         # 3. Edit the name in the You tab --------------------------------

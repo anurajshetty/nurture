@@ -100,12 +100,14 @@ def main():
         # ---- Onboarding screen 1 -------------------------------------
         page.goto(ONBOARDING_URL, timeout=30000)
         try:
-            page.get_by_test_id("onboarding-get-started").wait_for(timeout=30000)
+            page.get_by_test_id("role-split").wait_for(timeout=30000)
             check("onboarding renders", True)
         except Exception:
             check("onboarding renders", False)
             browser.close()
             sys.exit(1)
+        page.get_by_test_id("role-split-mom").click()
+        page.wait_for_timeout(500)
         page.get_by_test_id("onboarding-get-started").click()
 
         # 1. Name label + placeholder.
@@ -173,9 +175,9 @@ def main():
 
         # Proceed through the rest of onboarding (birthday untouched).
         cont.click()
-        page.get_by_test_id("onboarding-share-skip").wait_for(timeout=10000)
+        page.get_by_test_id("onboarding-share-continue").wait_for(timeout=10000)
         check("Continue proceeds to the share step after a date is picked", True)
-        page.get_by_test_id("onboarding-share-skip").click()
+        page.get_by_test_id("onboarding-share-continue").click()
         page.get_by_test_id("onboarding-chips-continue").click()
         page.get_by_test_id("onboarding-notifications-skip").click()
         page.get_by_test_id("onboarding-finish").click()

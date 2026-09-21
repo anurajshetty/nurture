@@ -13,12 +13,9 @@
  *      continue" verbatim, which clears on pick. Her birthday is optional
  *      and never errors. A gentle hint near the button still says what is
  *      needed.
- *   2. Share the journey (NEW) — optional partner/family invite through
- *      the existing Epic 7 system. One field takes an email or a phone
- *      number (auto-detected); Skip moves on with no invite. The invite
- *      link goes out through the iOS share sheet, a pre-filled mail
- *      compose, or a pre-filled SMS — on web the link is shown with a
- *      copy button instead.
+ *   2. Share the journey — her personal 6-char invite code through the
+ *      server-backed partner system (mockup 33, Sept 2026). Code, Copy and
+ *      Share…; Continue moves on. Graceful when the backend isn't ready.
  *   3. A couple of quick things — singleton/multiples + first/subsequent
  *      chips (drives week-content personalization), smart defaults set,
  *      plus an optional baby-name field (skippable, local-only). (unchanged)
@@ -30,8 +27,8 @@
  * Settings). No celebration is forced, no fetal nicknames, no guilt copy.
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import {
   Button,
@@ -43,6 +40,20 @@ import {
   SettingsRow,
   Toggle,
 } from '../src/components';
+import RoleSplitScreen from '../src/partner/RoleSplitScreen';
+import CodeEntryScreen from '../src/partner/CodeEntryScreen';
+import ConnectedScreen from '../src/partner/ConnectedScreen';
+import ShareCodeScreen from '../src/partner/ShareCodeScreen';
+import {
+  clearOnboardingRole,
+  getOnboardingRole,
+  isPartnerLinked,
+  setOnboardingRole,
+  setPartnerLinked,
+  setPartnerOnboardingDone,
+  type OnboardingRole,
+} from '../src/partner/inviteCodes';
+import { kvGet, kvSet } from '../src/lib/db';
 import { colors, radii, shadow, spacing, type as typeScale } from '../src/theme/tokens';
 import { useOnboarding, type OnboardingDraft } from '../src/onboarding/useOnboarding';
 import {
@@ -57,15 +68,6 @@ import {
   weekOf,
 } from '../src/onboarding/dates';
 import { nameDatesView } from '../src/onboarding/profile';
-import {
-  buildInviteMessage,
-  buildInviteSubject,
-  buildMailtoUrl,
-  buildSmsUrl,
-  detectContactKind,
-  noteInviteShareTarget,
-} from '../src/onboarding/shareInvite';
-import { createInvite, InviteError, type PartnerInvite } from '../src/partner/invite';
 import {
   getPrefs,
   requestNotificationPermissions,
@@ -100,22 +102,6 @@ function dateOrToday(iso: string): Date {
   return parseISODate(iso) ?? new Date();
 }
 
-/** Best-effort clipboard copy (web). Never throws. */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    const nav = (
-      globalThis as { navigator?: { clipboard?: { writeText(t: string): Promise<void> } } }
-    ).navigator;
-    if (nav?.clipboard?.writeText) {
-      await nav.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    // Fall through — the link stays visible for manual copy.
-  }
-  return false;
-}
-
 const BULLETS: { bold: string; rest: string }[] = [
   { bold: 'Log a moment in 10 seconds', rest: ' — no long forms, ever.' },
   { bold: 'One beautiful timeline', rest: ' of your whole journey.' },
@@ -123,7 +109,7 @@ const BULLETS: { bold: string; rest: string }[] = [
 ];
 
 export default function OnboardingScreen() {
-  const { complete } = useOnboarding();
+  const { complete, completed } = useOnboarding();
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState<'due' | 'lmp'>('due');
   const [ownerName, setOwnerName] = useState('');
@@ -145,12 +131,87 @@ export default function OnboardingScreen() {
   // requires a date, so this stays false — the setter is gone on purpose.
   const [skippedDate] = useState(false);
   const [babyName, setBabyName] = useState('');
-  // Screen 2 — sharing.
-  const [contact, setContact] = useState('');
-  const [invite, setInvite] = useState<PartnerInvite | null>(null);
-  const [sending, setSending] = useState(false);
-  const [shareNote, setShareNote] = useState<string | null>(null);
-  const [shareCopied, setShareCopied] = useState(false);
+  // Mockup 33 (Sept 2026): the welcome role split comes before step 0.
+  // null = not chosen yet. Persisted so a relaunch doesn't re-ask.
+  const [role, setRole] = useState<OnboardingRole | null>(null);
+  const [roleLoaded, setRoleLoaded] = useState(false);
+  // Partner path stage: code entry, then the connected confirmation.
+  // The connected screen doubles as the partner's resting state until the
+  // partner view ships — Done persists completion (partner.onboarding_done)
+  // and stays here. It never returns to the role split (no re-ask loop)
+  // and never routes into the Week tab (that's the pregnant user's
+  // experience).
+  const [partnerStage, setPartnerStage] = useState<'code' | 'connected'>('code');
+  // Quiet toast for the share-code surface.
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((message: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(message);
+    toastTimer.current = setTimeout(() => setToast(null), 2600);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const kv = { get: kvGet, set: kvSet };
+      const saved = getOnboardingRole(kv);
+      if (saved) {
+        setRole(saved);
+        if (saved === 'partner' && isPartnerLinked(kv)) setPartnerStage('connected');
+      } else if (completed) {
+        // Already onboarded on an older build — she's the mom, skip the split.
+        setRole('mom');
+      }
+    } catch {
+      // She'll just pick below.
+    }
+    setRoleLoaded(true);
+  }, [completed]);
+
+  const chooseRole = useCallback((r: OnboardingRole) => {
+    setRole(r);
+    try {
+      const kv = { get: kvGet, set: kvSet };
+      setOnboardingRole(kv, r);
+      setPartnerStage(r === 'partner' && isPartnerLinked(kv) ? 'connected' : 'code');
+    } catch {
+      setPartnerStage('code');
+    }
+  }, []);
+
+  const handlePartnerVerified = useCallback(() => {
+    try {
+      setPartnerLinked({ get: kvGet, set: kvSet });
+    } catch {
+      // The confirmation shows regardless.
+    }
+    setPartnerStage('connected');
+  }, []);
+
+  /**
+   * Done on the connected confirmation: persist partner completion and stay
+   * on the connected screen — it is the partner's resting state until the
+   * partner view ships. Never the role split (no re-ask loop) and never the
+   * Week tab (that's the pregnant user's experience).
+   */
+  const handlePartnerDone = useCallback(() => {
+    try {
+      setPartnerOnboardingDone({ get: kvGet, set: kvSet });
+    } catch {
+      // The screen stays regardless.
+    }
+  }, []);
+
+  /** Back out of code entry: forget the role so the split re-asks. */
+  const handlePartnerBack = useCallback(() => {
+    try {
+      clearOnboardingRole({ get: kvGet, set: kvSet });
+    } catch {
+      // The split shows regardless.
+    }
+    setRole(null);
+    setPartnerStage('code');
+  }, []);
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [permNote, setPermNote] = useState<string | null>(null);
@@ -186,10 +247,6 @@ export default function OnboardingScreen() {
   const dobProblem = dobISO ? validateDob(dobISO) : null;
   const dobValue = dobISO ? dateOrToday(dobISO) : null;
 
-  // Screen 2 — contact auto-detect.
-  const contactKind = detectContactKind(contact);
-  const contactInvalid = contact.trim().length > 0 && contactKind === null;
-
   const minDate = dateOrToday(mode === 'due' ? todayISO() : (addDaysISO(todayISO(), -310) ?? todayISO()));
   const maxDate = dateOrToday(mode === 'due' ? (addDaysISO(todayISO(), 294) ?? todayISO()) : todayISO());
 
@@ -219,66 +276,6 @@ export default function OnboardingScreen() {
   const handleDobChange = useCallback((selected: Date) => {
     setDobISO(toISODate(selected));
   }, []);
-
-  const handleCopyLink = useCallback(async () => {
-    if (!invite) return;
-    const ok = await copyText(invite.url);
-    setShareCopied(ok);
-    setShareNote(ok ? 'Copied. Send it however you like.' : 'Copy the link above to send it yourself.');
-  }, [invite]);
-
-  /**
-   * Screen 2 submit: creates the invite through the existing Epic 7
-   * system, then hands the warm message + link to the share sheet, a
-   * pre-filled mail compose, or a pre-filled SMS. On web there is no
-   * share sheet, so the link stays on screen with a copy button.
-   */
-  const handleShareSubmit = useCallback(async () => {
-    if (sending) return;
-    setSending(true);
-    setShareNote(null);
-    try {
-      const created = createInvite();
-      setInvite(created);
-      const url = created.url;
-      const name = ownerName.trim() || null;
-      const message = buildInviteMessage(name, url);
-      const kind = detectContactKind(contact);
-      if (Platform.OS === 'web') {
-        noteInviteShareTarget('web-link', url);
-        setShareNote('Here is the invite link. Copy it and send it however you like.');
-      } else if (kind === 'email') {
-        const target = buildMailtoUrl(contact, buildInviteSubject(name), message);
-        noteInviteShareTarget('mailto', target);
-        await Linking.openURL(target);
-      } else if (kind === 'phone') {
-        const target = buildSmsUrl(contact, message, Platform.OS);
-        noteInviteShareTarget('sms', target);
-        await Linking.openURL(target);
-      } else {
-        noteInviteShareTarget('share-sheet', message);
-        try {
-          await Share.share({ message });
-        } catch {
-          // No share sheet here — the link stays on screen to copy.
-          setInvite(created);
-          setShareNote('Sharing is not available here, so here is the invite link to copy.');
-          setSending(false);
-          return;
-        }
-      }
-    } catch (e) {
-      setShareNote(
-        e instanceof InviteError
-          ? e.message
-          : 'That didn’t go through. You can invite them later from the You tab.',
-      );
-      setSending(false);
-      return;
-    }
-    setSending(false);
-    if (Platform.OS !== 'web') setStep(3);
-  }, [sending, contact, ownerName]);
 
   const patchPrefs = useCallback(
     async (patch: Partial<Prefs>) => {
@@ -334,6 +331,34 @@ export default function OnboardingScreen() {
     // redirect to the Week tab leaf instead (Week job finding, Sept 2026).
     router.replace('/week');
   }, [finishing, skippedDate, estimatedDue, lmpISO, mode, pregnancyType, parity, babyName, ownerName, dobISO, complete]);
+
+  // Mockup 33: the welcome role split gates the mom's step flow. The
+  // partner path never touches the pregnancy steps.
+  if (!roleLoaded) {
+    return (
+      <Screen>
+        <View />
+      </Screen>
+    );
+  }
+  if (role === null) {
+    return (
+      <Screen>
+        <RoleSplitScreen onSelect={chooseRole} />
+      </Screen>
+    );
+  }
+  if (role === 'partner') {
+    return (
+      <Screen>
+        {partnerStage === 'code' ? (
+          <CodeEntryScreen onBack={handlePartnerBack} onVerified={handlePartnerVerified} />
+        ) : (
+          <ConnectedScreen onDone={handlePartnerDone} />
+        )}
+      </Screen>
+    );
+  }
 
   return (
     <Screen>
@@ -519,81 +544,20 @@ export default function OnboardingScreen() {
       {step === 2 && (
         <View style={styles.step}>
           <Text style={styles.h2} accessibilityRole="header">
-            Want to share this{'\n'}journey with your{'\n'}partner and family?
+            Share this{'\n'}journey with{'\n'}your partner?
           </Text>
           <Text style={styles.lede}>
-            Send them an invite and they can follow along. They will only ever see what you choose to share.
+            Your partner enters your invite code in Willow on their phone. They will only ever see what you choose to share.
           </Text>
-
-          <Text style={styles.fieldLabel}>Email or phone number</Text>
-          <Text style={styles.qsub}>Optional. We will address the invite to them.</Text>
-          <TextInput
-            value={contact}
-            onChangeText={setContact}
-            placeholder="Email or phone number"
-            placeholderTextColor={colors.muted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            returnKeyType="done"
-            maxLength={80}
-            style={styles.nameInput}
-            accessibilityLabel="Email or phone number (optional)"
-            testID="onboarding-share-contact"
-          />
-          {contactKind && !contactInvalid && (
-            <Text style={styles.detected} testID="onboarding-share-detected">
-              {contactKind === 'email' ? 'Email' : 'Phone number'}
-            </Text>
-          )}
-          {contactInvalid && (
-            <Text style={styles.problem} accessibilityRole="text">
-              That doesn’t look like an email or a phone number. Want to check it?
-            </Text>
-          )}
-
-          {Platform.OS === 'web' && invite && (
-            <Card style={styles.linkCard} testID="onboarding-share-link">
-              <Text style={styles.linkLabel}>Your invite link</Text>
-              <Text style={styles.linkUrl} selectable>
-                {invite.url}
-              </Text>
-              <Button
-                title={shareCopied ? 'Copied' : 'Copy link'}
-                variant="ghost"
-                onPress={handleCopyLink}
-                testID="onboarding-share-copy"
-              />
-            </Card>
-          )}
-
+          <View style={styles.shareCodeHost}>
+            <ShareCodeScreen onToast={showToast} />
+          </View>
           <View style={styles.spacer} />
-          {shareNote && (
-            <Text style={styles.hint} testID="onboarding-share-note">
-              {shareNote}
-            </Text>
-          )}
-          {Platform.OS === 'web' && invite ? (
-            <Button title="Continue" onPress={() => setStep(3)} testID="onboarding-share-continue" />
-          ) : (
-            <View>
-              <Button
-                title="Send the invite"
-                onPress={handleShareSubmit}
-                disabled={contactInvalid || sending}
-                loading={sending}
-                testID="onboarding-share-send"
-              />
-              <Button
-                title="Skip"
-                variant="ghost"
-                onPress={() => setStep(3)}
-                style={styles.ghostButton}
-                textStyle={styles.ghostText}
-                testID="onboarding-share-skip"
-              />
-            </View>
-          )}
+          <Button
+            title="Continue"
+            onPress={() => setStep(3)}
+            testID="onboarding-share-continue"
+          />
         </View>
       )}
 
@@ -750,6 +714,12 @@ export default function OnboardingScreen() {
           />
         </View>
       )}
+
+      {toast ? (
+        <View style={styles.toastWrap} pointerEvents="none" accessibilityRole="alert">
+          <Text style={styles.toastText}>{toast}</Text>
+        </View>
+      ) : null}
     </Screen>
   );
 }
@@ -779,6 +749,28 @@ const styles = StyleSheet.create({
   spacer: {
     flex: 1,
     minHeight: spacing.lg,
+  },
+  shareCodeHost: {
+    marginTop: spacing.md,
+    marginHorizontal: -spacing.lg,
+    paddingHorizontal: spacing.lg,
+    flex: 1,
+  },
+  toastWrap: {
+    position: 'absolute',
+    bottom: spacing.xxl,
+    left: spacing.lg,
+    right: spacing.lg,
+    backgroundColor: colors.ink,
+    borderRadius: 14,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  toastText: {
+    ...typeScale.body,
+    color: '#fff',
+    textAlign: 'center',
   },
   h2: {
     ...typeScale.display,

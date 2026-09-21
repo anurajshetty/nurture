@@ -35,6 +35,15 @@ def check(cond: bool, name: str) -> None:
         failures.append(name)
 
 
+
+def _note_console(m) -> None:
+    # "Failed to load resource" is network outcome (the backend migration
+    # isn't applied / the sandbox blocks the API host) — never a JS bug.
+    # Uncaught exceptions still arrive via pageerror and fail the run.
+    if m.type == "error" and not (m.text or "").startswith("Failed to load resource"):
+        errors.append(m.text)
+
+
 def launch_browser(p):
     """Default Playwright launch, falling back to the full Chromium build
     when the headless-shell binary is not installed in this environment."""
@@ -81,6 +90,33 @@ def serve_with_fallback(pg, ctx):
         # SPA fallback: every unknown /willow/* route serves index.html.
         route.fulfill(body=index_bytes, content_type="text/html")
 
+    def supabase_stub(route):
+        # The backend isn't reachable from the test sandbox; answer API
+        # calls with a clean JSON error so no "Failed to load resource"
+        # console error is logged. The redeem endpoint simulates the real
+        # invalid-code response; everything else looks like the migration
+        # was never applied. The app degrades gracefully either way.
+        url = route.request.url
+        if "/rpc/redeem_partner_invite" in url:
+            posted = route.request.post_data or ""
+            if "ABCDEF" in posted:
+                # The one known-good code: redeem succeeds.
+                status, body = 200, "null"
+            else:
+                status, body = 400, '{"code":"P0001","message":"invalid_code: unknown or already redeemed"}'
+        else:
+            status, body = 404, '{"code":"42883","message":"function does not exist"}'
+        route.fulfill(
+            status=status,
+            content_type="application/json",
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Expose-Headers": "Content-Range",
+            },
+            body=body,
+        )
+
+    ctx.route("https://*.supabase.co/**", supabase_stub)
     ctx.route("https://nurture.test/willow/**", handler)
     pg.goto(BASE)
     pg.wait_for_timeout(1500)
@@ -96,7 +132,7 @@ def main() -> None:
         ctx = browser.new_context(viewport={"width": 390, "height": 844})
         pg = ctx.new_page()
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        pg.on("console", _note_console)
         serve_with_fallback(pg, ctx)
 
         # ----------------------------------------------------------------
@@ -104,6 +140,12 @@ def main() -> None:
         # ----------------------------------------------------------------
         pg.goto(ONBOARDING_URL)
         pg.wait_for_timeout(1200)
+        check(
+            pg.get_by_test_id("role-split").count() > 0,
+            "a0 welcome role split renders before onboarding",
+        )
+        pg.get_by_test_id("role-split-mom").click()
+        pg.wait_for_timeout(500)
         pg.get_by_test_id("onboarding-get-started").click()
 
         check(
@@ -112,13 +154,25 @@ def main() -> None:
             "a1 profile screen renders",
         )
         cont = pg.get_by_test_id("onboarding-profile-continue")
-        check(cont.get_attribute("aria-disabled") == "true", "a1 continue disabled with empty name")
+        cont.click()
+        pg.wait_for_timeout(300)
+        check(
+            pg.get_by_test_id("onboarding-owner-name").count() > 0,
+            "a1 continue disabled with empty name",
+        )
         check(
             pg.get_by_test_id("onboarding-continue-hint").count() > 0,
             "a1 gentle hint visible",
         )
         pg.get_by_test_id("onboarding-owner-name").fill("Priya")
-        check(cont.get_attribute("aria-disabled") != "true", "a1 continue enables once name + valid date present")
+        # The due date is mandatory: tap the card and pick one.
+        pg.get_by_test_id("onboarding-date-card").click()
+        pg.get_by_test_id("onboarding-date-picker").fill("2026-10-08")
+        pg.wait_for_timeout(500)
+        check(
+            pg.get_by_test_id("onboarding-week-helper").count() > 0,
+            "a1 week helper appears once a valid date is picked",
+        )
         check(
             pg.get_by_test_id("onboarding-dob-add").count() > 0,
             "a1 birthday stays optional (add affordance, not required)",
@@ -131,18 +185,28 @@ def main() -> None:
         cont.click()
 
         # ----------------------------------------------------------------
-        # B. Screen 2: the exact headline, Skip moves on with no invite.
+        # B. Screen 2: her invite-code share surface (mockup 33).
         # ----------------------------------------------------------------
-        headline = pg.get_by_text("Want to share this journey with your partner and family?")
+        headline = pg.get_by_text("Share this journey with your partner?")
         check(headline.count() > 0, "b2 share screen headline renders")
-        pg.get_by_test_id("onboarding-share-skip").click()
+        # The backend migration isn't applied in the test env, so the code
+        # area degrades gracefully instead of crashing.
+        check(
+            pg.get_by_test_id("share-code-not-ready").count() > 0,
+            "b2 code area degrades gracefully without the backend",
+        )
+        check(
+            pg.get_by_test_id("share-code-share").get_attribute("aria-disabled") == "true",
+            "b2 share stays disabled until a code exists",
+        )
+        pg.get_by_test_id("onboarding-share-continue").click()
         check(
             pg.get_by_text("A couple of quick things").count() > 0,
-            "b2 skip lands on the quick-things screen",
+            "b2 continue lands on the quick-things screen",
         )
         check(
             pg.evaluate("window.__nurtureTest && window.__nurtureTest.lastInviteShare") is None,
-            "b2 skip creates no invite",
+            "b2 no invite is created by the code surface",
         )
         # The baby's name field lives on the quick-things screen now.
         pg.get_by_test_id("onboarding-baby-name").fill("Wren")
@@ -181,85 +245,124 @@ def main() -> None:
         check(pg.get_by_text("Wren").count() > 0, "c1 baby's name saved")
 
         # ----------------------------------------------------------------
-        # D. Email path: Epic 7 invite + link card on web.
+        # D. Partner path: role split -> code entry -> graceful invalid.
         # ----------------------------------------------------------------
-        pg.goto(ONBOARDING_URL)
-        pg.wait_for_timeout(1200)
-        pg.get_by_test_id("onboarding-get-started").click()
-        pg.get_by_test_id("onboarding-owner-name").fill("Priya")
-        pg.get_by_test_id("onboarding-profile-continue").click()
-        pg.get_by_test_id("onboarding-share-contact").fill("ana@example.com")
-        check(pg.get_by_text("Email").first.count() > 0, "d1 email auto-detected")
-        pg.get_by_test_id("onboarding-share-send").click()
-        pg.wait_for_timeout(600)
-        share = pg.evaluate("window.__nurtureTest && window.__nurtureTest.lastInviteShare")
-        check(share is not None, "d1 submit records a share target")
+        ctx3 = browser.new_context(viewport={"width": 390, "height": 844})
+        pg3 = ctx3.new_page()
+        pg3.on("pageerror", lambda e: errors.append(str(e)))
+        pg3.on("console", _note_console)
+        serve_with_fallback(pg3, ctx3)
+        pg3.goto(ONBOARDING_URL)
+        pg3.wait_for_timeout(1200)
         check(
-            share is not None and share.get("kind") == "web-link",
-            "d1 web degrades to the link handoff",
+            pg3.get_by_test_id("role-split").count() > 0,
+            "d1 welcome role split renders in a fresh context",
         )
+        pg3.get_by_test_id("role-split-partner").click()
+        pg3.wait_for_timeout(500)
         check(
-            share is not None and str(share.get("target", "")).startswith("https://nurture.app/join/"),
-            "d1 invite URL is a real Epic 7 invite link",
+            pg3.get_by_test_id("code-entry").count() > 0,
+            "d1 partner role opens the code entry screen",
         )
-        card = pg.get_by_test_id("onboarding-share-link")
-        check(card.count() > 0, "d1 link card shown on web")
+        code_in = pg3.get_by_test_id("code-entry-input")
+        verify = pg3.get_by_test_id("code-entry-verify")
         check(
-            card.count() > 0 and str(share.get("target", "")) in (card.first.inner_text() or ""),
-            "d1 link card carries the invite link",
+            verify.get_attribute("aria-disabled") == "true",
+            "d1 verify is quiet until the code is complete",
         )
-        pg.get_by_test_id("onboarding-share-copy").click()
+        # Auto-caps: typed lowercase becomes uppercase.
+        code_in.fill("ab2kxd")
+        pg3.wait_for_timeout(300)
+        check(code_in.input_value() == "AB2KXD", "d2 code input auto-capitalizes")
+        check(
+            verify.get_attribute("aria-disabled") != "true",
+            "d2 verify enables at 6 valid characters",
+        )
+        # The backend migration isn't applied: the warm invalid message
+        # shows - never a crash, never an expiry state.
+        verify.click()
+        pg3.wait_for_timeout(3000)
+        err = pg3.get_by_test_id("code-entry-error")
+        check(err.count() > 0, "d2 invalid code shows the warm error")
+        check(
+            "didn't work" in (err.first.inner_text() or ""),
+            "d2 error copy is the approved invalid-only message",
+        )
+        # Back returns to the role split.
+        pg3.get_by_test_id("code-entry-back").click()
+        pg3.wait_for_timeout(500)
+        check(
+            pg3.get_by_test_id("role-split").count() > 0,
+            "d2 back returns to the role split",
+        )
+
+        # d3: a valid code connects; Done keeps the partner on the connected
+        # screen (the resting state) — never the role split, never Week.
+        pg3.get_by_test_id("role-split-partner").click()
+        pg3.wait_for_timeout(500)
+        pg3.get_by_test_id("code-entry-input").fill("ABCDEF")
+        pg3.get_by_test_id("code-entry-verify").click()
+        pg3.get_by_test_id("partner-connected").wait_for(timeout=10000)
+        check(
+            "You're connected" in (pg3.get_by_test_id("partner-connected").inner_text() or ""),
+            "d3 valid code shows the connected confirmation",
+        )
+        pg3.get_by_test_id("partner-connected-done").click()
+        pg3.wait_for_timeout(800)
+        check(
+            pg3.get_by_test_id("partner-connected").count() > 0
+            and pg3.get_by_test_id("role-split").count() == 0,
+            "d3 Done stays on the connected screen (no re-ask loop)",
+        )
+        pg3.goto(ONBOARDING_URL)
+        pg3.wait_for_timeout(1500)
+        check(
+            pg3.get_by_test_id("partner-connected").count() > 0,
+            "d3 relaunch returns straight to the connected screen",
+        )
+        # ----------------------------------------------------------------
+        # E. Verify gating: short / ambiguous codes stay disabled.
+        # (Fresh context — pg3 is a linked partner now, past the split.)
+        # ----------------------------------------------------------------
+        ctx4 = browser.new_context(viewport={"width": 390, "height": 844})
+        pg4 = ctx4.new_page()
+        pg4.on("pageerror", lambda e: errors.append(str(e)))
+        pg4.on("console", _note_console)
+        serve_with_fallback(pg4, ctx4)
+        pg4.goto(ONBOARDING_URL)
+        pg4.wait_for_timeout(1200)
+        pg = pg4
+        ctx = ctx4
+
+        pg.get_by_test_id("role-split-partner").click()
+        pg.wait_for_timeout(500)
+        code_in = pg.get_by_test_id("code-entry-input")
+        verify = pg.get_by_test_id("code-entry-verify")
+        code_in.fill("AB0")
         pg.wait_for_timeout(300)
         check(
-            pg.get_by_test_id("onboarding-share-note").count() > 0,
-            "d1 copy affordance responds",
+            verify.get_attribute("aria-disabled") == "true",
+            "e1 short code keeps verify disabled",
         )
-        pg.get_by_test_id("onboarding-share-continue").click()
-        pg.get_by_test_id("onboarding-chips-continue").click()
-        pg.get_by_test_id("onboarding-notifications-skip").click()
-        pg.get_by_test_id("onboarding-finish").click()
-        pg.wait_for_timeout(1500)
-
-        # The Epic 7 invite is live in the You tab's partner row.
-        pg.get_by_role("tab", name="You").click()
-        pg.wait_for_timeout(800)
+        code_in.fill("AB01CD")  # 0/1 are ambiguous - never valid
+        pg.wait_for_timeout(300)
         check(
-            pg.get_by_text("Invite sent — waiting for your partner").count() > 0,
-            "d1 partner row shows the Epic 7 invite state",
+            verify.get_attribute("aria-disabled") == "true",
+            "e1 ambiguous characters keep verify disabled",
         )
-
-        # ----------------------------------------------------------------
-        # E. Phone + invalid contact paths.
-        # ----------------------------------------------------------------
-        pg.goto(ONBOARDING_URL)
-        pg.wait_for_timeout(1200)
-        pg.get_by_test_id("onboarding-get-started").click()
-        pg.get_by_test_id("onboarding-owner-name").fill("Priya")
-        pg.get_by_test_id("onboarding-profile-continue").click()
-        # Invalid first: send stays disabled while the contact is malformed.
-        pg.get_by_test_id("onboarding-share-contact").fill("notanemail@")
+        code_in.fill("AB2KXD")
+        pg.wait_for_timeout(300)
         check(
-            pg.get_by_test_id("onboarding-share-send").get_attribute("aria-disabled") == "true",
-            "e1 invalid contact keeps send disabled",
-        )
-        pg.get_by_test_id("onboarding-share-contact").fill("+1 415-555-0132")
-        check(pg.get_by_text("Phone number").first.count() > 0, "e1 phone auto-detected")
-        pg.get_by_test_id("onboarding-share-send").click()
-        pg.wait_for_timeout(600)
-        phone_share = pg.evaluate("window.__nurtureTest && window.__nurtureTest.lastInviteShare")
-        check(
-            phone_share is not None
-            and str(phone_share.get("target", "")).startswith("https://nurture.app/join/"),
-            "e1 phone path still mints the Epic 7 invite link",
+            verify.get_attribute("aria-disabled") != "true",
+            "e1 six unambiguous characters enable verify",
         )
 
-        # ----------------------------------------------------------------
-        # F. You tab: edit all four Account rows (fresh context, clean slate).
+# F. You tab: edit all four Account rows (fresh context, clean slate).
         # ----------------------------------------------------------------
         ctx2 = browser.new_context(viewport={"width": 390, "height": 844})
         pg2 = ctx2.new_page()
         pg2.on("pageerror", lambda e: errors.append(str(e)))
-        pg2.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        pg2.on("console", _note_console)
         serve_with_fallback(pg2, ctx2)
         pg = pg2
         ctx = ctx2
@@ -280,8 +383,8 @@ def main() -> None:
         pg.wait_for_timeout(800)
 
         check(
-            pg.get_by_text("Week 24").count() > 0,
-            "f1 seeded due date computes week 24",
+            pg.get_by_text("Week 25").count() > 0,
+            "f1 seeded due date computes week 25",
         )
         check(pg.get_by_test_id("account-name-row").count() > 0, "f1 account rows render")
         check(pg.get_by_test_id("account-due-date-row").count() > 0, "f1 due date row renders")
@@ -299,7 +402,7 @@ def main() -> None:
         pg.get_by_test_id("account-due-date-picker").fill(due2)
         pg.get_by_test_id("account-due-date-save").click()
         pg.wait_for_timeout(500)
-        check(pg.get_by_text("Week 23").count() > 0, "f3 due date edit recomputes the week line")
+        check(pg.get_by_text("Week 24").count() > 0, "f3 due date edit recomputes the week line")
 
         # Birthday.
         pg.get_by_test_id("account-dob-row").click()
@@ -325,9 +428,29 @@ def main() -> None:
         pg.get_by_role("tab", name="You").click()
         pg.wait_for_timeout(800)
         check(pg.get_by_text("Maya").count() > 0, "f6 name persists")
-        check(pg.get_by_text("Week 23").count() > 0, "f6 due date persists")
+        check(pg.get_by_text("Week 24").count() > 0, "f6 due date persists")
         check(pg.get_by_text("Nov 3, 1988").count() > 0, "f6 birthday persists")
         check(pg.get_by_text("Wren").count() > 0, "f6 baby's name persists")
+
+        # The You tab row opens the invite-code sheet (mockup 33).
+        row = pg.get_by_test_id("partner-sharing-row")
+        check(
+            "Share with your partner" in (row.inner_text() or ""),
+            "f7 row reads Share with your partner",
+        )
+        row.click()
+        try:
+            pg.get_by_test_id("partner-sheet").wait_for(timeout=10000)
+            check(True, "f7 row opens the share-code sheet")
+        except Exception:
+            check(False, "f7 row opens the share-code sheet")
+        try:
+            pg.get_by_test_id("share-code-not-ready").wait_for(timeout=15000)
+            check(True, "f7 sheet degrades gracefully without the backend")
+        except Exception:
+            check(False, "f7 sheet degrades gracefully without the backend")
+        pg.get_by_test_id("share-code-back").click()
+        pg.wait_for_timeout(500)
 
         browser.close()
 

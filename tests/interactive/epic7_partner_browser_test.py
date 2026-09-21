@@ -1,20 +1,16 @@
 #!/usr/bin/env python3
-"""
-Standing interactive browser test: Epic 7 partner sharing.
+"""Standing interactive browser test: partner sharing (mockup 33).
 
 Drives the REAL Willow web UI in real Chromium against the built dist/
-served under /willow/. Covers the approved 07-partner mockup flows:
+served under /willow/. Covers:
 
   1. journal sheet -> visibility picker (Private/Shared/+Export) with the
      plain-language note updating per state (via the journal-test route)
-  2. You tab -> "Partner sharing" row opens the partner sheet
-  3. invite flow: invite -> 24h link box -> copy -> owner-confirm gate ->
-     active (limitations copy + access history on screen)
-  4. preview toggle: partner's view shows only shared entries; a private
-     symptom stays invisible; owner's view shows both with badges
-  5. revoke flow: warning copy -> confirm -> revoked state; row subtitle
-     reflects the revoked state after close
-
+  2. You tab -> "Share with your partner" row opens the invite-code sheet
+  3. code surface: Copy + Share buttons, graceful degradation when the
+     backend migration isn't applied (never a crash)
+  4. no reachable old Epic 7 UI: no 24h expiry, no nurture.app/join links,
+     no owner-confirm gate, no preview toggle
 Zero page errors allowed.
 
 Run:  python3 tests/interactive/epic7_partner_browser_test.py [--keep-open]
@@ -89,9 +85,33 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path="/opt/meta-chromium/chrome")
         ctx = browser.new_context(viewport={"width": 390, "height": 844})
+        def supabase_stub(route):
+            # The backend isn't reachable from the test sandbox; answer API
+            # calls with a clean JSON error so no "Failed to load resource"
+            # console error is logged. The app degrades gracefully.
+            route.fulfill(
+                status=404,
+                content_type="application/json",
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Expose-Headers": "Content-Range",
+                },
+                body='{"code":"42883","message":"function does not exist"}',
+            )
+
+        ctx.route("https://*.supabase.co/**", supabase_stub)
         ctx.route("**://nurture.test/**", serve_dist)
         page = ctx.new_page()
         page.on("pageerror", lambda e: page_errors.append(str(e)[:200]))
+
+        def _note_console(m):
+            # "Failed to load resource" is network outcome (the backend
+            # migration isn't applied / the sandbox blocks the API host) —
+            # never a JS bug. Uncaught exceptions arrive via pageerror.
+            if m.type == "error" and not (m.text or "").startswith("Failed to load resource"):
+                page_errors.append(m.text[:200])
+
+        page.on("console", _note_console)
 
         # ---- Flow 1: visibility picker on the journal sheet ----
         page.goto(JOURNAL_TEST, timeout=30000)
@@ -137,6 +157,17 @@ def main():
 
         # ---- Flows 2-5: partner section in the You tab ----
         page.goto(BASE, timeout=30000)
+        page.wait_for_function("() => typeof window.__nurtureTest !== 'undefined'", timeout=30000)
+        # Fresh context: onboarding isn't done, so complete it via hooks
+        # before expecting the tab shell.
+        page.evaluate("window.__nurtureTest.completeOnboarding()")
+        # The week screen needs a pregnancy row — without one it renders a
+        # testID-less empty variant. Seed both, then reload.
+        page.evaluate("window.__nurtureTest.seedPregnancy({ dueDate: '2026-12-31' })")
+        # The sql.js DB persists to localStorage asynchronously — give the
+        # writes a beat before reloading, or they are lost on navigation.
+        page.wait_for_timeout(2000)
+        page.goto(BASE, timeout=30000)
         try:
             page.get_by_test_id("week-screen").wait_for(timeout=30000)
         except Exception:
@@ -155,131 +186,49 @@ def main():
             browser.close()
             sys.exit(1)
         check("flow2: partner row present in You tab", True)
-        check("flow2: row reads not-connected",
-              "No one connected yet" in row.inner_text(), f"row={row.inner_text()[:80]!r}")
+        check("flow2: row reads Share with your partner",
+              "Share with your partner" in row.inner_text(), f"row={row.inner_text()[:80]!r}")
 
         row.click()
         psheet = page.get_by_test_id("partner-sheet")
         try:
             psheet.wait_for(timeout=10000)
         except Exception:
-            check("flow2: partner sheet opens", False, "partner-sheet never appeared")
+            check("flow2: share-code sheet opens", False, "partner-sheet never appeared")
             browser.close()
             sys.exit(1)
-        check("flow2: partner sheet opens", True)
+        check("flow2: share-code sheet opens", True)
         body = psheet.inner_text()
-        check("flow2: invite intro copy",
-              "Share the journey, your way" in body, f"body={body[:120]!r}")
+        check("flow2: code card labels the invite code",
+              "Your invite code" in body, f"body={body[:120]!r}")
 
-        # ---- Flow 3: invite ----
-        page.get_by_test_id("partner-invite-button").click()
-        try:
-            page.get_by_test_id("partner-link-box").wait_for(timeout=8000)
-        except Exception:
-            check("flow3: invite link box appears", False, "link box never appeared")
-            browser.close()
-            sys.exit(1)
-        check("flow3: invite link box appears", True)
-        link_text = page.get_by_test_id("partner-link-box").inner_text()
-        check("flow3: link is a nurture.app join URL",
-              "nurture.app/join/" in link_text, f"link={link_text!r}")
-        expiry = page.get_by_test_id("partner-invite-expiry").inner_text()
-        check("flow3: 24h expiry countdown shown",
-              "expires in 23h" in expiry, f"expiry={expiry!r}")
+        # ---- Flow 3: graceful degradation (backend migration not applied) ----
+        check("flow3: backend-not-ready note shown, no crash",
+              "getting ready" in body, f"body={body[:160]!r}")
+        share_btn = page.get_by_test_id("share-code-share")
+        copy_btn = page.get_by_test_id("share-code-copy")
+        check("flow3: share button disabled until a code exists",
+              share_btn.get_attribute("aria-disabled") == "true", "share not disabled")
+        check("flow3: copy button disabled until a code exists",
+              copy_btn.get_attribute("aria-disabled") == "true", "copy not disabled")
+        check("flow3: remove-partner hidden when not connected",
+              page.get_by_test_id("share-code-remove").count() == 0,
+              "remove button visible with no partner")
 
-        page.get_by_test_id("partner-copy-button").click()
-        page.wait_for_timeout(600)
-        toast = page.get_by_test_id("partner-toast")
-        toast_text = toast.inner_text() if toast.count() else ""
-        check("flow3: copy gives feedback",
-              "Link copied" in toast_text or "Long-press" in toast_text,
-              f"toast={toast_text!r}")
+        # ---- Flow 4: no reachable old Epic 7 UI ----
+        for old in ("nurture.app/join/", "expires in", "24h", "Confirm & start sharing",
+                    "accepted your invite", "Partner\u2019s view"):
+            check("flow4: no old UI " + old[:24], old not in body, "old copy leaked: " + old)
 
-        # Owner-confirmation gate: nothing shared until confirmed.
-        page.get_by_test_id("partner-confirm-join-button").click()
-        page.wait_for_timeout(400)
-        confirm_body = psheet.inner_text()
-        check("flow3: confirm card names the gate",
-              "accepted your invite" in confirm_body and "Confirm & start sharing" in confirm_body,
-              f"body={confirm_body[:150]!r}")
-        page.get_by_test_id("partner-confirm-start-button").click()
-        page.wait_for_timeout(600)
-        active_body = psheet.inner_text()
-        check("flow3: active state shows connected partner",
-              "Connected · can see shared moments" in active_body, f"body={active_body[:150]!r}")
-        check("flow3: limitations stated on-screen",
-              "private health logs" in active_body and "export your record" in active_body,
-              "limitations copy missing")
-        check("flow3: access history records the invite",
-              "Invite sent" in active_body, "invite_sent history row missing")
-
-        # ---- Flow 4: preview toggle ----
-        preview_note = page.get_by_test_id("partner-preview-note").inner_text()
-        check("flow4: owner preview note",
-              "every entry" in preview_note, f"note={preview_note!r}")
-        check("flow4: owner sees the private symptom with its badge",
-              "Heartburn" in active_body and "Only you" in active_body,
-              "owner view missing private entry/badge")
-
-        page.get_by_test_id("partner-preview-toggle").get_by_role("radio", name="Partner’s view").click()
-        page.wait_for_timeout(600)
-        partner_body = psheet.inner_text()
-        check("flow4: partner preview note is exact",
-              "exactly what Alex sees" in partner_body, "partner preview note missing")
-        check("flow4: partner sees the shared milestone",
-              "First strong kicks" in partner_body, "shared milestone missing from partner view")
-        check("flow4: partner does NOT see the private symptom",
-              "Heartburn" not in partner_body, "private symptom leaked into partner view")
-        check("flow4: partner capabilities stated (notes + one Love reaction)",
-              "one ❤ Love reaction" in partner_body, "reaction copy missing")
-
-        page.get_by_test_id("partner-preview-toggle").get_by_role("radio", name="Your view").click()
-        page.wait_for_timeout(400)
-
-        # ---- Flow 5: revoke ----
-        page.get_by_test_id("partner-revoke-button").click()
-        page.wait_for_timeout(400)
-        revoke_body = psheet.inner_text()
-        check("flow5: revoke confirm names the downloaded-content caveat",
-              "already saved or downloaded" in revoke_body, "revoke warning missing")
-        page.get_by_test_id("partner-revoke-confirm").click()
-        page.wait_for_timeout(600)
-        revoked_body = psheet.inner_text()
-        check("flow5: revoked state is quiet",
-              "Access revoked" in revoked_body and "nothing is shared" in revoked_body,
-              f"body={revoked_body[:150]!r}")
-        check("flow5: invite offered again after revoke",
-              page.get_by_test_id("partner-invite-button").count() == 1,
-              "invite button missing after revoke")
-
-        # Dismiss the sheet (Escape closes the modal via onRequestClose on web? use backdrop).
-        page.keyboard.press("Escape")
+        # ---- Flow 5: close the sheet; row subtitle stays sane ----
+        page.get_by_test_id("share-code-back").click()
         page.wait_for_timeout(1200)
-        if page.get_by_test_id("partner-sheet").count():
-            # Fallback: tap the row again is impossible while open; click scrim via keyboard nav.
-            page.evaluate("document.querySelector('[data-testid=\"partner-sheet\"]')?.parentElement?.click()")
-            page.wait_for_timeout(1200)
+        check("flow5: sheet closes via back",
+              page.get_by_test_id("partner-sheet").count() == 0, "sheet stayed open")
         row_text = page.get_by_test_id("partner-sharing-row").inner_text()
-        check("flow5: row subtitle reflects revoked state",
-              "Access revoked" in row_text, f"row={row_text[:80]!r}")
-
-        # ---- Flow 6: stop flag pauses partner sharing (contract C3) ----
-        page.evaluate("window.__nurtureTest.stopPregnancy()")
-        page.get_by_test_id("partner-sharing-row").click()
-        try:
-            page.get_by_test_id("partner-sheet").wait_for(timeout=10000)
-        except Exception:
-            check("flow6: partner sheet reopens after stop", False, "sheet never appeared")
-        else:
-            check("flow6: partner sheet reopens after stop", True)
-            stopped_body = page.get_by_test_id("partner-sheet").inner_text()
-            check("flow6: paused note shown when tracking stopped",
-                  "Partner sharing is paused" in stopped_body, "stopped note missing")
-            invite_btn = page.get_by_test_id("partner-invite-button")
-            check("flow6: invite disabled when tracking stopped",
-                  invite_btn.get_attribute("disabled") is not None
-                  or invite_btn.get_attribute("aria-disabled") == "true",
-                  "invite button not disabled")
+        check("flow5: row subtitle is the not-connected reading",
+              "Share your code to link up" in row_text or "Partner sharing" in row_text,
+              f"row={row_text[:80]!r}")
 
         check("zero page errors", len(page_errors) == 0,
               f"errors={page_errors[:3]}" if page_errors else "")
