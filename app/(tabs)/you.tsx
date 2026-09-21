@@ -70,7 +70,7 @@ import {
 } from '../../src/components';
 import { colors, radii, spacing, type as typeScale } from '../../src/theme/tokens';
 import ShareCodeScreen from '../../src/partner/ShareCodeScreen';
-import { getOwnerLinkStatus } from '../../src/partner/inviteCodes';
+import { getPartnerInvites, MAX_PARTNERS } from '../../src/partner/inviteCodes';
 
 
 const NUDGE_MIN = 17 * 60; // 5:00 PM
@@ -316,15 +316,16 @@ export default function YouScreen() {
   const [dobSheetOpen, setDobSheetOpen] = useState(false);
   const [dobDraft, setDobDraft] = useState<string | null>(null);
 
-  // Partner sharing (mockup 33, Sept 2026): the settings row opens the
-  // invite-code sheet; the subtitle reflects the live server link state.
+  // Partner sharing (mockup 33 rev C, Sept 2026): the settings row opens
+  // the partners-list sheet; the subtitle reflects the live named-invite
+  // count (None yet / N of 5), not a single boolean.
   const [partnerOpen, setPartnerOpen] = useState(false);
-  const [partnerConnected, setPartnerConnected] = useState<boolean | null>(null);
+  const [partnerCount, setPartnerCount] = useState<number | null>(null);
 
   const refreshPartnerStatus = useCallback(async () => {
     try {
-      const r = await getOwnerLinkStatus();
-      setPartnerConnected(r.status === 'ok' ? r.connected === true : null);
+      const r = await getPartnerInvites();
+      setPartnerCount(r.status === 'ok' ? r.invites?.length ?? 0 : null);
     } catch {
       // The row keeps its last reading; the sheet surfaces errors itself.
     }
@@ -335,11 +336,11 @@ export default function YouScreen() {
   }, [refreshPartnerStatus]);
 
   const partnerSubtitle =
-    partnerConnected === true
-      ? 'Connected'
-      : partnerConnected === false
-        ? 'Share your code to link up'
-        : 'Partner sharing';
+    partnerCount === null
+      ? 'Partner sharing'
+      : partnerCount === 0
+        ? 'None yet'
+        : `${partnerCount} of ${MAX_PARTNERS}`;
 
   const paused = globalPauseUntil !== null;
 

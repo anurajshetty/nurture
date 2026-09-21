@@ -84,7 +84,6 @@ export default function RoleSplitScreen({ onSelect }: { onSelect: (role: Onboard
       ) : null}
 
       <View style={styles.spacer} />
-      <Text style={styles.fineprint}>One partner per account, for now.</Text>
     </View>
   );
 }
@@ -136,5 +135,4 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   spacer: { flex: 1, minHeight: spacing.lg },
-  fineprint: { ...typeScale.footnote, color: colors.muted, textAlign: 'center', lineHeight: 20 },
 });

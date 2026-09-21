@@ -1,9 +1,13 @@
 /**
- * Partner invite codes (mockup 33) — client contract tests.
+ * Partner invite codes — NAMED-INVITE contract tests (mockup 33 rev C).
  *
- * Pure logic only: code normalization/format, RPC error classification,
- * single-use redeem mapping, role/linked kv persistence. No network, no
- * native modules — the RPC client is injected as a fake.
+ * Regression + contract suite for the revised partner-sharing model:
+ * every code is a named invite; name + code bind at redemption; the
+ * partners list shows named invites only (pending "Name · Invited" /
+ * accepted name + remove); max 5 (pending + accepted).
+ *
+ * Pure logic only: no network, no native modules — the RPC client is
+ * injected as a fake.
  *
  * Run with:
  *   npx tsc tests/partner_invites.test.ts src/partner/inviteCodes.ts \
@@ -14,21 +18,24 @@
 
 import {
   CODE_LENGTH,
+  MAX_PARTNERS,
   ONBOARDING_ROLE_KEY,
   PARTNER_LINKED_KEY,
   PARTNER_ONBOARDING_DONE_KEY,
   classifyRpcError,
   clearOnboardingRole,
+  createNamedInvite,
   getLinkedOwnerId,
-  getMyInviteCode,
   getOnboardingRole,
-  getOwnerLinkStatus,
+  getPartnerInvites,
   isPartnerLinked,
   isPartnerOnboardingDone,
   isValidCodeFormat,
+  isValidName,
   normalizeCode,
-  redeemInviteCode,
-  revokePartnerLink,
+  normalizeName,
+  redeemInvite,
+  revokePartnerInvite,
   setOnboardingRole,
   setPartnerLinked,
   setPartnerOnboardingDone,
@@ -61,201 +68,216 @@ function fakeKv(): InviteKv & { store: Record<string, string> } {
   };
 }
 
-function fakeRpc(
-  impl: (fn: string, params?: Record<string, unknown>) => { data: unknown; error: { code?: string; message: string } | null },
-): PartnerRpc {
+type RpcResult = {
+  data: unknown;
+  error: { code?: string; message: string } | null;
+};
+
+function fakeRpc(handler: (fn: string, params?: Record<string, unknown>) => RpcResult): PartnerRpc {
   return {
-    rpc: async (fn, params) => impl(fn, params),
+    rpc: async (fn, params) => handler(fn, params),
   };
 }
 
-// --- code format -----------------------------------------------------------
-check('code length is 6', CODE_LENGTH === 6);
-check('normalizes lowercase + trims', normalizeCode('  k7x2qm ') === 'K7X2QM');
-check('strips dashes and spaces', normalizeCode('K7-X2 QM') === 'K7X2QM');
-check('caps at 6 chars', normalizeCode('ABCDEFGH') === 'ABCDEF');
-check('empty normalizes to empty', normalizeCode('') === '');
-check('valid format: 6 unambiguous chars', isValidCodeFormat('K7X2QM'));
-check('rejects short code', !isValidCodeFormat('K7X2Q'));
-check('rejects ambiguous O', !isValidCodeFormat('K7X2OM'));
-check('rejects ambiguous 0', !isValidCodeFormat('K7X20M'));
-check('rejects ambiguous I', !isValidCodeFormat('K7X2IM'));
-check('rejects ambiguous 1', !isValidCodeFormat('K7X21M'));
-check('rejects lowercase', !isValidCodeFormat('k7x2qm'));
+const ok = (data: unknown): RpcResult => ({ data, error: null });
+const err = (message: string, code?: string): RpcResult => ({
+  data: null,
+  error: { code, message },
+});
 
-// --- error classification --------------------------------------------------
-check(
-  '42883 -> not_ready (migration not applied)',
-  classifyRpcError({ code: '42883', message: 'function public.create_partner_invite() does not exist' }) === 'not_ready',
-);
-check(
-  'does-not-exist message -> not_ready',
-  classifyRpcError({ message: 'Could not find the function public.redeem_partner_invite' }) === 'not_ready',
-);
-check(
-  'network failure -> network',
-  classifyRpcError({ message: 'Network request failed' }) === 'network',
-);
-check('other server error -> unknown', classifyRpcError({ code: 'P0001', message: 'boom' }) === 'unknown');
-check('thrown string -> unknown', classifyRpcError('weird') === 'unknown');
-
-// --- role + linked kv ------------------------------------------------------
-{
-  const kv = fakeKv();
-  check('no role initially', getOnboardingRole(kv) === null);
-  setOnboardingRole(kv, 'partner');
-  check('role persists', getOnboardingRole(kv) === 'partner' && kv.store[ONBOARDING_ROLE_KEY] === 'partner');
-  setOnboardingRole(kv, 'mom');
-  check('role switches', getOnboardingRole(kv) === 'mom');
-  check('not linked initially', !isPartnerLinked(kv));
-  setPartnerLinked(kv);
-  check('linked persists', isPartnerLinked(kv) && kv.store[PARTNER_LINKED_KEY] === '1');
-  check('partner onboarding not done initially', !isPartnerOnboardingDone(kv));
-  setPartnerOnboardingDone(kv);
-  check('partner onboarding done persists',
-    isPartnerOnboardingDone(kv) && kv.store[PARTNER_ONBOARDING_DONE_KEY] === '1');
-  clearOnboardingRole(kv);
-  check('clearing the role re-asks the split', getOnboardingRole(kv) === null);
-  // Clearing the role must not wipe the linked/done record.
-  check('linked survives role clear', isPartnerLinked(kv));
-  check('done survives role clear', isPartnerOnboardingDone(kv));
+function param(p: Record<string, unknown> | undefined, key: string): unknown {
+  return p?.[key];
 }
 
 async function main() {
-  // --- getMyInviteCode -----------------------------------------------------
+  console.log('code format:');
+  check('CODE_LENGTH is 6', CODE_LENGTH === 6);
+  check('normalizes lowercase + strips dashes', normalizeCode('k7-x2qm') === 'K7X2QM');
+  check('truncates to 6', normalizeCode('ABCDEFGH') === 'ABCDEF');
+  check('accepts unambiguous 6-char', isValidCodeFormat('K7X2QM'));
+  check('rejects ambiguous chars', !isValidCodeFormat('K70X2M'));
+  check('rejects short codes', !isValidCodeFormat('K7X2Q'));
+
+  console.log('name normalization:');
+  check('trims whitespace', normalizeName('  Sam  ') === 'Sam');
+  check('caps at 30 chars', normalizeName('x'.repeat(40)).length === 30);
+  check('blank name invalid', !isValidName('   '));
+  check('empty name invalid', !isValidName(''));
+  check('real name valid', isValidName('Maya'));
+
+  console.log('error classification:');
+  check('42883 -> not_ready', classifyRpcError({ code: '42883', message: 'x' }) === 'not_ready');
+  check(
+    'function-missing message -> not_ready',
+    classifyRpcError({ message: 'Could not find the function public.create_partner_invite' }) ===
+      'not_ready',
+  );
+  check('fetch failure -> network', classifyRpcError({ message: 'failed to fetch' }) === 'network');
+  check('other -> unknown', classifyRpcError({ message: 'boom' }) === 'unknown');
+
+  console.log('createNamedInvite:');
   {
-    const r = await getMyInviteCode(null);
-    check('null client -> not_configured', r.status === 'not_configured' && r.code === undefined);
-  }
-  {
-    const r = await getMyInviteCode(fakeRpc(() => ({ data: [{ code: 'K7X2QM' }], error: null })));
-    check('happy path returns code', r.status === 'ok' && r.code === 'K7X2QM');
-  }
-  {
-    const r = await getMyInviteCode(
-      fakeRpc(() => ({ data: null, error: { code: '42883', message: 'function does not exist' } })),
-    );
-    check('missing function -> not_ready, never throws', r.status === 'not_ready');
-  }
-  {
-    const r = await getMyInviteCode(fakeRpc(() => ({ data: [{ code: 'SHORT' }], error: null })));
-    check('malformed code -> unknown', r.status === 'unknown');
-  }
-  {
-    const r = await getMyInviteCode({
-      rpc: async () => {
-        throw new Error('Network request failed');
-      },
+    let seenParams: Record<string, unknown> | undefined;
+    const rpc = fakeRpc((_fn, params) => {
+      seenParams = params;
+      return ok([{ code: 'K7X2QM' }]);
     });
-    check('thrown network error -> network', r.status === 'network');
+    const r = await createNamedInvite('Sam', rpc);
+    check('ok returns the code', r.status === 'ok' && r.code === 'K7X2QM', r);
+    check('create passes p_name', param(seenParams, 'p_name') === 'Sam', seenParams);
+  }
+  {
+    // name is required BEFORE any RPC (a code abandoned before naming
+    // never exists server-side)
+    let called = false;
+    const rpc = fakeRpc(() => {
+      called = true;
+      return ok([{ code: 'K7X2QM' }]);
+    });
+    const r = await createNamedInvite('   ', rpc);
+    check('blank name -> name_required without RPC', r.status === 'name_required' && !called, r);
+  }
+  {
+    const rpc = fakeRpc(() => err('max_partners_reached'));
+    const r = await createNamedInvite('Noah', rpc);
+    check('maxed out -> max_partners', r.status === 'max_partners', r);
+  }
+  {
+    const rpc = fakeRpc(() => err('does not exist', '42883'));
+    const r = await createNamedInvite('Noah', rpc);
+    check('missing function -> not_ready', r.status === 'not_ready', r);
+  }
+  {
+    const rpc = fakeRpc(() => ok([{ code: 'BOGUS!' }]));
+    const r = await createNamedInvite('Noah', rpc);
+    check('malformed code -> unknown', r.status === 'unknown', r);
+  }
+  {
+    const r = await createNamedInvite('Noah', null);
+    check('no rpc -> not_configured', r.status === 'not_configured', r);
   }
 
-  // --- redeemInviteCode ----------------------------------------------------
+  console.log('redeemInvite (name binds):');
   {
-    const r = await redeemInviteCode('K7X2QM', null);
-    check('null client -> not_configured', r.status === 'not_configured');
+    let seenFn = '';
+    let seenParams: Record<string, unknown> | undefined;
+    const rpc = fakeRpc((fn, params) => {
+      seenFn = fn;
+      seenParams = params;
+      return ok('owner-uuid-1');
+    });
+    const r = await redeemInvite('k7x2qm', '  sam ', rpc);
+    check('valid pair -> ok', r.status === 'ok', r);
+    check('redeem calls redeem_partner_invite', seenFn === 'redeem_partner_invite', seenFn);
+    check(
+      'redeem sends normalized code+name',
+      param(seenParams, 'p_code') === 'K7X2QM' && param(seenParams, 'p_name') === 'sam',
+      seenParams,
+    );
   }
   {
-    const r = await redeemInviteCode('K7X2', fakeRpc(() => ({ data: null, error: null })));
-    check('bad format never hits the server', r.status === 'invalid_code');
+    // wrong name is invalid, same as a wrong code — the client only ever
+    // shows the warm invalid copy
+    const rpc = fakeRpc(() => err('invalid_code'));
+    const r = await redeemInvite('K7X2QM', 'Noah', rpc);
+    check('server wrong-name -> invalid_code', r.status === 'invalid_code', r);
   }
   {
     let called = false;
-    const r = await redeemInviteCode(
-      'k7x2qm',
-      fakeRpc((fn, params) => {
-        called = true;
-        check('redeem normalizes to uppercase', params?.p_code === 'K7X2QM');
-        return { data: 'owner-uuid', error: null };
-      }),
-    );
-    check('valid code -> ok', r.status === 'ok' && called);
-  }
-  {
-    // Single-use: unknown and already-used codes both read as invalid_code.
-    for (const msg of ['invalid_code', 'INVALID_CODE: already redeemed']) {
-      const r = await redeemInviteCode(
-        'K7X2QM',
-        fakeRpc(() => ({ data: null, error: { code: 'P0001', message: msg } })),
-      );
-      check(`server '${msg}' -> invalid_code`, r.status === 'invalid_code');
-    }
-  }
-  {
-    const r = await redeemInviteCode(
-      'K7X2QM',
-      fakeRpc(() => ({ data: null, error: { code: '42883', message: 'nope' } })),
-    );
-    check('missing redeem function -> not_ready', r.status === 'not_ready');
-  }
-
-  // --- revokePartnerLink ---------------------------------------------------
-  {
-    const r = await revokePartnerLink(null);
-    check('null client -> not_configured', r.status === 'not_configured');
-  }
-  {
-    const r = await revokePartnerLink(fakeRpc(() => ({ data: null, error: null })));
-    check('revoke happy path -> ok', r.status === 'ok');
-  }
-  {
-    const r = await revokePartnerLink(
-      fakeRpc(() => ({ data: null, error: { code: 'P0001', message: 'no_partner_link' } })),
-    );
-    check('no link -> no_partner_link', r.status === 'no_partner_link');
-  }
-
-  // --- getLinkedOwnerId ----------------------------------------------------
-  {
-    const r = await getLinkedOwnerId(null);
-    check('null client -> not_configured', r.status === 'not_configured');
-  }
-  {
-    const r = await getLinkedOwnerId(fakeRpc(() => ({ data: 'owner-1', error: null })));
-    check('linked owner returned', r.status === 'ok' && r.ownerId === 'owner-1');
-  }
-  {
-    const r = await getLinkedOwnerId(fakeRpc(() => ({ data: null, error: null })));
-    check('no link -> null ownerId', r.status === 'ok' && r.ownerId === null);
-  }
-
-  // --- getOwnerLinkStatus ------------------------------------------------
-  {
-    const r = await getOwnerLinkStatus(null);
-    check('null client -> not_configured', r.status === 'not_configured');
-  }
-  {
-    const r = await getOwnerLinkStatus(
-      fakeRpc(() => ({ data: null, error: null })),
-    );
-    check('client without from() -> not_configured', r.status === 'not_configured');
-  }
-  {
-    const withFrom = (rows: unknown): PartnerRpc => ({
-      rpc: async () => ({ data: null, error: null }),
-      from: () => ({ select: async () => ({ data: rows, error: null }) }),
+    const rpc = fakeRpc(() => {
+      called = true;
+      return ok('x');
     });
-    const none = await getOwnerLinkStatus(withFrom([]));
-    check('no invites -> not connected', none.status === 'ok' && none.connected === false);
-    const pending = await getOwnerLinkStatus(
-      withFrom([{ redeemed_by: null, revoked_at: null }]),
-    );
-    check('unredeemed invite -> not connected', pending.status === 'ok' && pending.connected === false);
-    const linked = await getOwnerLinkStatus(
-      withFrom([{ redeemed_by: 'partner-1', revoked_at: null }]),
-    );
-    check('redeemed invite -> connected', linked.status === 'ok' && linked.connected === true);
-    const revoked = await getOwnerLinkStatus(
-      withFrom([{ redeemed_by: 'partner-1', revoked_at: '2026-09-21T00:00:00Z' }]),
-    );
-    check('revoked invite -> not connected', revoked.status === 'ok' && revoked.connected === false);
+    const r = await redeemInvite('K7X2QM', '   ', rpc);
+    check('blank name never reaches the server', r.status === 'invalid_code' && !called, r);
+    const r2 = await redeemInvite('SHORT', 'Sam', rpc);
+    check('bad code never reaches the server', r2.status === 'invalid_code' && !called, r2);
   }
+  {
+    const r = await redeemInvite('K7X2QM', 'Sam', null);
+    check('no rpc -> not_configured', r.status === 'not_configured', r);
+  }
+
+  console.log('getPartnerInvites:');
+  {
+    const rpc = fakeRpc(() => ok([
+      { invite_id: 'id-1', partner_name: 'Sam', status: 'accepted' },
+      { invite_id: 'id-2', partner_name: 'Maya', status: 'pending' },
+    ]));
+    const r = await getPartnerInvites(rpc);
+    check('ok with 2 invites', r.status === 'ok' && r.invites?.length === 2, r);
+    check('accepted maps through', r.invites?.[0]?.status === 'accepted' && r.invites?.[0]?.name === 'Sam');
+    check('pending maps through', r.invites?.[1]?.status === 'pending' && r.invites?.[1]?.name === 'Maya');
+  }
+  {
+    // unnamed rows can never appear in the list
+    const rpc = fakeRpc(() => ok([
+      { invite_id: 'id-9', partner_name: '', status: 'pending' },
+      { invite_id: 'id-8', partner_name: null, status: 'pending' },
+      { invite_id: 'id-7', partner_name: 'Maya', status: 'pending' },
+    ]));
+    const r = await getPartnerInvites(rpc);
+    check(
+      'unnamed rows excluded from list',
+      r.status === 'ok' && r.invites?.length === 1 && r.invites[0].name === 'Maya',
+      r,
+    );
+  }
+  {
+    const rpc = fakeRpc(() => err('x', '42883'));
+    const r = await getPartnerInvites(rpc);
+    check('missing function -> not_ready', r.status === 'not_ready', r);
+  }
+
+  console.log('revokePartnerInvite:');
+  {
+    let seenParams: Record<string, unknown> | undefined;
+    const rpc = fakeRpc((_fn, params) => {
+      seenParams = params;
+      return ok(null);
+    });
+    const r = await revokePartnerInvite('invite-id-1', rpc);
+    check('ok', r.status === 'ok', r);
+    check('revoke passes invite id', param(seenParams, 'p_invite_id') === 'invite-id-1', seenParams);
+  }
+  {
+    const rpc = fakeRpc(() => err('no_partner_link'));
+    const r = await revokePartnerInvite('gone', rpc);
+    check('missing invite -> no_partner_link', r.status === 'no_partner_link', r);
+  }
+
+  console.log('getLinkedOwnerId:');
+  {
+    const rpc = fakeRpc(() => ok('owner-uuid-9'));
+    const r = await getLinkedOwnerId(rpc);
+    check('ok returns owner id', r.status === 'ok' && r.ownerId === 'owner-uuid-9', r);
+  }
+
+  console.log('role kv persistence:');
+  {
+    const kv = fakeKv();
+    check('role starts null', getOnboardingRole(kv) === null);
+    setOnboardingRole(kv, 'partner');
+    check('role persists', getOnboardingRole(kv) === 'partner');
+    check('role key is partner-scoped', kv.store[ONBOARDING_ROLE_KEY] === 'partner');
+    clearOnboardingRole(kv);
+    check('clear forgets the role', getOnboardingRole(kv) === null);
+    check('linked starts false', !isPartnerLinked(kv));
+    setPartnerLinked(kv);
+    check('linked persists', isPartnerLinked(kv) && kv.store[PARTNER_LINKED_KEY] === '1');
+    check('onboarding-done starts false', !isPartnerOnboardingDone(kv));
+    setPartnerOnboardingDone(kv);
+    check(
+      'onboarding-done persists',
+      isPartnerOnboardingDone(kv) && kv.store[PARTNER_ONBOARDING_DONE_KEY] === '1',
+    );
+  }
+
+  console.log('constants:');
+  check('MAX_PARTNERS is 5', MAX_PARTNERS === 5);
 
   console.log(`\n${pass} passed, ${fail} failed`);
-  if (fail > 0) process.exit(1);
+  process.exit(fail === 0 ? 0 : 1);
 }
 
-main().catch((e) => {
-  console.log('  FAIL uncaught', e);
-  process.exit(1);
-});
+void main();

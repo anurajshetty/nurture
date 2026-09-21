@@ -1,14 +1,16 @@
 /**
- * Partner invite codes — server-backed client (mockup 33, Sept 2026).
+ * Partner invite codes — server-backed client (mockup 33, named-invite
+ * model, Sept 2026).
  *
  * The server side lives repo-only in
  * supabase/migrations/20260921120000_partner_invites.sql (NOT applied to
  * production yet). This module wraps those SECURITY DEFINER functions:
  *
- *   create_partner_invite()  → her personal 6-char code (idempotent)
- *   redeem_partner_invite(p_code) → partner links by code (single-use)
- *   revoke_partner()         → owner severs the partner link
- *   my_partner_link()        → owner id this device is linked to, or null
+ *   create_partner_invite(p_name)  → mint a fresh named invite (max 5)
+ *   redeem_partner_invite(p_code, p_name) → partner links by code+name
+ *   revoke_partner(p_invite_id)    → owner severs one partner link
+ *   my_partner_invites()           → owner's named invites (name + status)
+ *   my_partner_link()              → owner id this device is linked to, or null
  *
  * Everything degrades gracefully when the migration hasn't been applied
  * (functions missing → 'not_ready') or the backend isn't configured —
@@ -16,8 +18,10 @@
  *
  * Code contract (Anuraj, Sept 21 2026): 6 chars, uppercase, unambiguous
  * alphabet (no 0/O/1/I), single-use, no expiry — a code is either valid
- * or invalid, nothing in between. The partner is always gender-neutral in
- * copy ("your partner", never he/she).
+ * or invalid, nothing in between. Every code is a NAMED invite: the name
+ * is required at creation and binds at redemption (wrong name = invalid,
+ * same as a wrong code). The partner is always gender-neutral in copy
+ * ("your partner", never he/she).
  */
 
 declare const require: (id: string) => unknown;
@@ -37,14 +41,6 @@ export interface PartnerRpc {
     data: unknown;
     error: { code?: string; message: string } | null;
   }>;
-  from?(table: string): {
-    select(
-      columns: string,
-    ): PromiseLike<{
-      data: unknown;
-      error: { code?: string; message: string } | null;
-    }>;
-  };
 }
 
 export const ONBOARDING_ROLE_KEY = 'partner.onboarding_role';
@@ -139,6 +135,19 @@ export function isValidCodeFormat(code: string): boolean {
   );
 }
 
+/** Trimmed partner name, capped at 30 chars (list-row label). */
+export function normalizeName(raw: string): string {
+  return (raw ?? '').trim().slice(0, 30);
+}
+
+/** True when the name has at least one non-space character. */
+export function isValidName(name: string): boolean {
+  return normalizeName(name).length > 0;
+}
+
+/** Max partners per account: pending + accepted named invites. */
+export const MAX_PARTNERS = 5;
+
 export type ServerStatus = 'ok' | 'not_configured' | 'not_ready' | 'network' | 'unknown';
 
 /**
@@ -176,23 +185,40 @@ function defaultRpc(): PartnerRpc | null {
   return cachedClient;
 }
 
-export interface InviteCodeResult {
-  status: ServerStatus;
+/** One named invite on the owner's partners list. */
+export interface PartnerInvite {
+  /** Server invite id (for revoke). */
+  id: string;
+  /** The name she gave the invite ("who is this code for?"). */
+  name: string;
+  /** 'pending' until redeemed, 'accepted' after. */
+  status: 'pending' | 'accepted';
+}
+
+export interface CreateInviteResult {
+  status: 'ok' | 'name_required' | 'max_partners' | 'not_configured' | 'not_ready' | 'network' | 'unknown';
   code?: string;
 }
 
 /**
- * Her personal invite code (idempotent — returns the existing active code
- * when one is already out). 'not_ready' when the migration isn't applied;
- * 'not_configured' when the backend isn't wired up. Never throws.
+ * Mint a fresh NAMED invite. The name is required — a code abandoned
+ * before naming never exists server-side. 'max_partners' when the owner
+ * already has 5 live named invites (pending + accepted). Never throws.
  */
-export async function getMyInviteCode(
+export async function createNamedInvite(
+  name: string,
   rpc: PartnerRpc | null = defaultRpc(),
-): Promise<InviteCodeResult> {
+): Promise<CreateInviteResult> {
+  const clean = normalizeName(name);
+  if (!isValidName(clean)) return { status: 'name_required' };
   if (!rpc) return { status: 'not_configured' };
   try {
-    const { data, error } = await rpc.rpc('create_partner_invite');
-    if (error) return { status: classifyRpcError(error) };
+    const { data, error } = await rpc.rpc('create_partner_invite', { p_name: clean });
+    if (error) {
+      if (/max_partners_reached/i.test(error.message)) return { status: 'max_partners' };
+      if (/name_required/i.test(error.message)) return { status: 'name_required' };
+      return { status: classifyRpcError(error) };
+    }
     const row = Array.isArray(data) ? data[0] : data;
     const code =
       row && typeof row === 'object' && 'code' in row
@@ -205,23 +231,65 @@ export async function getMyInviteCode(
   }
 }
 
+export interface InvitesResult {
+  status: ServerStatus;
+  invites?: PartnerInvite[];
+}
+
+/**
+ * The owner's partners list: named invites with per-invite status.
+ * Pending invites show "Name · Invited"; accepted show name + remove.
+ * Unnamed codes can't exist server-side, so the list is named-only.
+ * Never throws.
+ */
+export async function getPartnerInvites(
+  rpc: PartnerRpc | null = defaultRpc(),
+): Promise<InvitesResult> {
+  if (!rpc) return { status: 'not_configured' };
+  try {
+    const { data, error } = await rpc.rpc('my_partner_invites');
+    if (error) return { status: classifyRpcError(error) };
+    const rows = Array.isArray(data) ? data : [];
+    const invites: PartnerInvite[] = [];
+    for (const r of rows) {
+      if (r === null || typeof r !== 'object') continue;
+      const rec = r as { invite_id?: unknown; partner_name?: unknown; status?: unknown };
+      const id = String(rec.invite_id ?? '');
+      const name = String(rec.partner_name ?? '');
+      const status = rec.status === 'accepted' ? 'accepted' : 'pending';
+      if (!id || !name) continue; // unnamed rows never belong in the list
+      invites.push({ id, name, status });
+    }
+    return { status: 'ok', invites };
+  } catch (e) {
+    return { status: classifyRpcError(e) };
+  }
+}
+
 export interface RedeemResult {
   status: 'ok' | 'invalid_code' | 'not_configured' | 'not_ready' | 'network' | 'unknown';
 }
 
 /**
- * Partner redeems a code. Unknown codes and already-used codes both come
- * back as 'invalid_code' (single-use; valid-or-invalid only). Never throws.
+ * Partner redeems a named invite. The name binds to the code: a wrong
+ * name is 'invalid_code', same as a wrong or already-used code
+ * (single-use; valid-or-invalid only). Never throws.
  */
-export async function redeemInviteCode(
+export async function redeemInvite(
   code: string,
+  name: string,
   rpc: PartnerRpc | null = defaultRpc(),
 ): Promise<RedeemResult> {
   const normalized = normalizeCode(code);
+  const clean = normalizeName(name);
   if (!rpc) return { status: 'not_configured' };
-  if (!isValidCodeFormat(normalized)) return { status: 'invalid_code' };
+  if (!isValidCodeFormat(normalized) || !isValidName(clean))
+    return { status: 'invalid_code' };
   try {
-    const { error } = await rpc.rpc('redeem_partner_invite', { p_code: normalized });
+    const { error } = await rpc.rpc('redeem_partner_invite', {
+      p_code: normalized,
+      p_name: clean,
+    });
     if (error) {
       if (/invalid_code/i.test(error.message)) return { status: 'invalid_code' };
       return { status: classifyRpcError(error) };
@@ -236,13 +304,14 @@ export interface RevokeResult {
   status: 'ok' | 'no_partner_link' | 'not_configured' | 'not_ready' | 'network' | 'unknown';
 }
 
-/** Owner severs the partner link. Never throws. */
-export async function revokePartnerLink(
+/** Owner severs one partner link (per invite). Never throws. */
+export async function revokePartnerInvite(
+  inviteId: string,
   rpc: PartnerRpc | null = defaultRpc(),
 ): Promise<RevokeResult> {
   if (!rpc) return { status: 'not_configured' };
   try {
-    const { error } = await rpc.rpc('revoke_partner');
+    const { error } = await rpc.rpc('revoke_partner', { p_invite_id: inviteId });
     if (error) {
       if (/no_partner_link/i.test(error.message)) return { status: 'no_partner_link' };
       return { status: classifyRpcError(error) };
@@ -269,38 +338,6 @@ export async function getLinkedOwnerId(
     if (error) return { status: classifyRpcError(error) };
     const ownerId = typeof data === 'string' && data ? data : null;
     return { status: 'ok', ownerId };
-  } catch (e) {
-    return { status: classifyRpcError(e) };
-  }
-}
-
-export interface OwnerLinkResult {
-  status: ServerStatus;
-  /** True when a partner has redeemed one of this owner's codes and hasn't been revoked. */
-  connected?: boolean;
-}
-
-/**
- * Owner-side: is a partner currently linked to this account? Reads the
- * owner's own partner_invites rows (RLS: owners read their own only) and
- * looks for a redeemed, unrevoked invite. Never throws.
- */
-export async function getOwnerLinkStatus(
-  rpc: PartnerRpc | null = defaultRpc(),
-): Promise<OwnerLinkResult> {
-  if (!rpc || !rpc.from) return { status: 'not_configured' };
-  try {
-    const { data, error } = await rpc.from('partner_invites').select('redeemed_by, revoked_at');
-    if (error) return { status: classifyRpcError(error) };
-    const rows = Array.isArray(data) ? data : [];
-    const connected = rows.some(
-      (r) =>
-        r !== null &&
-        typeof r === 'object' &&
-        (r as { redeemed_by?: unknown }).redeemed_by != null &&
-        (r as { revoked_at?: unknown }).revoked_at == null,
-    );
-    return { status: 'ok', connected };
   } catch (e) {
     return { status: classifyRpcError(e) };
   }

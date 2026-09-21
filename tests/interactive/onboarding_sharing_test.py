@@ -185,19 +185,29 @@ def main() -> None:
         cont.click()
 
         # ----------------------------------------------------------------
-        # B. Screen 2: her invite-code share surface (mockup 33).
+        # B. Screen 2: her partners list (mockup 33 rev C, named invites).
         # ----------------------------------------------------------------
         headline = pg.get_by_text("Share this journey with your partner?")
         check(headline.count() > 0, "b2 share screen headline renders")
-        # The backend migration isn't applied in the test env, so the code
-        # area degrades gracefully instead of crashing.
+        # The backend migration isn't applied in the test env, so the list
+        # degrades gracefully instead of crashing.
         check(
-            pg.get_by_test_id("share-code-not-ready").count() > 0,
-            "b2 code area degrades gracefully without the backend",
+            pg.get_by_test_id("partners-list").count() > 0,
+            "b2 partners list renders",
         )
         check(
-            pg.get_by_test_id("share-code-share").get_attribute("aria-disabled") == "true",
-            "b2 share stays disabled until a code exists",
+            "Your partners" in (pg.get_by_test_id("partners-list").inner_text() or ""),
+            "b2 partners list shows the Your partners header",
+        )
+        check(
+            pg.get_by_test_id("partners-list-not-ready").count() > 0,
+            "b2 list degrades gracefully without the backend",
+        )
+        # No system Share button anywhere on the named-invite surface —
+        # copy is the only handoff.
+        check(
+            pg.get_by_test_id("share-code-share").count() == 0,
+            "b2 no system Share button on the partners surface",
         )
         pg.get_by_test_id("onboarding-share-continue").click()
         check(
@@ -265,25 +275,32 @@ def main() -> None:
             "d1 partner role opens the code entry screen",
         )
         code_in = pg3.get_by_test_id("code-entry-input")
+        name_in = pg3.get_by_test_id("code-entry-name")
         verify = pg3.get_by_test_id("code-entry-verify")
         check(
             verify.get_attribute("aria-disabled") == "true",
-            "d1 verify is quiet until the code is complete",
+            "d1 verify is quiet until name and code are both complete",
         )
         # Auto-caps: typed lowercase becomes uppercase.
         code_in.fill("ab2kxd")
         pg3.wait_for_timeout(300)
         check(code_in.input_value() == "AB2KXD", "d2 code input auto-capitalizes")
         check(
-            verify.get_attribute("aria-disabled") != "true",
-            "d2 verify enables at 6 valid characters",
+            verify.get_attribute("aria-disabled") == "true",
+            "d2 code alone does not enable verify (name is required)",
         )
-        # The backend migration isn't applied: the warm invalid message
-        # shows - never a crash, never an expiry state.
+        name_in.fill("Sam")
+        pg3.wait_for_timeout(300)
+        check(
+            verify.get_attribute("aria-disabled") != "true",
+            "d2 verify enables once name and 6 valid characters are set",
+        )
+        # The stubbed backend returns invalid_code: the warm invalid message
+        # shows — never a crash, never an expiry state.
         verify.click()
         pg3.wait_for_timeout(3000)
         err = pg3.get_by_test_id("code-entry-error")
-        check(err.count() > 0, "d2 invalid code shows the warm error")
+        check(err.count() > 0, "d2 invalid pair shows the warm error")
         check(
             "didn't work" in (err.first.inner_text() or ""),
             "d2 error copy is the approved invalid-only message",
@@ -296,10 +313,11 @@ def main() -> None:
             "d2 back returns to the role split",
         )
 
-        # d3: a valid code connects; Done keeps the partner on the connected
+        # d3: a valid name+code connects; Done keeps the partner on the connected
         # screen (the resting state) — never the role split, never Week.
         pg3.get_by_test_id("role-split-partner").click()
         pg3.wait_for_timeout(500)
+        pg3.get_by_test_id("code-entry-name").fill("Sam")
         pg3.get_by_test_id("code-entry-input").fill("ABCDEF")
         pg3.get_by_test_id("code-entry-verify").click()
         pg3.get_by_test_id("partner-connected").wait_for(timeout=10000)
@@ -338,6 +356,9 @@ def main() -> None:
         pg.wait_for_timeout(500)
         code_in = pg.get_by_test_id("code-entry-input")
         verify = pg.get_by_test_id("code-entry-verify")
+        # Fill the name first so the checks below exercise the code gating,
+        # not the name gating.
+        pg.get_by_test_id("code-entry-name").fill("Sam")
         code_in.fill("AB0")
         pg.wait_for_timeout(300)
         check(
@@ -432,7 +453,7 @@ def main() -> None:
         check(pg.get_by_text("Nov 3, 1988").count() > 0, "f6 birthday persists")
         check(pg.get_by_text("Wren").count() > 0, "f6 baby's name persists")
 
-        # The You tab row opens the invite-code sheet (mockup 33).
+        # The You tab row opens the partners-list sheet (mockup 33 rev C).
         row = pg.get_by_test_id("partner-sharing-row")
         check(
             "Share with your partner" in (row.inner_text() or ""),
@@ -441,15 +462,19 @@ def main() -> None:
         row.click()
         try:
             pg.get_by_test_id("partner-sheet").wait_for(timeout=10000)
-            check(True, "f7 row opens the share-code sheet")
+            check(True, "f7 row opens the partners-list sheet")
         except Exception:
-            check(False, "f7 row opens the share-code sheet")
+            check(False, "f7 row opens the partners-list sheet")
         try:
-            pg.get_by_test_id("share-code-not-ready").wait_for(timeout=15000)
+            pg.get_by_test_id("partners-list-not-ready").wait_for(timeout=15000)
             check(True, "f7 sheet degrades gracefully without the backend")
         except Exception:
             check(False, "f7 sheet degrades gracefully without the backend")
-        pg.get_by_test_id("share-code-back").click()
+        check(
+            pg.get_by_test_id("partners-list-add").count() == 0,
+            "f7 no Add button while the backend isn't ready",
+        )
+        pg.get_by_test_id("partners-list-back").click()
         pg.wait_for_timeout(500)
 
         browser.close()

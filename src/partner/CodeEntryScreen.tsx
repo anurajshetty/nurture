@@ -1,16 +1,24 @@
 /**
- * Partner sharing — invite code entry (mockup 33, screen ②).
+ * Partner sharing — invite code entry (mockup 33 rev C).
  *
- * Auto-caps 6-char input; Verify is quiet until 6 chars, then coral.
- * Verify → "Checking…" → valid jumps to connected, invalid shows the
- * warm error. Only two outcomes exist — valid or invalid.
+ * Two required fields: NAME + CODE. Every code is a named invite, and
+ * redemption binds the name to the code (case-insensitive): a wrong name
+ * is invalid, exactly like a wrong code. Verify stays quiet until both
+ * are valid, then coral. Only two outcomes exist — valid or invalid —
+ * so both wrong-name and wrong-code show the same warm error copy.
  */
 
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Button } from '../components';
 import { colors, minTouch, radii, spacing, type as typeScale } from '../theme/tokens';
-import { isValidCodeFormat, normalizeCode, redeemInviteCode } from './inviteCodes';
+import {
+  isValidCodeFormat,
+  isValidName,
+  normalizeCode,
+  normalizeName,
+  redeemInvite,
+} from './inviteCodes';
 
 const INVALID_COPY = "That code didn't work — check it and try again.";
 const INVALID_SUB = 'Codes are 6 characters. If it keeps failing, ask for a fresh one.';
@@ -23,25 +31,27 @@ export default function CodeEntryScreen({
   onBack: () => void;
   onVerified: () => void;
 }) {
+  const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorSub, setErrorSub] = useState<string | null>(null);
 
-  const ready = isValidCodeFormat(code);
+  const ready = isValidName(name) && isValidCodeFormat(code);
 
   const verify = async () => {
     if (!ready || checking) return;
     setChecking(true);
     setError(null);
     setErrorSub(null);
-    const result = await redeemInviteCode(code);
+    const result = await redeemInvite(code, name);
     setChecking(false);
     if (result.status === 'ok') {
       onVerified();
       return;
     }
     if (result.status === 'invalid_code') {
+      // Wrong name or wrong code — same warm copy, always.
       setError(INVALID_COPY);
       setErrorSub(INVALID_SUB);
       return;
@@ -67,12 +77,30 @@ export default function CodeEntryScreen({
         >
           <Text style={styles.backGlyph}>‹</Text>
         </Pressable>
-        <Text style={styles.backTitle}>Enter your invite code</Text>
+        <Text style={styles.backTitle}>Enter your invite</Text>
       </View>
 
       <Text style={styles.note}>
-        You'll find it in your partner's Willow, under <Text style={styles.bold}>You → Share with your partner</Text>.
+        Your partner invited you by name. Enter the <Text style={styles.bold}>name</Text> and the{' '}
+        <Text style={styles.bold}>6-character code</Text> they shared with you.
       </Text>
+
+      <Text style={styles.fieldLabel}>Your name</Text>
+      <TextInput
+        value={name}
+        onChangeText={(t) => {
+          setName(t);
+          setError(null);
+          setErrorSub(null);
+        }}
+        placeholder="The name on your invite"
+        placeholderTextColor={colors.muted}
+        autoCapitalize="words"
+        autoCorrect={false}
+        style={[styles.input, error ? styles.inputInvalid : null]}
+        accessibilityLabel="Your name"
+        testID="code-entry-name"
+      />
 
       <Text style={styles.fieldLabel}>Invite code</Text>
       <TextInput
@@ -88,7 +116,7 @@ export default function CodeEntryScreen({
         autoCorrect={false}
         spellCheck={false}
         maxLength={6}
-        style={[styles.codein, error ? styles.codeinInvalid : null]}
+        style={[styles.codein, error ? styles.inputInvalid : null]}
         accessibilityLabel="Invite code"
         testID="code-entry-input"
       />
@@ -133,6 +161,16 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxl,
     marginBottom: spacing.sm,
   },
+  input: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.card,
+    paddingHorizontal: spacing.lg,
+    height: 60,
+    fontSize: 18,
+    color: colors.ink,
+  },
   codein: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -146,7 +184,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: colors.ink,
   },
-  codeinInvalid: { borderColor: colors.coralDeep, backgroundColor: '#FDF4EF' },
+  inputInvalid: { borderColor: colors.coralDeep, backgroundColor: '#FDF4EF' },
   err: { ...typeScale.body, color: colors.coralDeep, fontWeight: '600', marginTop: spacing.md, lineHeight: 21 },
   errSub: { ...typeScale.subhead, color: colors.muted, marginTop: 4, lineHeight: 19 },
   spacer: { flex: 1, minHeight: spacing.lg },
