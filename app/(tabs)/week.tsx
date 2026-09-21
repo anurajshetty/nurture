@@ -40,6 +40,7 @@ import {
 } from '../../src/sync/store';
 import { addDaysISO, todayISO } from '../../src/onboarding/dates';
 import { sizeArtSlot, randomSizeArtSlotIndex, SizeArtSlot } from '../../src/week/sizeArt';
+import { PILL_DOCK_BACKGROUND, pillDockHeight } from '../../src/week/pillDock';
 import type { Pregnancy } from '../../src/lib/types';
 import AppointmentEditor from '../../src/logs/AppointmentEditor';
 import { AskFab } from '../../src/aiChat/AskFab';
@@ -752,9 +753,15 @@ export default function WeekScreen() {
           floating OVER it — body text can never slide under the pills,
           so highlight sentences are never visually cut mid-word. The
           pills keep their approved look, size, and bottom-right
-          position; only the overlap is gone. */}
+          position; only the overlap is gone.
+          The dock background is transparent (src/week/pillDock.ts) —
+          the page cream shows through, no solid color block behind the
+          pills (Anuraj caught the fill on his iPhone, Sept 20 2026). */}
       <View
-        style={[styles.pillDock, { height: showKicksPill ? 160 : 96 }]}
+        style={[
+          { backgroundColor: PILL_DOCK_BACKGROUND },
+          { height: pillDockHeight(showKicksPill) },
+        ]}
         testID="week-pill-dock"
       >
         <AskFab onPress={openAsk} />
@@ -795,16 +802,6 @@ const styles = StyleSheet.create({
    *  ask pill. No briefing UI changed. */
   askRoot: {
     flex: 1,
-  },
-  /** Pill dock (Anuraj, Sept 20, 2026): reserved layout space below the
-   *  scroll content for the Ask/kicks pills. The pills keep their
-   *  approved floating look and bottom-right position, but body text
-   *  can never slide under them — highlight sentences are never
-   *  visually cut mid-word. 160pt fits both pills (kicks at bottom:86
-   *  + 56 tall, ask at bottom:18 + 56 tall) with breathing room; 96pt
-   *  fits the Ask pill alone. */
-  pillDock: {
-    backgroundColor: colors.bg,
   },
   center: {
     flex: 1,

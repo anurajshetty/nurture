@@ -120,6 +120,22 @@ def main():
             check("content updated" in ft.lower(), "footer says content updated")
             check("reviewed" not in ft.lower(), "footer does NOT claim reviewed")
 
+        # Pill dock regression guard (Anuraj caught it on his iPhone, Sept 20,
+        # 2026): the reserved week-pill-dock below the scroll content must
+        # never carry a visible fill — the pills float over the page with the
+        # page cream showing through. Only the reserved height may exist.
+        dock = page.locator('[data-testid="week-pill-dock"]')
+        check(dock.count() > 0, "pill dock present")
+        if dock.count() > 0:
+            dock_bg = dock.evaluate("el => getComputedStyle(el).backgroundColor")
+            check(dock_bg in ("rgba(0, 0, 0, 0)", "transparent"),
+                  f"pill dock background transparent (got {dock_bg})")
+            dock_h = dock.evaluate("el => el.getBoundingClientRect().height")
+            check(dock_h > 0, f"pill dock keeps reserved height ({dock_h:.0f}px)")
+            # The pills themselves still render inside the dock.
+            check(page.locator('[data-testid="ask-fab"]').count() > 0,
+                  "ask pill present")
+
         # 2. Week navigation (date-relative: the current displayed week
         # depends on today, so read it from the page instead of
         # hardcoding — the hardcoded "Week 37" broke on Sept 20, 2026

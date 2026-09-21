@@ -115,5 +115,8 @@ npx tsc --ignoreConfig tests/labor-breathing.test.ts src/labor/breathing/pattern
 OUT=/tmp/nurture-labor-native-tests
 npx tsc --ignoreConfig tests/labor-native-gaps.test.ts src/labor/keepAwake.ts src/labor/nativeChime.ts src/labor/breathing/tone.ts src/labor/pelvicfloor/device.ts src/lib/audio.d.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "labor_native_gaps" node $OUT/tests/labor-native-gaps.test.js
 
+OUT=/tmp/nurture-pilldock-tests
+npx tsc --ignoreConfig tests/week_pill_dock.test.ts src/week/pillDock.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "week_pill_dock" node $OUT/tests/week_pill_dock.test.js
+
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]
