@@ -40,7 +40,7 @@ import {
 } from '../../src/sync/store';
 import { addDaysISO, todayISO } from '../../src/onboarding/dates';
 import { sizeArtSlot, randomSizeArtSlotIndex, SizeArtSlot } from '../../src/week/sizeArt';
-import { PILL_DOCK_BACKGROUND, pillDockHeight } from '../../src/week/pillDock';
+import { PILL_DOCK_BACKGROUND, PILL_DOCK_PARENT_BACKGROUND, pillDockHeight } from '../../src/week/pillDock';
 import type { Pregnancy } from '../../src/lib/types';
 import AppointmentEditor from '../../src/logs/AppointmentEditor';
 import { AskFab } from '../../src/aiChat/AskFab';
@@ -438,7 +438,7 @@ export default function WeekScreen() {
   };
 
   return (
-    <View style={styles.askRoot}>
+    <View style={styles.askRoot} testID="week-root">
     <Screen bottomPadding={120} testID="week-screen">
       {/* Week navigation */}
       <View style={styles.topbar}>
@@ -754,9 +754,13 @@ export default function WeekScreen() {
           so highlight sentences are never visually cut mid-word. The
           pills keep their approved look, size, and bottom-right
           position; only the overlap is gone.
-          The dock background is transparent (src/week/pillDock.ts) —
-          the page cream shows through, no solid color block behind the
-          pills (Anuraj caught the fill on his iPhone, Sept 20 2026). */}
+          The dock background is transparent (src/week/pillDock.ts) and
+          the screen root behind it carries the page cream
+          (PILL_DOCK_PARENT_BACKGROUND) — the dock sits OUTSIDE the
+          Screen scroll container, and on web the tab slot behind it is
+          light gray, so transparent alone revealed a gray band (caught
+          by Anuraj on web, Sept 20 2026). Cream root + transparent dock
+          = no band, no block, no seam. */}
       <View
         style={[
           { backgroundColor: PILL_DOCK_BACKGROUND },
@@ -799,9 +803,15 @@ export default function WeekScreen() {
 const styles = StyleSheet.create({
   /** Ask Willow entry (Anuraj, Sept 20, 2026): the only structural
    *  addition to the Week screen — a positioning root for the floating
-   *  ask pill. No briefing UI changed. */
+   *  ask pill. No briefing UI changed.
+   *  The root carries the page cream (PILL_DOCK_PARENT_BACKGROUND):
+   *  the pill dock below the scroll content is transparent, and on web
+   *  the tab slot behind this root is light gray — without the cream
+   *  root the transparent dock revealed a gray band (Anuraj, Sept 20
+   *  2026). Same cream as Screen, so no seam on either platform. */
   askRoot: {
     flex: 1,
+    backgroundColor: PILL_DOCK_PARENT_BACKGROUND,
   },
   center: {
     flex: 1,

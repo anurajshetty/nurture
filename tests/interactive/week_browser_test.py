@@ -120,10 +120,16 @@ def main():
             check("content updated" in ft.lower(), "footer says content updated")
             check("reviewed" not in ft.lower(), "footer does NOT claim reviewed")
 
-        # Pill dock regression guard (Anuraj caught it on his iPhone, Sept 20,
-        # 2026): the reserved week-pill-dock below the scroll content must
-        # never carry a visible fill — the pills float over the page with the
-        # page cream showing through. Only the reserved height may exist.
+        # Pill dock regression guard, corrected round 2 (Anuraj caught it
+        # on web, Sept 20, 2026 — AFTER the transparent fix shipped): the
+        # reserved week-pill-dock below the scroll content sits OUTSIDE
+        # the Screen scroll container, directly on the tab screen root,
+        # whose platform default on web is light gray (#f2f2f2). A merely
+        # transparent dock revealed a visible gray band. The corrected
+        # rule: the dock div stays transparent AND the screen root behind
+        # it (week-root) must render the page cream rgb(250, 246, 240) —
+        # the dock area is cream-indistinguishable from the page. Only
+        # the reserved height may exist.
         dock = page.locator('[data-testid="week-pill-dock"]')
         check(dock.count() > 0, "pill dock present")
         if dock.count() > 0:
@@ -135,6 +141,14 @@ def main():
             # The pills themselves still render inside the dock.
             check(page.locator('[data-testid="ask-fab"]').count() > 0,
                   "ask pill present")
+        # The dock AREA (screen root behind the transparent dock) must be
+        # the page cream — not the web tab slot's light gray, not white.
+        root = page.locator('[data-testid="week-root"]')
+        check(root.count() > 0, "week screen root present")
+        if root.count() > 0:
+            root_bg = root.evaluate("el => getComputedStyle(el).backgroundColor")
+            check(root_bg == "rgb(250, 246, 240)",
+                  f"dock area renders page cream (got {root_bg})")
 
         # 2. Week navigation (date-relative: the current displayed week
         # depends on today, so read it from the page instead of
