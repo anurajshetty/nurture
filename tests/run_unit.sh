@@ -50,6 +50,13 @@ npx tsc --ignoreConfig tests/epic3_filters.test.ts src/timeline/TimelineFilters.
 OUT=/tmp/nurture-tests-delete
 tsc1 tests/delete_cards.test.ts src/timeline/deleteCopy.ts src/lib/types.ts && run "delete_cards" node $OUT/tests/delete_cards.test.js
 
+# Labor activities in the log feed (mockup 32, Anuraj approved Sept 21, 2026):
+# card copy, one-card-per-visit/idempotency rules, delete copy, All+Logs
+# filter mapping. Compiles feed.ts + deleteCopy + TimelineFilters; the
+# react-native stub in the test keeps this pure-node.
+OUT=/tmp/nurture-tests-laborfeed
+npx tsc --ignoreConfig tests/labor_feed.test.ts src/labor/feed.ts src/timeline/deleteCopy.ts src/timeline/TimelineFilters.tsx src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "labor_feed" env NODE_PATH="$PWD/node_modules" node $OUT/tests/labor_feed.test.js
+
 OUT=/tmp/nurture-lookback-tests
 npx tsc --ignoreConfig tests/epic3_lookback.test.ts src/timeline/lookback.ts src/onboarding/dates.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "epic3_lookback" node $OUT/tests/epic3_lookback.test.js
 

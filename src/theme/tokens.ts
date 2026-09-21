@@ -85,6 +85,7 @@ export const eventDots = {
   weight: colors.muted,
   appointment: colors.lilac,
   kick: colors.gold,
+  activity: colors.sage,
   milestone: colors.gold,
   question: colors.blue,
   file: colors.muted,

@@ -32,6 +32,8 @@ import {
 import { useFocusEffect, useRouter } from 'expo-router';
 import { BottomSheet, Card, Screen } from '../../src/components';
 import { kvGet, kvSet } from '../../src/lib/db';
+import { newVisitEntries } from '../../src/labor/feed';
+import { saveContractionSession } from '../../src/labor/feedStore';
 import {
   colors,
   minTouch,
@@ -434,6 +436,31 @@ export default function ContractionTimerScreen() {
   };
 
   useEffect(() => stopTick, []);
+
+  /**
+   * Labor feed (mockup 32, Anuraj approved Sept 21, 2026): ONE feed card
+   * per timing visit. Snapshot the contraction ids at mount; on unmount
+   * (leaving the timer), any id not in the snapshot was timed during
+   * this visit and becomes a single summary card. Zero new contractions
+   * → no card. Edits and deletions of older entries never create cards.
+   * The store dedupes on the session key, so this is safe to re-run.
+   */
+  useEffect(() => {
+    let baseline: Set<string>;
+    try {
+      baseline = new Set(loadContractions().map((e) => e.id));
+    } catch {
+      baseline = new Set();
+    }
+    return () => {
+      try {
+        const fresh = newVisitEntries(baseline, loadContractions());
+        if (fresh.length > 0) saveContractionSession(fresh);
+      } catch {
+        /* the feed card must never break navigation */
+      }
+    };
+  }, []);
 
   const startTiming = () => {
     stopTick();

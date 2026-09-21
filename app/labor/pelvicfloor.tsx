@@ -42,6 +42,7 @@ import {
   restartSession,
   startSession,
   tickSession,
+  totalSessionSecs,
   type DotState,
   type ExerciseId,
   type SessionState,
@@ -49,6 +50,7 @@ import {
 import { ExerciseTileIcon } from '../../src/labor/pelvicfloor/icons';
 import { playSoftTone } from '../../src/labor/pelvicfloor/device';
 import { requestScreenWakeLock } from '../../src/labor/keepAwake';
+import { savePelvicFloorSession } from '../../src/labor/feedStore';
 
 /** Mockup --body (#5C554D); tokens carry ink/muted but no body color. */
 const BODY = '#5C554D';
@@ -99,6 +101,12 @@ export default function PelvicFloorScreen() {
   const [toneOn, setToneOn] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Labor feed (mockup 32): minted when a guided session begins and
+   * consumed exactly once when the "well done" state is reached — even
+   * if the tick updater re-runs. The store dedupes on it as well.
+   */
+  const doneKeyRef = useRef<string | null>(null);
   const pacerAnim = useRef(new Animated.Value(0)).current;
   const toneOnRef = useRef(toneOn);
   toneOnRef.current = toneOn;
@@ -149,6 +157,7 @@ export default function PelvicFloorScreen() {
   const beginSession = useCallback(
     (s: SessionState) => {
       stopTimers();
+      doneKeyRef.current = `pelvicfloor-${s.config.id}-${Date.now()}`;
       const phase = currentPhase(s);
       setSession(s);
       setView('exercise');
@@ -165,6 +174,25 @@ export default function PelvicFloorScreen() {
             if (intervalRef.current) {
               clearInterval(intervalRef.current);
               intervalRef.current = null;
+            }
+            // Labor feed (mockup 32, Anuraj approved Sept 21, 2026): one
+            // card at the "well done" state, before the 2200ms
+            // auto-return. The key is consumed once; the store dedupes
+            // on it, so restarts and double fires stay one card.
+            const doneKey = doneKeyRef.current;
+            if (doneKey) {
+              doneKeyRef.current = null;
+              try {
+                savePelvicFloorSession({
+                  sessionKey: doneKey,
+                  exerciseId: next.config.id,
+                  exerciseTitle: next.config.title,
+                  sets: next.config.rounds,
+                  durationSec: totalSessionSecs(next.config),
+                });
+              } catch {
+                /* the feed card must never break the done state */
+              }
             }
             doneTimerRef.current = setTimeout(() => {
               releaseWakeLock();

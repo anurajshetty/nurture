@@ -69,6 +69,13 @@ nodeModule._load = function (request: string, ...rest: any[]) {
       deactivateKeepAwake: async () => {},
     };
   }
+  // contractions.tsx now pulls the feed store (mockup 32: finished
+  // activities auto-save), which reaches sync/store → expo-crypto —
+  // stub it; the timer math never touches it.
+  if (request === 'expo-crypto') {
+    let n = 0;
+    return { randomUUID: () => `test-uuid-${++n}` };
+  }
   return origLoad.call(this, request, ...rest);
 };
 

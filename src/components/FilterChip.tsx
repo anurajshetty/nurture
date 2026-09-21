@@ -29,6 +29,7 @@ const GLYPHS: Record<FilterKind, string> = {
   weight: '◍',
   appointment: '▤',
   kick: '✦',
+  activity: '❀',
   milestone: '★',
   question: '?',
   file: '≣',

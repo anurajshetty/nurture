@@ -23,6 +23,7 @@ import { type EventAttachment, type LocalEvent } from '../lib/types';
 import { getEvent } from '../sync/store';
 import { readQuestions } from '../plan/questions';
 import KickFeedSection from '../kicks/KickFeedSection';
+import LaborFeedSection from '../labor/LaborFeedSection';
 import { deleteCopyFor } from '../timeline/deleteCopy';
 import {
   readReportSummaryState,
@@ -49,6 +50,9 @@ const TYPE_META: Record<string, TypeMeta> = {
   appointment: { label: 'Appointment', glyph: '▦', dot: 'appointment' },
   weight: { label: 'Weight', glyph: '◍', dot: 'weight' },
   kick_session: { label: 'Kick counting', glyph: '✦', dot: 'kick' },
+  // Labor activities (mockup 32 rev 2 — Anuraj approved Sept 21, 2026):
+  // ONE unified card, kicker "Activity", activity named inside the card.
+  activity: { label: 'Activity', glyph: '❀', dot: 'activity' },
   question: { label: 'Question', glyph: '◉', dot: 'question' },
 };
 
@@ -312,6 +316,10 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete }: E
   const isReport = event.type === 'report';
   const isAppointment = event.type === 'appointment';
   const isKickSession = event.type === 'kick_session';
+  // Labor activities render their own section (mockup 32 rev 2): the
+  // unified "Activity" card names the activity inside, plus the provider
+  // line on contraction-timing cards only.
+  const isLaborCard = event.type === 'activity';
   const appointmentQuestions = isAppointment ? readQuestions(event) : [];
   const appointmentPressable = isAppointment && !!onAppointmentPress;
   // Mockup 30: the delete × renders on EVERY feed card type when the
@@ -385,6 +393,7 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete }: E
       {/* Kick sessions render their own section (mockup 23): session
           line, strength note, and the deviation-only appointment link. */}
       {isKickSession ? <KickFeedSection event={event} /> : null}
+      {isLaborCard ? <LaborFeedSection event={event} /> : null}
       {!isReport && text ? <Text style={styles.text}>{text}</Text> : null}
       {chips.length > 0 ? (
         <View style={styles.chipRow}>

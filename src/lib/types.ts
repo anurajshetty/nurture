@@ -14,6 +14,10 @@ export type EventType =
   | 'photo'
   | 'appointment'
   | 'kick_session'
+  // Labor readiness (Willow, mockup 32 rev 2 — Anuraj approved Sept 21,
+  // 2026): finished activities land in the log feed as ONE unified
+  // 'activity' card (the card names the activity inside).
+  | 'activity'
   | 'milestone'
   | 'question'
   | 'file'

@@ -12,9 +12,10 @@ import FilterChip, { type FilterKind } from '../components/FilterChip';
 import { spacing } from '../theme/tokens';
 import type { LocalEvent } from '../lib/types';
 
-/** The filter buckets (Anuraj Sept 2026, day-groups mockup: exactly four —
- * All · Reports · Appointments · Logs). */
-export type FilterValue = 'all' | 'reports' | 'appointments' | 'logs';
+/** The filter buckets (Anuraj Sept 2026, day-groups mockup: All · Reports ·
+ * Appointments · Logs; mockup 32 rev 2 adds the Activity filter chip,
+ * positioned right after Logs). */
+export type FilterValue = 'all' | 'reports' | 'appointments' | 'logs' | 'activity';
 
 /**
  * A health-document upload: ReportSheet always saves type 'report' (the entry
@@ -36,6 +37,9 @@ export function isReportEvent(event: LocalEvent): boolean {
  * - 'appointments'→ type 'appointment'
  * - 'logs'        → the journal core: everything she logged herself that
  *                   isn't a report or an appointment
+ * - 'activity'    → labor activities ONLY (the unified Activity cards,
+ *                   mockup 32 rev 2). Kick sessions keep their own card
+ *                   identity and are NOT included.
  */
 export function matchesFilter(event: LocalEvent, filter: FilterValue): boolean {
   switch (filter) {
@@ -47,6 +51,8 @@ export function matchesFilter(event: LocalEvent, filter: FilterValue): boolean {
       return event.type === 'appointment';
     case 'logs':
       return !isReportEvent(event) && event.type !== 'appointment';
+    case 'activity':
+      return event.type === 'activity';
     default:
       return false;
   }
@@ -58,12 +64,14 @@ type ChipDef = {
   label: string;
 };
 
-/** Row order (Anuraj Sept 2026, day-groups mockup): All · Reports · Appointments · Logs. */
+/** Row order (Anuraj Sept 2026, day-groups mockup + mockup 32 rev 2:
+ * All · Reports · Appointments · Logs · Activity). */
 const CHIPS: ChipDef[] = [
   { value: 'all', kind: 'all', label: 'All' },
   { value: 'reports', kind: 'file', label: 'Reports' },
   { value: 'appointments', kind: 'appointment', label: 'Appointments' },
   { value: 'logs', kind: 'note', label: 'Logs' },
+  { value: 'activity', kind: 'activity', label: 'Activity' },
 ];
 
 type TimelineFiltersProps = {

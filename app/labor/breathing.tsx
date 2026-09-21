@@ -24,6 +24,7 @@ import {
   PRACTICE_NOTE_BODY,
   PRACTICE_NOTE_LEAD,
   buildSeq,
+  roundDurationMs,
   type PatternId,
 } from '../../src/labor/breathing/patterns';
 import {
@@ -35,6 +36,7 @@ import {
   WindIcon,
 } from '../../src/labor/breathing/icons';
 import { colors, fontDisplay, minTouch, radii, shadow, spacing, type as typeScale } from '../../src/theme/tokens';
+import { saveBreathingRound } from '../../src/labor/feedStore';
 
 const PATTERN_ICONS: Record<PatternId, (props: { size?: number }) => ReactElement> = {
   cleanse: WindIcon,
@@ -61,6 +63,27 @@ export default function LaborBreathingScreen() {
     setView('pacer');
   };
 
+  /**
+   * Labor feed (mockup 32, Anuraj approved Sept 21, 2026): one feed card
+   * per completed round, saved automatically when the pacer finishes.
+   * Pacer fires onDone exactly once (doneFired guard); the store's
+   * sessionKey dedupe makes even a double fire a no-op.
+   */
+  const handleRoundDone = () => {
+    try {
+      saveBreathingRound({
+        patternId,
+        patternName: PATTERNS[patternId].name,
+        startedAtMs: round.startedAtMs,
+        durationSec: roundDurationMs(round.seq) / 1000,
+        rounds: 1,
+      });
+    } catch {
+      /* the feed card must never break the done view */
+    }
+    setView('done');
+  };
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {view === 'pacer' ? (
@@ -69,7 +92,7 @@ export default function LaborBreathingScreen() {
           seq={round.seq}
           startedAtMs={round.startedAtMs}
           onExit={() => setView('list')}
-          onDone={() => setView('done')}
+          onDone={handleRoundDone}
         />
       ) : view === 'done' ? (
         <DoneView patternId={patternId} onAgain={() => startRound(patternId)} onBack={() => setView('list')} />
