@@ -43,8 +43,17 @@
 -- Apply with the Supabase CLI (`supabase db push`) or paste into the
 -- dashboard SQL editor. Idempotent: safe to re-run.
 --
--- NOTE: this migration was never applied to production — it is repo-only
--- until Anuraj reviews and approves the production apply.
+-- NOTE (Sept 21, 2026, corrected): this migration HAS been applied to the
+-- production DB at least once — production already holds a partner_invites
+-- table from an earlier experiment. The file stays repo-only going forward
+-- until Anuraj reviews and approves any further production apply.
+--
+-- NOTE (Sept 21, 2026): the first production run failed with
+-- "column code does not exist" because production already held a
+-- partner_invites table from an earlier experiment, WITHOUT the `code`
+-- column — so CREATE TABLE IF NOT EXISTS was a no-op and the index build
+-- failed. The ALTERs below complete whatever table exists, so this script
+-- is safe on a fresh DB, on the old experiment table, and on re-runs.
 
 -- ---------------------------------------------------------------------------
 -- 1. Table
@@ -60,10 +69,58 @@ CREATE TABLE IF NOT EXISTS partner_invites (
   revoked_at    TIMESTAMPTZ
 );
 
+-- Complete a pre-existing table that is missing any of these columns
+-- (the old experiment table had none of the code/owner columns).
+ALTER TABLE partner_invites ADD COLUMN IF NOT EXISTS id UUID DEFAULT gen_random_uuid();
+ALTER TABLE partner_invites ADD COLUMN IF NOT EXISTS code TEXT;
+ALTER TABLE partner_invites ADD COLUMN IF NOT EXISTS owner_user_id UUID;
+ALTER TABLE partner_invites ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE partner_invites ADD COLUMN IF NOT EXISTS redeemed_by UUID;
+ALTER TABLE partner_invites ADD COLUMN IF NOT EXISTS redeemed_at TIMESTAMPTZ;
+ALTER TABLE partner_invites ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
+
+-- Legacy experiment leftovers: production's old table carried extra NOT NULL
+-- columns with no default (e.g. token_hash) that the named-invite INSERT in
+-- create_partner_invite() never populates — the INSERT fails with
+-- "null value in column token_hash violates not-null constraint".
+-- Relax any such column that is NOT part of the named-invite contract, so
+-- legacy tables keep working. Idempotent: re-runs find nothing to sweep.
+DO $$
+DECLARE
+  legacy_col TEXT;
+BEGIN
+  FOR legacy_col IN
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'partner_invites'
+      AND is_nullable = 'NO'
+      AND column_default IS NULL
+      AND column_name NOT IN ('id', 'code', 'owner_user_id', 'created_at', 'partner_name')
+  LOOP
+    EXECUTE format(
+      'ALTER TABLE public.partner_invites ALTER COLUMN %I DROP NOT NULL',
+      legacy_col
+    );
+  END LOOP;
+END $$;
+
+-- Primary key + code uniqueness, added only if not already present.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.partner_invites'::regclass AND contype = 'p'
+  ) THEN
+    ALTER TABLE partner_invites ADD PRIMARY KEY (id);
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS partner_invites_code_unique_idx ON partner_invites (code);
+
 -- Named invites (rev C): every code is created for a named partner.
 ALTER TABLE partner_invites ADD COLUMN IF NOT EXISTS partner_name TEXT;
--- Backfill for rows predating the column (none expected in production —
--- this migration never shipped — but re-runs must stay safe).
+-- Backfill for rows predating the column (re-runs must stay safe).
 UPDATE partner_invites SET partner_name = 'Partner' WHERE partner_name IS NULL;
 ALTER TABLE partner_invites ALTER COLUMN partner_name SET NOT NULL;
 ALTER TABLE partner_invites ALTER COLUMN partner_name SET DEFAULT 'Partner';

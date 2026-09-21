@@ -20,6 +20,9 @@ auth.uid() (Supabase's JWT reader) backed by a session setting, then proves:
   9. RLS isolation: partner reads only the linked owner's shared/export
      events (never private, never another owner's, never deleted)
  10. create requires a name ('name_required'); empty name never creates a row
+ 11. legacy experiment table with NOT NULL token_hash (no default):
+     the migration relaxes it so create_partner_invite() works;
+     contract columns keep NOT NULL
 
 Usage: python3 supabase/tests/test_partner_invites.py
 Requires: pip install pgserver "psycopg[binary]"
@@ -31,7 +34,7 @@ import uuid
 
 import pgserver
 from psycopg import connect
-from psycopg.errors import RaiseException
+from psycopg.errors import Error as PgError
 
 REPO = "/home/hatch/workspace/nurture-v12"
 MIGRATION = f"{REPO}/supabase/migrations/20260921120000_partner_invites.sql"
@@ -59,11 +62,16 @@ def as_user(conn, uid):
 
 
 def err_code(fn_call, *args):
-    """Run fn_call(*args); return ('ok', value) or ('err', machine error code)."""
+    """Run fn_call(*args); return ('ok', value) or ('err', machine error code).
+
+    Catches every psycopg Error (not just RAISE EXCEPTION) so schema-level
+    failures like not-null violations report as ('err', …) instead of
+    aborting the suite — the legacy token_hash regression relies on this.
+    """
     try:
         row = fn_call(*args)
         return ("ok", row)
-    except RaiseException as e:
+    except PgError as e:
         m = re.search(r"(\w+)$", str(e).strip().split("\n")[0])
         return ("err", m.group(1) if m else str(e))
 
@@ -317,7 +325,7 @@ def main():
     try:
         conn.execute("SELECT * FROM create_partner_invite(%s)", ("X",)).fetchone()
         check("create without auth rejected", False)
-    except RaiseException as e:
+    except PgError as e:
         check("create without auth rejected", "not_authenticated" in str(e))
 
     # --- idempotent re-run of the whole migration ------------------------------
@@ -327,6 +335,45 @@ def main():
         check("migration is idempotent", True)
     except Exception as e:
         check("migration is idempotent", False, str(e)[:120])
+
+    # --- 10. legacy experiment table: NOT NULL token_hash, no default -------
+    # Production's old table carried a legacy NOT NULL token_hash column that
+    # the named-invite INSERT never populates. The migration must relax it;
+    # without the sweep, create_partner_invite() fails with a not-null
+    # violation (reproduced against production, Sept 21 2026).
+    print("legacy table sweep:")
+    conn.execute("DROP TABLE partner_invites")
+    # Faithful to production's old experiment table: it carried a legacy
+    # NOT NULL token_hash column (no default) and no code/owner columns;
+    # id already has a default there (the production failure named
+    # token_hash, never id).
+    conn.execute("""
+        CREATE TABLE partner_invites (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          token_hash TEXT NOT NULL,
+          legacy_note TEXT
+        )""")
+    try:
+        conn.execute(open(MIGRATION).read())
+        check("migration applies over the legacy experiment table", True)
+    except Exception as e:
+        check("migration applies over the legacy experiment table", False,
+              str(e)[:120])
+    as_user(conn, OWNER_A)
+    status, row = call_create(conn, "Legacy")
+    check("create works despite legacy token_hash",
+          status == "ok" and len(row[0]) == 6, f"{status}:{row}")
+    nullable = conn.execute(
+        "SELECT is_nullable FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = 'partner_invites' "
+        "AND column_name = 'token_hash'").fetchone()[0]
+    check("legacy token_hash relaxed to nullable", nullable == "YES", nullable)
+    notnull = {r[0] for r in conn.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = 'partner_invites' "
+        "AND is_nullable = 'NO'").fetchall()}
+    check("contract column partner_name keeps NOT NULL",
+          "partner_name" in notnull, sorted(notnull))
 
     print(f"\n{passed} passed, {failed} failed")
     srv.cleanup()
