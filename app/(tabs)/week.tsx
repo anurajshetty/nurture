@@ -40,7 +40,7 @@ import {
 } from '../../src/sync/store';
 import { addDaysISO, todayISO } from '../../src/onboarding/dates';
 import { sizeArtSlot, randomSizeArtSlotIndex, SizeArtSlot } from '../../src/week/sizeArt';
-import { PILL_DOCK_BACKGROUND, PILL_DOCK_PARENT_BACKGROUND, pillDockHeight } from '../../src/week/pillDock';
+import { PILL_DOCK_OVERLAY_STYLE, PILL_DOCK_PARENT_BACKGROUND, pillDockHeight } from '../../src/week/pillDock';
 import type { Pregnancy } from '../../src/lib/types';
 import AppointmentEditor from '../../src/logs/AppointmentEditor';
 import { AskFab } from '../../src/aiChat/AskFab';
@@ -439,7 +439,13 @@ export default function WeekScreen() {
 
   return (
     <View style={styles.askRoot} testID="week-root">
-    <Screen bottomPadding={120} testID="week-screen">
+    {/* Reserve inside the scroll content (Anuraj, Sept 20, 2026,
+        round 3): pillDockHeight keeps 160/96pt of clearance above the
+        floating pills at max scroll, so body text is never permanently
+        hidden under them. The reserve scrolls WITH the content — it is
+        not a static in-flow zone below the Screen (that structure
+        sliced white cards at a mid-page clip edge = the "solid band"). */}
+    <Screen bottomPadding={pillDockHeight(showKicksPill)} testID="week-screen">
       {/* Week navigation */}
       <View style={styles.topbar}>
         <Pressable
@@ -748,26 +754,22 @@ export default function WeekScreen() {
         Sep 2026
       </Text>
     </Screen>
-      {/* Pill dock (Anuraj, Sept 20, 2026): the Ask/kicks pills live in
-          reserved layout space below the scroll content instead of
-          floating OVER it — body text can never slide under the pills,
-          so highlight sentences are never visually cut mid-word. The
-          pills keep their approved look, size, and bottom-right
-          position; only the overlap is gone.
-          The dock background is transparent (src/week/pillDock.ts) and
-          the screen root behind it carries the page cream
-          (PILL_DOCK_PARENT_BACKGROUND) — the dock sits OUTSIDE the
-          Screen scroll container, and on web the tab slot behind it is
-          light gray, so transparent alone revealed a gray band (caught
-          by Anuraj on web, Sept 20 2026). Cream root + transparent dock
-          = no band, no block, no seam. */}
-      <View
-        style={[
-          { backgroundColor: PILL_DOCK_BACKGROUND },
-          { height: pillDockHeight(showKicksPill) },
-        ]}
-        testID="week-pill-dock"
-      >
+      {/* Pill overlay (Anuraj, Sept 20, 2026, round 3): the Ask/kicks
+          pills float OVER the Week screen, pinned bottom-right. This is
+          an ABSOLUTE overlay with zero in-flow footprint — it constrains
+          no layout height, so the Screen scrolls full height to the tab
+          bar. Round 3 root cause: this used to be an in-flow 160/96pt
+          sibling below the Screen, which ended the scroll viewport
+          mid-page — white cards hard-clipped at that edge above a
+          static cream zone, reading as a "solid band" on iPhone even
+          though every color was correct. The 160/96pt reserve now lives
+          INSIDE the scroll content (Screen bottomPadding), so at max
+          scroll the last content rests above the pills over continuous
+          cream. The FABs keep their absolute bottom-right placement
+          inside this wrapper; the wrapper itself has no area, so it can
+          never swallow scrolls or taps on any platform (no
+          pointerEvents="box-none": invalid CSS on web). */}
+      <View style={styles.pillDockOverlay} testID="week-pill-dock">
         <AskFab onPress={openAsk} />
         {showKicksPill ? (
           <KicksFab onPress={() => setCountingVisible(true)} />
@@ -805,13 +807,21 @@ const styles = StyleSheet.create({
    *  addition to the Week screen — a positioning root for the floating
    *  ask pill. No briefing UI changed.
    *  The root carries the page cream (PILL_DOCK_PARENT_BACKGROUND):
-   *  the pill dock below the scroll content is transparent, and on web
-   *  the tab slot behind this root is light gray — without the cream
-   *  root the transparent dock revealed a gray band (Anuraj, Sept 20
-   *  2026). Same cream as Screen, so no seam on either platform. */
+   *  the pill overlay is transparent, and on web the tab slot behind
+   *  this root is light gray — without the cream root the transparent
+   *  pill zone revealed a gray band (Anuraj, Sept 20 2026, round 2).
+   *  Same cream as Screen, so no seam on either platform.
+   *  Round 3: the root is flex:1 with NO in-flow siblings constraining
+   *  the Screen — the Screen fills to the tab bar. */
   askRoot: {
     flex: 1,
     backgroundColor: PILL_DOCK_PARENT_BACKGROUND,
+  },
+  /** Pill overlay (Anuraj, Sept 20, 2026, round 3): absolute,
+   *  bottom-right, zero in-flow footprint. Contract asserted in
+   *  tests/week_pill_dock.test.ts via PILL_DOCK_OVERLAY_STYLE. */
+  pillDockOverlay: {
+    ...PILL_DOCK_OVERLAY_STYLE,
   },
   center: {
     flex: 1,
