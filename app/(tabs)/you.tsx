@@ -57,6 +57,7 @@ import {
   validateDueDate,
   weekOf,
 } from '../../src/onboarding/dates';
+import { REQUIRED_DATE_ERROR } from '../../src/onboarding/profile';
 import {
   BottomSheet,
   Button,
@@ -308,6 +309,9 @@ export default function YouScreen() {
   const [dueDate, setDueDateState] = useState<string | null>(null);
   const [dueOpen, setDueOpen] = useState(false);
   const [dueDraft, setDueDraft] = useState<string | null>(null);
+  // Mockup 31: attempting Save without a picked date shows the verbatim
+  // inline error; it clears the moment she picks.
+  const [dueError, setDueError] = useState<string | null>(null);
   const [dob, setDobState] = useState<string | null>(null);
   const [dobSheetOpen, setDobSheetOpen] = useState(false);
   const [dobDraft, setDobDraft] = useState<string | null>(null);
@@ -581,6 +585,12 @@ export default function YouScreen() {
         showToast('That date doesn’t look right — want to check it?');
         return;
       }
+      // Mockup 31: opened and closed without picking changes nothing —
+      // close quietly instead of toasting about a "clear" that never was.
+      if (iso === dob) {
+        setDobSheetOpen(false);
+        return;
+      }
       try {
         const updated = updatePregnancy({ dob: iso });
         if (!updated) throw new Error('no active pregnancy');
@@ -593,7 +603,7 @@ export default function YouScreen() {
       setDobSheetOpen(false);
       showToast(iso ? 'Saved.' : 'Cleared.');
     },
-    [showToast],
+    [showToast, dob],
   );
 
   const ownerNameLabel = ownerName ?? 'Not set';
@@ -857,6 +867,7 @@ export default function YouScreen() {
           value={dueDateLabel}
           onPress={() => {
             setDueDraft(dueDate);
+            setDueError(null);
             setDueOpen(true);
           }}
           testID="account-due-date-row"
@@ -1213,14 +1224,14 @@ export default function YouScreen() {
         <TextInput
           value={ownerNameDraft}
           onChangeText={setOwnerNameDraft}
-          placeholder="Your first name"
+          placeholder="Your name"
           placeholderTextColor={colors.muted}
           autoCapitalize="words"
           autoCorrect={false}
           returnKeyType="done"
           maxLength={40}
           style={styles.nameInput}
-          accessibilityLabel="Your first name"
+          accessibilityLabel="Your name"
           testID="account-name-input"
         />
         <Button
@@ -1253,20 +1264,37 @@ export default function YouScreen() {
         <Text style={styles.sheetLede}>
           This sets your week. Your weekly reading will follow the new date.
         </Text>
-        <Card style={styles.pickerCard}>
+        <Card style={[styles.pickerCard, dueError ? styles.pickerCardError : null]}>
           <DatePickerField
             value={dueDraft ? dateOrToday(dueDraft) : dateOrToday(todayISO())}
             minimumDate={dateOrToday(todayISO())}
             maximumDate={dateOrToday(addDaysISO(todayISO(), 294) ?? todayISO())}
-            onChange={(d) => setDueDraft(toISODate(d))}
+            onChange={(d) => {
+              setDueDraft(toISODate(d));
+              setDueError(null);
+            }}
             accessibilityLabel="Choose your due date"
             testID="account-due-date-picker"
           />
         </Card>
+        {dueError && (
+          <Text style={styles.sheetError} accessibilityRole="text" testID="account-due-date-error">
+            {dueError}
+          </Text>
+        )}
         <View style={styles.sheetGap} />
         <Button
           title="Save"
-          onPress={() => saveDueDate(dueDraft)}
+          onPress={() => {
+            // Mockup 31: a due date is mandatory — saving without a picked
+            // date shows the verbatim inline error instead of clearing.
+            if (!dueDraft) {
+              setDueError(REQUIRED_DATE_ERROR);
+              return;
+            }
+            setDueError(null);
+            saveDueDate(dueDraft);
+          }}
           testID="account-due-date-save"
         />
         {dueDate ? (
@@ -1296,7 +1324,8 @@ export default function YouScreen() {
         </Text>
         <Card style={styles.pickerCard}>
           <DatePickerField
-            value={dobDraft ? dateOrToday(dobDraft) : dateOrToday(addDaysISO(todayISO(), -30 * 365) ?? todayISO())}
+            value={dobDraft ? dateOrToday(dobDraft) : null}
+            emptyDisplayDate={dateOrToday(addDaysISO(todayISO(), -30 * 365) ?? todayISO())}
             minimumDate={dateOrToday(addDaysISO(todayISO(), -100 * 365) ?? todayISO())}
             maximumDate={dateOrToday(todayISO())}
             onChange={(d) => setDobDraft(toISODate(d))}
@@ -1314,11 +1343,11 @@ export default function YouScreen() {
           <Pressable
             onPress={() => saveDob(null)}
             accessibilityRole="button"
-            accessibilityLabel="Clear birthday"
+            accessibilityLabel="Remove birthday"
             style={({ pressed }) => [styles.later, pressed && styles.quietPressed]}
             testID="account-dob-clear"
           >
-            <Text style={styles.laterText}>Clear birthday</Text>
+            <Text style={styles.laterText}>Remove birthday</Text>
           </Pressable>
         ) : null}
       </BottomSheet>
@@ -1514,6 +1543,19 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     borderWidth: 1,
     borderColor: colors.line,
+  },
+  pickerCardError: {
+    borderColor: colors.coral,
+    borderWidth: 2,
+  },
+  // Mockup 31: the verbatim mandatory-date error under the sheet picker.
+  sheetError: {
+    ...typeScale.body,
+    fontSize: 15,
+    color: colors.coralDeep,
+    fontWeight: '600',
+    marginTop: spacing.sm,
+    lineHeight: 23,
   },
   sheetGap: {
     height: spacing.md,

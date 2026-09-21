@@ -13,14 +13,25 @@ import { parseISODate, toISODate } from '../onboarding/dates';
  * Metro never resolves this file to itself on web).
  */
 export interface DatePickerFieldProps {
-  /** Currently selected date. */
-  value: Date;
+  /**
+   * Currently selected date, or null when she hasn't picked one yet.
+   * Null renders a genuinely empty `<input type="date">` — no pre-filled
+   * value, no hidden default. Dismissing without picking leaves null.
+   */
+  value: Date | null;
   minimumDate: Date;
   maximumDate: Date;
   /** Called with the newly chosen date (never on dismiss). */
   onChange: (date: Date) => void;
   accessibilityLabel: string;
   testID?: string;
+  /**
+   * Accepted for prop parity with the native implementation; ignored on
+   * web (the input is empty when `value` is null).
+   */
+  emptyDisplayDate?: Date;
+  /** Accepted for prop parity with the native implementation; ignored on web. */
+  emptyText?: string;
 }
 
 export function DatePickerField({
@@ -31,7 +42,7 @@ export function DatePickerField({
   accessibilityLabel,
   testID,
 }: DatePickerFieldProps) {
-  const iso = toISODate(value);
+  const iso = value ? toISODate(value) : '';
 
   return createElement('input', {
     type: 'date',

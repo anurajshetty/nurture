@@ -3,11 +3,16 @@
  *
  * Six gentle steps:
  *   0. Welcome — what Willow is, in three bullets. (unchanged)
- *   1. A little about you — her name (required), due date or last period
- *      with Naegele's rule shown back for confirmation (required), her
- *      birthday (optional). Continue stays disabled until her name is
- *      non-empty and the date is valid, with a gentle hint near the
- *      button saying what is still needed.
+ *   1. A little about you — her full name (required; label "YOUR NAME",
+ *      placeholder "Your name"), due date or last period (required) with
+ *      Naegele's rule shown back for confirmation. The date pickers start
+ *      EMPTY — no pre-filled value, no default; a date counts only when she
+ *      picks it (mockup 31, Anuraj Sept 21 2026). The week-preview helper
+ *      and Continue enable only after a valid date is picked; tapping
+ *      Continue without one shows the inline error "Pick a date to
+ *      continue" verbatim, which clears on pick. Her birthday is optional
+ *      and never errors. A gentle hint near the button still says what is
+ *      needed.
  *   2. Share the journey (NEW) — optional partner/family invite through
  *      the existing Epic 7 system. One field takes an email or a phone
  *      number (auto-detected); Skip moves on with no invite. The invite
@@ -26,7 +31,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Linking, Platform, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import {
   Button,
@@ -43,7 +48,6 @@ import { useOnboarding, type OnboardingDraft } from '../src/onboarding/useOnboar
 import {
   addDaysISO,
   formatLong,
-  naegele,
   parseISODate,
   toISODate,
   todayISO,
@@ -52,6 +56,7 @@ import {
   validateLmp,
   weekOf,
 } from '../src/onboarding/dates';
+import { nameDatesView } from '../src/onboarding/profile';
 import {
   buildInviteMessage,
   buildInviteSubject,
@@ -122,8 +127,16 @@ export default function OnboardingScreen() {
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState<'due' | 'lmp'>('due');
   const [ownerName, setOwnerName] = useState('');
-  const [dueISO, setDueISO] = useState(defaultDueISO);
-  const [lmpISO, setLmpISO] = useState(defaultLmpISO);
+  // Mockup 31 (Anuraj, Sept 21 2026): the date pickers start EMPTY — no
+  // pre-filled value, no default. null = she hasn't picked yet; a date
+  // counts only when she actively chooses it.
+  const [dueISO, setDueISO] = useState<string | null>(null);
+  const [lmpISO, setLmpISO] = useState<string | null>(null);
+  // True once she tapped Continue without a valid date — drives the
+  // verbatim inline error, which clears the moment she picks.
+  const [dateAttempted, setDateAttempted] = useState(false);
+  // The collapsed "Tap to pick a date" card expands into the picker on tap.
+  const [dateOpen, setDateOpen] = useState(false);
   const [dobISO, setDobISO] = useState<string | null>(null);
   const [dobOpen, setDobOpen] = useState(false);
   const [pregnancyType, setPregnancyType] = useState<Pregnancy['pregnancyType']>('singleton');
@@ -149,8 +162,14 @@ export default function OnboardingScreen() {
   }, []);
 
   const activeISO = mode === 'due' ? dueISO : lmpISO;
-  const problem = mode === 'due' ? validateDueDate(dueISO) : validateLmp(lmpISO);
-  const estimatedDue = mode === 'lmp' ? naegele(lmpISO) : dueISO;
+  // Mockup 31 gating lives in nameDatesView() (pure, unit-tested). `problem`
+  // only describes a date she actually picked — the empty state is never a
+  // "problem", it simply keeps the helper hidden and the action muted.
+  const view = nameDatesView({ mode, dueISO, lmpISO, ownerName, dateAttempted });
+  const problem =
+    activeISO == null ? null : mode === 'due' ? validateDueDate(activeISO) : validateLmp(activeISO);
+  const estimatedDue = view.estimatedDue;
+  // The Done step's week pill (reachable only after a valid date).
   const week = estimatedDue && !problem ? weekOf(estimatedDue) : null;
 
   // Screen 1 gating: her name + a valid date are required. The hint near
@@ -165,7 +184,7 @@ export default function OnboardingScreen() {
         : null;
 
   const dobProblem = dobISO ? validateDob(dobISO) : null;
-  const dobValue = dobISO ? dateOrToday(dobISO) : dateOrToday(defaultDobISO());
+  const dobValue = dobISO ? dateOrToday(dobISO) : null;
 
   // Screen 2 — contact auto-detect.
   const contactKind = detectContactKind(contact);
@@ -177,11 +196,25 @@ export default function OnboardingScreen() {
   const handleDateChange = useCallback(
     (selected: Date) => {
       const iso = toISODate(selected);
+      // Picking a date clears the inline error immediately.
+      setDateAttempted(false);
       if (mode === 'due') setDueISO(iso);
       else setLmpISO(iso);
     },
     [mode],
   );
+
+  // Continue stays tappable while muted (mockup 31): attempting without a
+  // valid date surfaces the verbatim inline error instead of doing nothing.
+  const handleContinue = useCallback(() => {
+    const v = nameDatesView({ mode, dueISO, lmpISO, ownerName, dateAttempted: true });
+    if (!v.dateValid) {
+      setDateAttempted(true);
+      return;
+    }
+    if (v.nameMissing) return; // the hint near the button already says what's needed
+    setStep(2);
+  }, [mode, dueISO, lmpISO, ownerName]);
 
   const handleDobChange = useCallback((selected: Date) => {
     setDobISO(toISODate(selected));
@@ -344,18 +377,18 @@ export default function OnboardingScreen() {
           </Text>
           <Text style={styles.lede}>Just the basics. This is what makes your weeks feel like yours.</Text>
 
-          <Text style={styles.fieldLabel}>Your first name</Text>
+          <Text style={styles.fieldLabel}>YOUR NAME</Text>
           <TextInput
             value={ownerName}
             onChangeText={setOwnerName}
-            placeholder="Your first name"
+            placeholder="Your name"
             placeholderTextColor={colors.muted}
             autoCapitalize="words"
             autoCorrect={false}
             returnKeyType="next"
             maxLength={40}
             style={styles.nameInput}
-            accessibilityLabel="Your first name"
+            accessibilityLabel="Your name"
             testID="onboarding-owner-name"
           />
 
@@ -370,16 +403,37 @@ export default function OnboardingScreen() {
           />
 
           <Text style={styles.fieldLabel}>{mode === 'due' ? 'Due date' : 'First day of last period'}</Text>
-          <Card style={styles.pickerCard}>
-            <DatePickerField
-              value={dateOrToday(activeISO)}
-              minimumDate={minDate}
-              maximumDate={maxDate}
-              onChange={handleDateChange}
-              accessibilityLabel={mode === 'due' ? 'Choose your due date' : 'Choose the first day of your last period'}
-              testID="onboarding-date-picker"
-            />
-          </Card>
+          {/* Mockup 31: the picker starts as a quiet "Tap to pick a date"
+              card — no pre-filled value anywhere. Tapping expands the real
+              picker; the display default below is only what the native
+              picker widget shows, never a chosen value. */}
+          {!activeISO && !dateOpen ? (
+            <Pressable
+              onPress={() => setDateOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={mode === 'due' ? 'Pick your due date' : 'Pick the first day of your last period'}
+              style={styles.dateCard}
+              testID="onboarding-date-card"
+            >
+              <Text style={styles.dateCardPlaceholder}>Tap to pick a date</Text>
+            </Pressable>
+          ) : (
+            <Card style={[styles.pickerCard, view.dateError ? styles.pickerCardError : null]}>
+              <DatePickerField
+                value={dateOrToday(activeISO ?? (mode === 'due' ? defaultDueISO() : defaultLmpISO()))}
+                minimumDate={minDate}
+                maximumDate={maxDate}
+                onChange={handleDateChange}
+                accessibilityLabel={mode === 'due' ? 'Choose your due date' : 'Choose the first day of your last period'}
+                testID="onboarding-date-picker"
+              />
+            </Card>
+          )}
+          {view.dateError && (
+            <Text style={styles.dateError} accessibilityRole="text" testID="onboarding-date-error">
+              {view.dateError}
+            </Text>
+          )}
 
           {mode === 'lmp' && !problem && estimatedDue && (
             <View style={styles.calc} accessibilityRole="text">
@@ -389,9 +443,9 @@ export default function OnboardingScreen() {
               </Text>
             </View>
           )}
-          {mode === 'due' && week && (
-            <Text style={styles.weekNote}>
-              That’s week {week.week}, day {week.day} — your weekly reading will match.
+          {view.helper && (
+            <Text style={styles.weekNote} testID="onboarding-week-helper">
+              {view.helper}
             </Text>
           )}
           {problem && (
@@ -407,6 +461,7 @@ export default function OnboardingScreen() {
               <Card style={styles.pickerCard}>
                 <DatePickerField
                   value={dobValue}
+                  emptyDisplayDate={dateOrToday(defaultDobISO())}
                   minimumDate={dobMinDate()}
                   maximumDate={dateOrToday(todayISO())}
                   onChange={handleDobChange}
@@ -438,7 +493,6 @@ export default function OnboardingScreen() {
               title="Add your birthday (optional)"
               variant="ghost"
               onPress={() => {
-                setDobISO(defaultDobISO());
                 setDobOpen(true);
               }}
               style={styles.ghostButton}
@@ -455,8 +509,8 @@ export default function OnboardingScreen() {
           )}
           <Button
             title="Continue"
-            onPress={() => setStep(2)}
-            disabled={!!continueHint}
+            onPress={handleContinue}
+            style={view.actionMuted ? styles.mutedAction : null}
             testID="onboarding-profile-continue"
           />
         </View>
@@ -799,6 +853,40 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     borderWidth: 1,
     borderColor: colors.line,
+  },
+  // Mockup 31: the collapsed "Tap to pick a date" card — no pre-filled
+  // value, 44pt+ target like every other tap surface.
+  dateCard: {
+    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.card,
+    backgroundColor: colors.card,
+    minHeight: 56,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  dateCardPlaceholder: {
+    ...typeScale.headline,
+    color: colors.muted,
+  },
+  // The verbatim mandatory-date error; the card gets a ring to match.
+  dateError: {
+    ...typeScale.body,
+    fontSize: 15,
+    color: colors.coralDeep,
+    fontWeight: '600',
+    marginTop: spacing.sm,
+    lineHeight: 23,
+  },
+  pickerCardError: {
+    borderColor: colors.coral,
+    borderWidth: 2,
+  },
+  // Muted-but-tappable action (mockup 31): the look of disabled, but the
+  // tap still fires so the inline error can appear.
+  mutedAction: {
+    opacity: 0.55,
   },
   calc: {
     backgroundColor: colors.sageTint,

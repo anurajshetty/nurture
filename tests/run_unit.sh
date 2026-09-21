@@ -97,6 +97,7 @@ tsc1 tests/epic9.test.ts src/support/aftermath.ts src/support/gentleReads.ts src
 
 OUT=/tmp/nurture-onboarding-profile-tests
 tsc1 tests/onboarding_profile.test.ts src/onboarding/dates.ts src/onboarding/shareInvite.ts src/lib/schema.ts && run "onboarding_profile" node $OUT/tests/onboarding_profile.test.js
+tsc1 tests/name_dates.test.ts src/onboarding/profile.ts src/onboarding/dates.ts && run "name_dates" node $OUT/tests/name_dates.test.js
 
 OUT=/tmp/nurture-addmenu-tests
 tsc1 tests/add_menu.test.ts src/logs/appointmentInput.ts src/lib/types.ts && run "add_menu" env TZ=UTC node $OUT/tests/add_menu.test.js
