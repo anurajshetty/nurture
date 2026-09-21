@@ -6,7 +6,9 @@
  * then the 6-character code reveals with Copy below (no system Share).
  * Pending invites show "Name · Invited" (muted, no remove); accepted
  * partners show name + Remove. At 5/5 the Add button gives way to a warm
- * note. Used from the You tab and from onboarding step 2.
+ * note. Used from the You tab and from onboarding step 2; onboarding
+ * passes showListCard={false} and shows no list card at all — just the
+ * name input + Cancel/Create code, per Anuraj (Sept 2026).
  *
  * When the backend migration isn't applied yet, the surface says so
  * plainly and never crashes.
@@ -64,16 +66,23 @@ export default function ShareCodeScreen({
   onBack,
   onToast,
   onChanged,
+  showListCard = true,
 }: {
   /** Omit inside onboarding (no back row there). */
   onBack?: () => void;
   onToast: (message: string) => void;
   /** Fires after the invite list changes (create/revoke) so the parent refreshes. */
   onChanged?: () => void;
+  /**
+   * Onboarding step 2 shows no "Your partners" card — just the name
+   * input + Cancel/Create code (the name-first invite composer is
+   * always open there). The You-tab sheet keeps the full list card.
+   */
+  showListCard?: boolean;
 }) {
   const [invites, setInvites] = useState<PartnerInvite[] | null>(null);
   const [server, setServer] = useState<ServerStatus>('ok');
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(!showListCard);
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
   const [newCode, setNewCode] = useState<{ name: string; code: string } | null>(null);
@@ -105,7 +114,9 @@ export default function ShareCodeScreen({
     setCreating(false);
     if (r.status === 'ok' && r.code) {
       setNewCode({ name: normalizeName(name), code: r.code });
-      setAdding(false);
+      // In onboarding the composer stays open after creating; elsewhere
+      // it closes back to the list card.
+      if (showListCard) setAdding(false);
       setName('');
       onChanged?.();
       load();
@@ -113,7 +124,7 @@ export default function ShareCodeScreen({
     }
     if (r.status === 'max_partners') {
       onToast(MAX_COPY);
-      setAdding(false);
+      if (showListCard) setAdding(false);
       load();
       return;
     }
@@ -126,7 +137,7 @@ export default function ShareCodeScreen({
       return;
     }
     onToast('That didn’t go through — try again in a bit.');
-  }, [name, creating, onToast, onChanged, load]);
+  }, [name, creating, onToast, onChanged, load, showListCard]);
 
   const handleCopy = useCallback(async () => {
     if (!newCode) return;
@@ -183,6 +194,7 @@ export default function ShareCodeScreen({
         </View>
       ) : null}
 
+      {showListCard ? (
       <View style={styles.card}>
         <View style={styles.headrow}>
           <Text style={styles.head} accessibilityRole="header">
@@ -241,6 +253,7 @@ export default function ShareCodeScreen({
           <Text style={styles.note}>{SHARED_NOTE}</Text>
         ) : null}
       </View>
+      ) : null}
 
       {newCode ? (
         <View style={styles.codebig} testID="partner-new-code">
@@ -274,7 +287,9 @@ export default function ShareCodeScreen({
             <Button
               title="Cancel"
               variant="ghost"
-              onPress={() => setAdding(false)}
+              // Onboarding shows the composer permanently: Cancel just
+              // clears the draft name instead of dismissing the box.
+              onPress={() => (showListCard ? setAdding(false) : setName(''))}
               testID="partner-add-cancel"
             />
             <View style={styles.addspacer} />

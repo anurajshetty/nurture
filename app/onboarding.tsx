@@ -550,7 +550,7 @@ export default function OnboardingScreen() {
             Your partner enters your invite code in Willow on their phone. They will only ever see what you choose to share.
           </Text>
           <View style={styles.shareCodeHost}>
-            <ShareCodeScreen onToast={showToast} />
+            <ShareCodeScreen onToast={showToast} showListCard={false} />
           </View>
           <View style={styles.spacer} />
           <Button

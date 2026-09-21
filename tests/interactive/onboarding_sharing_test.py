@@ -185,23 +185,34 @@ def main() -> None:
         cont.click()
 
         # ----------------------------------------------------------------
-        # B. Screen 2: her partners list (mockup 33 rev C, named invites).
+        # B. Screen 2: her share screen (Anuraj, Sept 2026): the
+        # "Your partners" card is NOT part of onboarding — it lives only
+        # on the You-tab card. Onboarding shows the name-first invite
+        # composer directly (name input + Cancel/Create code).
         # ----------------------------------------------------------------
         headline = pg.get_by_text("Share this journey with your partner?")
         check(headline.count() > 0, "b2 share screen headline renders")
-        # The backend migration isn't applied in the test env, so the list
-        # degrades gracefully instead of crashing.
+        plist = pg.get_by_test_id("partners-list")
         check(
-            pg.get_by_test_id("partners-list").count() > 0,
-            "b2 partners list renders",
+            plist.count() > 0,
+            "b2 share surface renders",
         )
         check(
-            "Your partners" in (pg.get_by_test_id("partners-list").inner_text() or ""),
-            "b2 partners list shows the Your partners header",
+            "Your partners" not in (plist.inner_text() or ""),
+            "b2 onboarding shows no Your partners card",
         )
         check(
-            pg.get_by_test_id("partners-list-not-ready").count() > 0,
-            "b2 list degrades gracefully without the backend",
+            pg.get_by_test_id("partners-list-count").count() == 0,
+            "b2 no partners count on the onboarding surface",
+        )
+        check(
+            pg.get_by_test_id("partner-add-name").count() > 0,
+            "b2 name input is shown directly (who is this code for)",
+        )
+        check(
+            pg.get_by_test_id("partner-add-cancel").count() > 0
+            and pg.get_by_test_id("partner-add-create").count() > 0,
+            "b2 Cancel and Create code buttons are shown",
         )
         # No system Share button anywhere on the named-invite surface —
         # copy is the only handoff.
