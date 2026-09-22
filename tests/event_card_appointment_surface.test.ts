@@ -116,3 +116,98 @@ if (failures > 0) {
   process.exit(1);
 }
 console.log('appointment-card-surface: all checks passed');
+
+/* ------------------------------------------------------------------ */
+/* Compact SharedSwitch regression (Anuraj, Sept 21, 2026): feed-card
+ * Shared switches render visually compact (44x26 track, 22px knob) but
+ * keep a >=44pt effective tap target via hitSlop={10}. Coral ON / gray
+ * OFF, role="switch", and toggle semantics are unchanged; the default
+ * (partners card, global default) keeps the full 51x31 treatment.
+ *
+ * Guard: SharedSwitch({ compact: true }) must return a tree whose
+ * Pressable has hitSlop 10 and whose track View is 44x26 with the
+ * 22px knob; without the fix the track is 51x31 and hitSlop is 0.
+ * ------------------------------------------------------------------ */
+
+const SharedSwitchModule = require('../src/components/SharedSwitch') as {
+  default: (props: Record<string, unknown>) => unknown;
+};
+const SharedSwitch = SharedSwitchModule.default;
+
+function styleOf(el: unknown): Record<string, unknown> {
+  const props = (el as { props?: { style?: unknown } }).props ?? {};
+  const raw = props.style as unknown;
+  const flat: Record<string, unknown> = {};
+  for (const chunk of Array.isArray(raw) ? raw : [raw]) {
+    if (chunk && typeof chunk === 'object') Object.assign(flat, chunk);
+  }
+  return flat;
+}
+
+function checkSwitch(compact: boolean) {
+  const label = compact ? 'compact' : 'default';
+  const tree = SharedSwitch({
+    value: true,
+    onChange: () => {},
+    accessibilityLabel: 'Share this moment with your partner',
+    ...(compact ? { compact: true } : {}),
+  }) as {
+    type: string;
+    props: {
+      style?: unknown;
+      hitSlop?: unknown;
+      accessibilityRole?: unknown;
+      children?: unknown;
+    };
+  };
+  const pressStyle = styleOf(tree);
+  const hitSlop = tree.props.hitSlop;
+  const track = tree.props.children as { props: { children?: unknown } };
+  const trackStyle = styleOf(track);
+  const knob = (track.props.children ?? {}) as { props: Record<string, unknown> };
+  const knobStyle = styleOf(knob);
+
+  const wantW = compact ? 44 : 51;
+  const wantH = compact ? 26 : 31;
+  check(
+    `SharedSwitch ${label}: track is ${wantW}x${wantH}`,
+    trackStyle.width === wantW && trackStyle.height === wantH,
+  );
+
+  const wantKnob = compact ? 22 : 27;
+  check(
+    `SharedSwitch ${label}: knob is ${wantKnob}px`,
+    knobStyle.width === wantKnob && knobStyle.height === wantKnob,
+  );
+
+  const wantSlop = compact ? 10 : 0;
+  check(`SharedSwitch ${label}: hitSlop is ${wantSlop}`, hitSlop === wantSlop);
+
+  check(
+    `SharedSwitch ${label}: role=switch kept`,
+    tree.props.accessibilityRole === 'switch',
+  );
+
+  // ON track color stays coral #E8927C in both modes.
+  check(
+    `SharedSwitch ${label}: ON track color is coral #E8927C`,
+    String(trackStyle.backgroundColor).toLowerCase() === '#e8927c',
+  );
+
+  // Effective tap target stays >= 44pt (button size + hitSlop).
+  const bw = (pressStyle.width as number) ?? 0;
+  const bh = (pressStyle.height as number) ?? 0;
+  const hs = typeof hitSlop === 'number' ? hitSlop * 2 : 0;
+  check(
+    `SharedSwitch ${label}: effective tap target >= 44pt`,
+    bw + hs >= 44 && bh + hs >= 44,
+  );
+}
+
+checkSwitch(false);
+checkSwitch(true);
+
+if (failures > 0) {
+  console.log(`${failures} check(s) failed`);
+  process.exit(1);
+}

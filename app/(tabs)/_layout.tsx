@@ -29,17 +29,17 @@ function useTabTint(tab: TabName): ColorValue {
 
 function WeekTabBarIcon() {
   const color = useTabTint('week');
-  return <WeekTabIcon color={color} />;
+  return <WeekTabIcon size={22} color={color} />;
 }
 
 function LogsTabBarIcon() {
   const color = useTabTint('logs');
-  return <LogsTabIcon color={color} />;
+  return <LogsTabIcon size={22} color={color} />;
 }
 
 function YouTabBarIcon() {
   const color = useTabTint('you');
-  return <YouTabIcon color={color} />;
+  return <YouTabIcon size={22} color={color} />;
 }
 
 /**
@@ -120,20 +120,26 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
+  /**
+   * Slimmer tab bar (Anuraj, Sept 2026): tighter vertical padding,
+   * smaller icons/labels, so more feed fits on screen. Every tab
+   * target stays ≥44pt (item minHeight 48). Active coral / inactive
+   * muted tints unchanged; no navigation-behavior change.
+   */
   bar: {
     backgroundColor: colors.card,
     borderTopColor: colors.line,
     borderTopWidth: 1,
-    paddingTop: spacing.sm,
-    minHeight: 84,
+    paddingTop: spacing.xs,
+    minHeight: 68,
   },
   item: {
-    minHeight: 56,
-    paddingVertical: spacing.xs,
+    minHeight: 48,
+    paddingVertical: 2,
   },
   label: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: 1,
   },
 });

@@ -105,8 +105,11 @@ export default function AddMenu({ onSaved, onUnsaved }: AddMenuProps) {
           accessibilityRole="button"
           accessibilityLabel={open ? 'Close add menu' : 'Add'}
           testID="logs-add-button"
+          // Visually smaller (Anuraj, Sept 2026): 56px circle. hitSlop
+          // keeps the effective tap target at ~80px — easy to hit.
+          hitSlop={12}
           style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}>
-          <Feather name={open ? 'x' : 'plus'} size={30} color="#fff" />
+          <Feather name={open ? 'x' : 'plus'} size={26} color="#fff" />
         </Pressable>
       </View>
 
@@ -144,11 +147,11 @@ const styles = StyleSheet.create({
   pills: {
     position: 'absolute',
     right: 18,
-    // 16px above the 72px button's top edge (button spans bottom 20→92),
+    // 16px above the 56px button's top edge (button spans bottom 20→76),
     // matching the mockup's 14px pill↔button gap. Right-aligned to the
     // button (mockup 15 .opts: right:18px, align-items:flex-end) so the
     // menu fans upward from the button's right edge.
-    bottom: 108,
+    bottom: 92,
     alignItems: 'flex-end',
     gap: 10,
   },
@@ -202,12 +205,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   addButton: {
-    // 72px: ~two-thirds of the old 88px (Anuraj Sept 2026 — the old
-    // button ate too much feed). Still well above the 44pt touch target.
-    // The × open-state keeps this same size.
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    // 56px visual (Anuraj Sept 2026 — the 72px button ate too much
+    // feed). hitSlop={12} on the Pressable keeps the effective tap
+    // target at ~80px — visually small, functionally easy. The ×
+    // open-state keeps this same size.
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: colors.coral,
     alignItems: 'center',
     justifyContent: 'center',

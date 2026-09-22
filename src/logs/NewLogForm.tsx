@@ -127,6 +127,7 @@ export default function NewLogForm({ onSaved, onClose }: NewLogFormProps) {
               onChange={setShared}
               accessibilityLabel="Share this log with your partner"
               testID="new-log-share-switch"
+              compact
             />
           </View>
           <Pressable

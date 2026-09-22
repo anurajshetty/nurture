@@ -30,6 +30,15 @@ export interface SharedSwitchProps {
   testID?: string;
   /** When true the switch renders dimmed and ignores presses. */
   disabled?: boolean;
+  /**
+   * Compact rendering for feed cards (Anuraj, Sept 2026): the track is
+   * visually smaller (44x26, 22px knob) but hitSlop={10} keeps the
+   * effective tap target at ~64x46 — small enough to be visually
+   * light, still easy to toggle. Coral ON / gray OFF, role="switch"
+   * and all toggle semantics are unchanged. Default is the full
+   * 51x31 treatment (partners card, global default).
+   */
+  compact?: boolean;
 }
 
 export default function SharedSwitch({
@@ -38,6 +47,7 @@ export default function SharedSwitch({
   accessibilityLabel,
   testID,
   disabled,
+  compact,
 }: SharedSwitchProps) {
   return (
     <Pressable
@@ -49,11 +59,27 @@ export default function SharedSwitch({
         if (!disabled) onChange(!value);
       }}
       disabled={disabled}
-      hitSlop={0}
-      style={[styles.sw, disabled && styles.swDisabled]}
+      hitSlop={compact ? 10 : 0}
+      style={[
+        styles.sw,
+        compact && styles.swCompact,
+        disabled && styles.swDisabled,
+      ]}
     >
-      <View style={[styles.track, value && styles.trackOn]}>
-        <View style={[styles.knob, value ? styles.knobOn : styles.knobOff]} />
+      <View
+        style={[
+          styles.track,
+          compact && styles.trackCompact,
+          value && styles.trackOn,
+        ]}
+      >
+        <View
+          style={[
+            styles.knob,
+            compact && styles.knobCompact,
+            value ? styles.knobOn : styles.knobOff,
+          ]}
+        />
       </View>
     </Pressable>
   );
@@ -71,6 +97,15 @@ const styles = StyleSheet.create({
   swDisabled: {
     opacity: 0.5,
   },
+  // Compact mode: the button hugs the 44x26 track (transparent);
+  // hitSlop={10} expands the effective target to ~64x46.
+  swCompact: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
   // 51x31 track, radius 16 — the mockup's `.sw-track`.
   track: {
     width: 51,
@@ -84,6 +119,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 3,
     elevation: 0,
+  },
+  // 44x26 compact track (compact mode).
+  trackCompact: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
   },
   // coral ON track (mockup: #E8927C).
   trackOn: {
@@ -107,4 +148,10 @@ const styles = StyleSheet.create({
   },
   knobOff: { left: 2 },
   knobOn: { right: 2 },
+  // 22x22 compact knob — 2px inset inside the 44x26 track.
+  knobCompact: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+  },
 });

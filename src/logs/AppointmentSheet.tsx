@@ -183,6 +183,7 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
           onChange={setShared}
           accessibilityLabel="Share this appointment with your partner"
           testID="appointment-share-switch"
+          compact
         />
       </View>
 

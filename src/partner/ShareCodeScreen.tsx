@@ -1,17 +1,21 @@
 /**
  * Partner sharing — her partners list (mockup 33 partners-card,
- * Anuraj approved Sept 21, 2026).
+ * Anuraj approved Sept 21, 2026; simplified per his direction the
+ * same day).
  *
  * Named invites, up to 5 (pending + accepted). Adding asks "Who is this
  * code for?" — the code is not created or listed until a name is given.
- * Pending rows show the 6-char code + Copy ("Invite code — works once.
- * Share it with them.") and "Remove invite"; accepted rows show the
- * real per-partner switch ("Sees your shared entries" / "Paused —
- * sees nothing for now") and "Remove". Removing anything asks first.
- * At 5/5 the Add button gives way to a warm note. Used from the You tab
- * and from onboarding step 2; onboarding passes showListCard={false}
- * and shows no list card at all — just the name input + Cancel/Create
- * code, with the new code revealed below (per Anuraj, Sept 2026).
+ * Pending rows: name line with a × + the 6-char code + Copy ("Invite
+ * code — works once. Share it with them."). Accepted rows: name +
+ * per-partner sharing switch + ×. The per-partner subtitle and the
+ * "Sharing is a handshake" explainer were removed (Anuraj: the sheet
+ * stays tight so the Add-partner button is reachable). Removing
+ * anything opens the confirmation dialog first; confirmation stays
+ * mandatory. At 5/5 the Add button gives way to a warm note. Used from
+ * the You tab and from onboarding step 2; onboarding passes
+ * showListCard={false} and shows no list card at all — just the name
+ * input + Cancel/Create code, with the new code revealed below (per
+ * Anuraj, Sept 2026).
  *
  * When the backend migration isn't applied yet, the surface says so
  * plainly and never crashes.
@@ -42,7 +46,6 @@ import {
   type PartnerInvite,
   type ServerStatus,
 } from './inviteCodes';
-import { HANDSHAKE_COPY } from './sharing';
 
 declare const require: (id: string) => unknown;
 
@@ -51,7 +54,6 @@ const NOT_READY_COPY =
 const MAX_COPY = "You've added 5 partners — the most Willow allows right now.";
 /** Pending-row explainer under the code (mockup 33 partners-card, verbatim). */
 const PENDING_CODE_NOTE = 'Invite code — works once. Share it with them.';
-const OWN_CODE_NOTE = 'Each partner enters their own code in Willow on their phone.';
 
 /**
  * The partners sheet caps at 86% of the window (BottomSheet). Five tall
@@ -196,9 +198,8 @@ export default function ShareCodeScreen({
   );
 
   /**
-   * Per-partner sharing switch (mockup 33 partners-card): "Sees your
-   * shared entries" / "Paused — sees nothing for now". Optimistic flip
-   * with revert on failure; toasts name the partner.
+   * Per-partner sharing switch (mockup 33 partners-card). Optimistic
+   * flip with revert on failure; toasts name the partner.
    */
   const handleSharingToggle = useCallback(
     async (invite: PartnerInvite, next: boolean) => {
@@ -232,10 +233,10 @@ export default function ShareCodeScreen({
   );
 
   /**
-   * Removal, two steps (mockup 33 partners-card): tapping "Remove
-   * invite"/"Remove" opens the in-app confirmation dialog; confirming
-   * revokes and toasts. Pending removal says the invite/code stops
-   * working; accepted removal says the partner loses access and can be
+   * Removal, two steps (mockup 33 partners-card): tapping the row ×
+   * opens the in-app confirmation dialog; confirming revokes and
+   * toasts. Pending removal says the invite/code stops working;
+   * accepted removal says the partner loses access and can be
    * invited again.
    */
   const confirmRemove = useCallback(async () => {
@@ -310,9 +311,21 @@ export default function ShareCodeScreen({
           live.map((invite) =>
             invite.status === 'pending' ? (
               <View key={invite.id} style={styles.row} testID={`partner-row-${invite.id}`}>
-                <Text style={styles.rowName} testID={`partner-row-name-${invite.id}`}>
-                  {invite.name} <Text style={styles.rowInvited}>· Invited</Text>
-                </Text>
+                <View style={styles.rowHead}>
+                  <Text style={[styles.rowName, styles.shrink]} testID={`partner-row-name-${invite.id}`}>
+                    {invite.name} <Text style={styles.rowInvited}>· Invited</Text>
+                  </Text>
+                  <Pressable
+                    onPress={() => setConfirming(invite)}
+                    disabled={revokingId === invite.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove invite for ${invite.name}`}
+                    style={({ pressed }) => [styles.rowX, pressed && styles.pressed]}
+                    testID={`partner-row-remove-${invite.id}`}
+                  >
+                    <Text style={styles.rowXGlyph}>×</Text>
+                  </Pressable>
+                </View>
                 <View style={styles.codeRow}>
                   <Text style={styles.codeText} selectable testID={`partner-row-code-${invite.id}`}>
                     {invite.code ?? '······'}
@@ -329,24 +342,11 @@ export default function ShareCodeScreen({
                   </Pressable>
                 </View>
                 <Text style={styles.codeNote}>{PENDING_CODE_NOTE}</Text>
-                <View style={styles.rowDivider} />
-                <Pressable
-                  onPress={() => setConfirming(invite)}
-                  disabled={revokingId === invite.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove invite for ${invite.name}`}
-                  style={({ pressed }) => [styles.rowRemove, pressed && styles.pressed]}
-                  testID={`partner-row-remove-${invite.id}`}
-                >
-                  <Text style={styles.removeText}>
-                    {revokingId === invite.id ? 'Removing…' : 'Remove invite'}
-                  </Text>
-                </Pressable>
               </View>
             ) : (
               <View key={invite.id} style={styles.row} testID={`partner-row-${invite.id}`}>
                 <View style={styles.acceptedHead}>
-                  <Text style={styles.rowName} testID={`partner-row-name-${invite.id}`}>
+                  <Text style={[styles.rowName, styles.shrink]} testID={`partner-row-name-${invite.id}`}>
                     {invite.name}
                   </Text>
                   <SharedSwitch
@@ -356,39 +356,21 @@ export default function ShareCodeScreen({
                     accessibilityLabel={`Sharing for ${invite.name}`}
                     testID={`partner-row-switch-${invite.id}`}
                   />
+                  <Pressable
+                    onPress={() => setConfirming(invite)}
+                    disabled={revokingId === invite.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${invite.name}`}
+                    style={({ pressed }) => [styles.rowX, pressed && styles.pressed]}
+                    testID={`partner-row-remove-${invite.id}`}
+                  >
+                    <Text style={styles.rowXGlyph}>×</Text>
+                  </Pressable>
                 </View>
-                <Text
-                  style={[styles.shareSub, !invite.sharingEnabled && styles.shareSubPaused]}
-                  testID={`partner-row-share-sub-${invite.id}`}
-                >
-                  {invite.sharingEnabled
-                    ? 'Sees your shared entries'
-                    : 'Paused — sees nothing for now'}
-                </Text>
-                <View style={styles.rowDivider} />
-                <Pressable
-                  onPress={() => setConfirming(invite)}
-                  disabled={revokingId === invite.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove ${invite.name}`}
-                  style={({ pressed }) => [styles.rowRemove, pressed && styles.pressed]}
-                  testID={`partner-row-remove-${invite.id}`}
-                >
-                  <Text style={styles.removeText}>
-                    {revokingId === invite.id ? 'Removing…' : 'Remove'}
-                  </Text>
-                </Pressable>
               </View>
             ),
           )
         )}
-
-        {invites !== null && server === 'ok' ? (
-          <View style={styles.explainer} testID="partners-list-explainer">
-            <Text style={styles.explainerText}>{HANDSHAKE_COPY}</Text>
-            <Text style={styles.explainerNote}>{OWN_CODE_NOTE}</Text>
-          </View>
-        ) : null}
       </View>
       ) : null}
 
@@ -505,6 +487,13 @@ const styles = StyleSheet.create({
   },
   rowName: { ...typeScale.body, color: colors.ink, fontWeight: '700', fontSize: 17 },
   rowInvited: { color: colors.muted, fontWeight: '400' },
+  shrink: { flexShrink: 1 },
+  // Partner-row head: name line with the × remove on its right end.
+  rowHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   // Pending row: code + Copy on one line (mockup 33 partners-card).
   codeRow: {
     flexDirection: 'row',
@@ -527,46 +516,27 @@ const styles = StyleSheet.create({
   },
   copyText: { ...typeScale.body, color: colors.coralDeep, fontWeight: '700' },
   codeNote: { ...typeScale.footnote, color: colors.muted, marginTop: spacing.xs },
-  // Accepted row: name + per-partner switch.
+  // Accepted row: name + per-partner switch + ×.
   acceptedHead: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing.sm,
   },
-  shareSub: { ...typeScale.subhead, color: colors.muted, marginTop: spacing.xs },
-  shareSubPaused: { color: colors.coralDeep, fontWeight: '600' },
-  rowDivider: {
-    height: 1,
-    backgroundColor: colors.line,
-    marginTop: spacing.md,
-  },
-  rowRemove: {
-    minHeight: minTouch,
+  /** Row × remove: 44×44 hit area, muted stone glyph (feed-card × language). */
+  rowX: {
+    width: minTouch,
+    height: minTouch,
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'flex-start',
-    paddingTop: spacing.sm,
+    marginRight: -spacing.sm,
+  },
+  rowXGlyph: {
+    fontSize: 22,
+    lineHeight: 26,
+    color: '#B7ACA0',
   },
   pressed: { opacity: 0.7 },
-  removeText: { ...typeScale.body, color: colors.coralDeep, fontWeight: '600' },
-  explainer: {
-    backgroundColor: colors.blush,
-    borderRadius: radii.card,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    marginTop: spacing.lg,
-  },
-  explainerText: {
-    ...typeScale.footnote,
-    color: colors.coralDeep,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  explainerNote: {
-    ...typeScale.footnote,
-    color: colors.muted,
-    textAlign: 'center',
-    marginTop: spacing.xs,
-  },
   codebig: {
     backgroundColor: colors.card,
     borderWidth: 1,

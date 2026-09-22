@@ -23,10 +23,9 @@ served under /willow/. Covers:
   7. pending "Remove invite" -> in-app confirmation dialog ("Remove this
      invite?" / code-stops-working body) -> Keep dismisses, Remove
      confirms ("Invite removed.")
-  8. accepted row: real switch ("Sees your shared entries" / "Paused —
-     sees nothing for now", toasts naming the partner), never a code;
-     "Remove" -> "Remove Maya?" dialog (access-lost body) -> "Partner
-     removed."
+  8. accepted row: real switch (no per-partner subtitle, toasts naming
+     the partner), never a code; row x -> "Remove Maya?" dialog
+     (access-lost body) -> "Partner removed."
   9. 5/5: Add hidden, warm max note verbatim
   10. feed card switch labels (Shared/Not shared + hints) and the You-tab
       global "Share new entries with partners" row (ON/OFF copy verbatim,
@@ -409,8 +408,8 @@ def main():
               "Invite code — works once. Share it with them." in psheet.inner_text())
         check("flow6: pending row reads Sam · Invited",
               "Sam" in psheet.inner_text() and "· Invited" in psheet.inner_text())
-        check("flow6: handshake explainer verbatim",
-              "Sharing is a handshake: entries marked Shared are visible to partners whose sharing is on." in psheet.inner_text())
+        check("flow6: handshake explainer is gone (Anuraj Sept 21, 2026)",
+              "Sharing is a handshake" not in psheet.inner_text())
         check("flow6: Copy is the only handoff on the pending row",
               page.get_by_test_id("partner-row-copy-id-0").count() == 1
               and page.get_by_test_id("share-code-share").count() == 0)
@@ -423,7 +422,7 @@ def main():
 
         # ---- Flow 7: Remove invite (pending) with confirmation ----
         rm_btn = page.get_by_test_id("partner-row-remove-id-0")
-        check("flow7: pending row has Remove invite", rm_btn.count() == 1)
+        check("flow7: pending row has x (replaces Remove invite)", rm_btn.count() == 1)
         rm_btn.click()
         dlg = page.get_by_test_id("remove-partner-dialog")
         dlg.wait_for(timeout=8000)
@@ -468,20 +467,23 @@ def main():
               and "invite code" not in mrow.inner_text().lower())
         sw = page.get_by_test_id("partner-row-switch-id-acc-1")
         check("flow8: accepted row has the real switch", sw.count() == 1)
-        check("flow8: accepted sub reads Sees your shared entries",
-              "Sees your shared entries" in mrow.inner_text())
+        check("flow8: no per-partner subtitle (Anuraj Sept 21, 2026)",
+              "Sees your shared entries" not in mrow.inner_text()
+              and "Paused" not in mrow.inner_text())
         sw.click()
         page.wait_for_timeout(1200)
         check("flow8: paused toast names the partner",
               "Sharing paused for Maya." in toast_text(), f"toast={toast_text()!r}")
-        check("flow8: paused sub reads Paused — sees nothing for now",
-              "Paused — sees nothing for now" in mrow.inner_text())
+        check("flow8: still no subtitle after pausing",
+              "Sees your shared entries" not in mrow.inner_text()
+              and "Paused" not in mrow.inner_text())
         sw.click()
         page.wait_for_timeout(1200)
         check("flow8: back-on toast names the partner",
               "Sharing back on for Maya." in toast_text(), f"toast={toast_text()!r}")
-        check("flow8: sub returns to Sees your shared entries",
-              "Sees your shared entries" in mrow.inner_text())
+        check("flow8: still no subtitle after re-enabling",
+              "Sees your shared entries" not in mrow.inner_text()
+              and "Paused" not in mrow.inner_text())
         page.get_by_test_id("partner-row-remove-id-acc-1").click()
         dlg = page.get_by_test_id("remove-partner-dialog")
         dlg.wait_for(timeout=8000)

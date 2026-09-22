@@ -448,6 +448,7 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete, onS
               onChange={(next) => onSharingChange!(event, next)}
               accessibilityLabel={`Share this ${meta.label.toLowerCase()} with your partner`}
               testID={`event-card-share-switch-${event.id}`}
+              compact
             />
           </View>
         ) : isAppointment ? (
