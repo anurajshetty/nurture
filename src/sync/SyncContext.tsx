@@ -7,6 +7,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AppState, Platform } from 'react-native';
 import {
   syncNow as engineSyncNow,
   getConflicts,
@@ -15,6 +16,7 @@ import {
   type SyncResult,
 } from './engine';
 import { getPendingCount } from './store';
+import { requestSyncAfterSave } from './syncTrigger';
 import { drainMediaOutbox } from './media';
 import type { SyncConflict } from '../lib/types';
 
@@ -56,6 +58,38 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Sync-trigger backstop (Sept 2026): a save that somehow missed its
+  // debounced trigger — or an offline gap while the app was backgrounded —
+  // converges when the user returns. Also fires one debounced pass on
+  // mount so app start pulls newer server rows even when nothing was
+  // written locally. Silent and coalesced: failures are counted in
+  // getSyncDiagnostics(), never thrown into the UI.
+  useEffect(() => {
+    let appStateSub: { remove(): void } | undefined;
+    let onVisible: (() => void) | undefined;
+    let onFocus: (() => void) | undefined;
+    if (Platform.OS === 'web') {
+      onVisible = () => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+          requestSyncAfterSave();
+        }
+      };
+      onFocus = () => requestSyncAfterSave();
+      document.addEventListener('visibilitychange', onVisible);
+      window.addEventListener('focus', onFocus);
+    } else {
+      appStateSub = AppState.addEventListener('change', (state) => {
+        if (state === 'active') requestSyncAfterSave();
+      });
+    }
+    requestSyncAfterSave();
+    return () => {
+      appStateSub?.remove();
+      if (onVisible) document.removeEventListener('visibilitychange', onVisible);
+      if (onFocus) window.removeEventListener('focus', onFocus);
+    };
+  }, []);
 
   const value = useMemo<SyncContextValue>(
     () => ({

@@ -135,5 +135,11 @@ npx tsc --ignoreConfig tests/partner_sharing.test.ts src/partner/sharing.ts src/
 OUT=/tmp/nurture-tests-phome
 npx tsc --ignoreConfig tests/partner_home.test.ts src/partner/partnerHome.ts src/partner/inviteCodes.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "partner_home" env TZ=America/Los_Angeles node $OUT/tests/partner_home.test.js
 
+OUT=/tmp/nurture-syncheal-tests
+npx tsc --ignoreConfig tests/sync_identity_healing.test.ts src/sync/engine.ts src/sync/store.ts src/auth/identity.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "sync_identity_healing" node $OUT/tests/sync_identity_healing.test.js
+
+OUT=/tmp/nurture-synctrig-tests
+npx tsc --ignoreConfig tests/sync_trigger.test.ts src/sync/store.ts src/sync/syncTrigger.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "sync_trigger" node $OUT/tests/sync_trigger.test.js
+
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

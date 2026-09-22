@@ -14,6 +14,7 @@
 import * as Crypto from 'expo-crypto';
 import { getDb } from '../lib/db';
 import { awaitIdentityUserId, getIdentityUserId, noteIdentityUserId } from '../auth/identity';
+import { requestSyncAfterSave } from './syncTrigger';
 import type { EventAttachment, EventInput, LocalEvent, Pregnancy, Visibility } from '../lib/types';
 
 /** Raw events-table row as returned by SQLite. */
@@ -129,6 +130,10 @@ function writeEventRow(input: EventInput, queueOutbox: boolean): LocalEvent {
       );
     }
   });
+  // Sync-trigger fix (Sept 2026): every local write schedules a debounced
+  // push — the entry no longer waits for a manual refresh or a reboot to
+  // reach the server. Non-blocking; the caller already has its event.
+  requestSyncAfterSave();
   return event;
 }
 
@@ -223,7 +228,12 @@ export function onIdentityResolved(userId: string | null): void {
   noteIdentityUserId(userId);
   if (userId) {
     try {
-      sweepIdentityPendingRows(userId);
+      const stamped = sweepIdentityPendingRows(userId);
+      if (stamped > 0) {
+        // Rows created while the identity was unavailable are now queued —
+        // push them now instead of waiting for the next manual sync.
+        requestSyncAfterSave();
+      }
     } catch {
       // Push-time healing (src/sync/engine.ts) is the backstop.
     }
@@ -254,6 +264,8 @@ export function updateEventVisibility(id: string, visibility: Visibility): void 
       now,
     );
   });
+  // The Shared-toggle flip must reach the server too — same debounced push.
+  requestSyncAfterSave();
 }
 
 /**
@@ -272,6 +284,8 @@ export function deleteEvent(id: string): void {
       now,
     );
   });
+  // Deletes are entry mutations too — the tombstone must reach the server.
+  requestSyncAfterSave();
 }
 
 /**
@@ -296,6 +310,8 @@ export function hardDeleteEvent(id: string): void {
         now,
       );
     });
+    // The delete op must converge — same debounced push as every mutation.
+    requestSyncAfterSave();
   } catch {
     // Best-effort: callers treat a failed delete as a no-op.
   }
@@ -334,6 +350,8 @@ export function setEventAttachments(id: string, attachments: EventAttachment[]):
       now,
     );
   });
+  // Attachment changes (upload state) queue an upsert — same debounced push.
+  requestSyncAfterSave();
 }
 
 /** Lists local (non-deleted) events, newest first. */

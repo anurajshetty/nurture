@@ -18,7 +18,16 @@ import * as Crypto from 'expo-crypto';
 import { supabase, isConfigured } from '../lib/supabase';
 import { getDb, kvGet, kvSet } from '../lib/db';
 import { getIdentityPendingCount, getPendingCount, getPendingPregnancyCount } from './store';
+import { registerSyncRunner } from './syncTrigger';
 import type { LocalEvent, Pregnancy, SyncConflict, Visibility } from '../lib/types';
+
+/**
+ * Boot wiring for the sync-trigger fix (Sept 2026): the store's
+ * debounced `requestSyncAfterSave()` needs a runner. Registered at module
+ * load — engine.ts always loads before any save can happen (the
+ * SyncProvider imports it, and every write path renders under it).
+ */
+registerSyncRunner(() => syncNow());
 
 const LAST_SYNCED_KEY = 'sync.last_synced_at';
 const LAST_SYNCED_PREGNANCIES_KEY = 'sync.last_synced_pregnancies_at';
