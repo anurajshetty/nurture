@@ -1,10 +1,10 @@
 /**
  * FloatingComposer — the "Log entry" surface for the Logs-tab Add button.
  *
- * Mockup 33-entry-sharing device A (Anuraj approved Sept 21, 2026):
+ * Mockup 33B (Anuraj approved Sept 21, 2026):
  * the new-log composer is TEXT-ONLY — kicker "New log", title "What's
- * on your mind?", lede, a 120pt textarea, a footer row with the real
- * Shared switch (starting at the global default), and a full-width
+ * on your mind?", lede, a 120pt textarea, a quiet sharing-status line
+ * reflecting the global default (no per-entry switch), and a full-width
  * "Save". After a save the composer settles away and the
  * sharing-aware toast confirms it ("Log saved — shared with your
  * partner." / "Log saved — only you can see it.").

@@ -33,8 +33,6 @@ interface TimelineListProps {
   onAppointmentPress?(eventId: string): void;
   /** When present, EVERY feed EventCard shows the mockup-18/30 delete × in the top-right corner. */
   onCardDelete?(event: LocalEvent): void;
-  /** When present, shareable EventCards show the per-entry Shared switch (mockup 33-entry-sharing). */
-  onSharingChange?(event: LocalEvent, shared: boolean): void;
   /** Loved-by partner names per event id (mockup 34, owner side). */
   lovedBy?: Record<string, string[]>;
   onEndReached(): void;
@@ -51,7 +49,6 @@ export default function TimelineList({
   onRevisitLookBack,
   onAppointmentPress,
   onCardDelete,
-  onSharingChange,
   lovedBy,
   onEndReached,
   refreshing,
@@ -70,7 +67,6 @@ export default function TimelineList({
           event={item}
           onAppointmentPress={onAppointmentPress}
           onCardDelete={onCardDelete}
-          onSharingChange={onSharingChange}
           lovedBy={lovedBy?.[item.id]}
         />
       )}

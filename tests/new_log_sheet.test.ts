@@ -50,6 +50,11 @@ Module._load = function (request: string, ...rest: unknown[]) {
   if (request === 'react') return reactStub;
   if (request === 'react/jsx-runtime')
     return { jsx: jsxFactory, jsxs: jsxFactory, Fragment: 'Fragment' };
+  if (request === 'react-native-svg') {
+    // NewLogForm/AppointmentSheet render the FamilyShareIcon (mockup 33B);
+    // stub the vector primitives the way react-native is stubbed.
+    return { Svg: 'Svg', Circle: 'Circle', Path: 'Path' };
+  }
   if (request === 'react-native') {
     return {
       ScrollView: 'ScrollView',

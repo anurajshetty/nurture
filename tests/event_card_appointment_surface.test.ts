@@ -89,7 +89,6 @@ const apptTree = EventCard({
   event: appt,
   onAppointmentPress: () => {},
   onCardDelete: () => {},
-  onSharingChange: () => {},
 }) as unknown as { props: { children: unknown } };
 const apptBody = cardBodyOf(apptTree, appt.id);
 check('appointment card (pressable) renders inside the white Card container', !!apptBody && apptBody.type === Card);
@@ -106,7 +105,6 @@ const moment = makeEvent('note', { data: { text: 'hello' } });
 const momentTree = EventCard({
   event: moment,
   onCardDelete: () => {},
-  onSharingChange: () => {},
 }) as unknown as { props: { children: unknown } };
 const momentBody = cardBodyOf(momentTree, moment.id);
 check('moment card still renders inside the white Card container', !!momentBody && momentBody.type === Card);

@@ -4,10 +4,10 @@
  *
  * Mockup structure: kicker "New log", title "What's on your mind?",
  * lede "A quick note — just write, and save.", a 120pt textarea,
- * a footer row (hint + real Shared switch), and a full-width primary
- * "Save". The switch starts at the global default (ON unless she
- * changed it). The handshake explainer sits above the card, shown once
- * — not repeated per render.
+ * a quiet sharing-status line (mockup 33B, Anuraj approved Sept 21,
+ * 2026 — no per-entry switch; new entries follow the You-tab sharing
+ * default), and a full-width primary "Save". The handshake explainer
+ * sits above the card, shown once — not repeated per render.
  *
  * Sheet chrome comes from the shared BottomSheet (Anuraj, Sept 2026):
  * grabber pill + pull-down-to-dismiss, safe-area bottom padding, and
@@ -31,8 +31,8 @@ import {
 } from 'react-native';
 import { colors, minTouch, radii, spacing, type } from '../theme/tokens';
 import BottomSheet from '../components/BottomSheet';
-import SharedSwitch from '../components/SharedSwitch';
-import { HANDSHAKE_COPY, shareToggleLabels } from '../partner/sharing';
+import FamilyShareIcon from '../components/FamilyShareIcon';
+import { HANDSHAKE_COPY } from '../partner/sharing';
 import { readShareDefaultSync } from '../partner/shareStore';
 import { saveEventAwaitingIdentity } from '../sync/store';
 import type { LocalEvent } from '../lib/types';
@@ -49,8 +49,10 @@ export const NEW_LOG_SAVE_TOAST_PRIVATE = 'Log saved — only you can see it.';
 
 export default function NewLogForm({ onSaved, onClose }: NewLogFormProps) {
   const [text, setText] = useState('');
-  // Switch starts at the global default (mockup device A: ON).
-  const [shared, setShared] = useState<boolean>(() => readShareDefaultSync());
+  // New entries follow the global sharing default (mockup 33B: ON unless
+  // she changed it). Read-only here — the You-tab default is the one
+  // place sharing is controlled.
+  const [shared] = useState<boolean>(() => readShareDefaultSync());
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
@@ -60,7 +62,6 @@ export default function NewLogForm({ onSaved, onClose }: NewLogFormProps) {
   }, []);
 
   const canSave = text.trim().length > 0 && !saving;
-  const labels = shareToggleLabels(shared);
 
   const handleSave = async () => {
     const clean = text.trim();
@@ -114,18 +115,23 @@ export default function NewLogForm({ onSaved, onClose }: NewLogFormProps) {
           returnKeyType="default"
           accessibilityLabel="Log text"
         />
+        {/* Mockup 33B: quiet, non-interactive sharing status — the
+            family icon + "Shared with your partners" when the default is
+            on, a muted line when it is off. No per-entry switch. */}
         <View style={styles.footer} testID="new-log-share-row">
-          <View style={styles.shareText}>
-            <Text style={styles.shareLabel}>{labels.status}</Text>
-            <Text style={styles.hint}>{labels.hint}</Text>
-          </View>
-          <SharedSwitch
-            value={shared}
-            onChange={setShared}
-            accessibilityLabel="Share this log with your partner"
-            testID="new-log-share-switch"
-            compact
-          />
+          {shared ? (
+            <View style={styles.shareStatusLine} testID="new-log-share-status">
+              <FamilyShareIcon size={20} />
+              <Text style={styles.shareStatusText}>Shared with your partners</Text>
+            </View>
+          ) : (
+            <Text
+              style={[styles.shareStatusText, styles.shareStatusMuted]}
+              testID="new-log-share-status"
+            >
+              Only you can see this.
+            </Text>
+          )}
         </View>
         <Pressable
           testID="new-log-save"
@@ -198,23 +204,22 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingVertical: spacing.sm,
     marginBottom: spacing.md,
   },
-  hint: {
+  shareStatusLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  shareStatusText: {
     ...type.subhead,
-    color: colors.muted,
-    marginTop: 2,
-  },
-  shareText: {
-    flex: 1,
-    paddingRight: spacing.md,
-  },
-  shareLabel: {
-    ...type.body,
     color: colors.ink,
-    fontWeight: '700',
+    fontWeight: '600',
+  },
+  shareStatusMuted: {
+    color: colors.muted,
+    fontWeight: '400',
   },
   saveBtn: {
     backgroundColor: colors.coral,

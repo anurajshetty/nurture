@@ -158,6 +158,13 @@ npx tsc --ignoreConfig tests/partner_popup_flow.test.ts src/partner/ShareCodeScr
 # recomputes times and day-group boundaries automatically.
 OUT=/tmp/nurture-localtz-tests
 npx tsc --ignoreConfig tests/local_timezone.test.ts src/time/timezone.ts src/time/localFormat.ts src/timeline/timeline.ts src/onboarding/dates.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "local_timezone" env NODE_PATH="$PWD/node_modules" node $OUT/tests/local_timezone.test.js
+# Feed-card sharing revision (mockup 33B, Anuraj approved Sept 21, 2026):
+# no per-card sharing controls; shared cards show the read-only
+# FamilyShareIcon (option C "ink on blush") left of the ×; unshared
+# cards show the × alone; × still opens delete confirmation; composer
+# and appointment sheets show the quiet status line, no switch.
+OUT=/tmp/nurture-familyicon-tests
+npx tsc --ignoreConfig tests/family_share_icon.test.ts --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "family_share_icon" env NODE_PATH="$PWD/node_modules" node $OUT/tests/family_share_icon.test.js
 
 OUT=/tmp/nurture-syncheal-tests
 npx tsc --ignoreConfig tests/sync_identity_healing.test.ts src/sync/engine.ts src/sync/store.ts src/auth/identity.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "sync_identity_healing" node $OUT/tests/sync_identity_healing.test.js

@@ -20,16 +20,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import BottomSheet from '../components/BottomSheet';
+import FamilyShareIcon from '../components/FamilyShareIcon';
 import { DatePickerField } from '../components/DatePickerField';
 import { TimePickerField } from '../components/TimePickerField';
-import SharedSwitch from '../components/SharedSwitch';
 import { colors, radii, spacing, type as typeScale } from '../theme/tokens';
 import { getActivePregnancy, saveEventAwaitingIdentity } from '../sync/store';
 import { appointmentDateBounds } from '../onboarding/dates';
 import { refreshAppointmentReminders } from '../notifications/appointments';
 import type { LocalEvent } from '../lib/types';
 import { buildAppointmentInput } from './appointmentInput';
-import { HANDSHAKE_COPY, shareToggleLabels } from '../partner/sharing';
+import { HANDSHAKE_COPY } from '../partner/sharing';
 import { readShareDefaultSync } from '../partner/shareStore';
 
 /** Default time when she doesn't touch the picker: 10:30 AM today. */
@@ -52,11 +52,10 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
   const [date, setDate] = useState(() => new Date());
   const [time, setTime] = useState(defaultTime);
   const [where, setWhere] = useState('');
-  // Sharing switch starts at the global default (mockup
-  // 33-entry-sharing device B: ON unless she changed it). Changing it
-  // affects this appointment only — the global default is untouched.
+  // New appointments follow the global sharing default (mockup 33B:
+  // ON unless she changed it). Read-only here — the You-tab default is
+  // the one place sharing is controlled.
   const [shared, setShared] = useState<boolean>(() => readShareDefaultSync());
-  const shareLabels = shareToggleLabels(shared);
 
   // Picker window (Anuraj, Sept 2026): min = today (no past scheduled
   // dates); max = the pregnancy's due date + 2 months from the record, so
@@ -75,7 +74,7 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
   }, [visible]);
 
   // The sheet stays mounted while hidden — start every session with a
-  // fresh form, not the previous appointment's details. The switch
+  // fresh form, not the previous appointment's details. The status line
   // re-reads the global default each time it opens.
   useEffect(() => {
     if (visible) {
@@ -184,24 +183,27 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
         />
       </View>
 
-      {/* Per-appointment sharing (mockup 33-entry-sharing device B):
-          real switch, starts at the global default. The handshake
-          explainer sits above it, shown once. */}
+      {/* Mockup 33B: quiet, non-interactive sharing status — the
+          family icon + "Shared with your partners" when the default is
+          on, a muted line when it is off. No per-entry switch. The
+          handshake explainer sits above it, shown once. */}
       <View style={styles.explainerWrap} testID="appointment-share-explainer">
         <Text style={styles.explainerText}>{HANDSHAKE_COPY}</Text>
       </View>
       <View style={styles.shareRow} testID="appointment-share-row">
-        <View style={styles.shareText}>
-          <Text style={styles.shareLabel}>{shareLabels.status}</Text>
-          <Text style={styles.shareHint}>{shareLabels.hint}</Text>
-        </View>
-        <SharedSwitch
-          value={shared}
-          onChange={setShared}
-          accessibilityLabel="Share this appointment with your partner"
-          testID="appointment-share-switch"
-          compact
-        />
+        {shared ? (
+          <View style={styles.shareStatusLine} testID="appointment-share-status">
+            <FamilyShareIcon size={20} />
+            <Text style={styles.shareStatusText}>Shared with your partners</Text>
+          </View>
+        ) : (
+          <Text
+            style={[styles.shareStatusText, styles.shareStatusMuted]}
+            testID="appointment-share-status"
+          >
+            Only you can see this.
+          </Text>
+        )}
       </View>
 
       <Pressable
@@ -285,23 +287,22 @@ const styles = StyleSheet.create({
   shareRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingVertical: spacing.sm,
     marginBottom: spacing.sm,
   },
-  shareHint: {
+  shareStatusLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  shareStatusText: {
     ...typeScale.subhead,
-    color: colors.muted,
-    marginTop: 2,
-  },
-  shareText: {
-    flex: 1,
-    paddingRight: spacing.md,
-  },
-  shareLabel: {
-    ...typeScale.body,
     color: colors.ink,
-    fontWeight: '700',
+    fontWeight: '600',
+  },
+  shareStatusMuted: {
+    color: colors.muted,
+    fontWeight: '400',
   },
   save: {
     backgroundColor: colors.coral,

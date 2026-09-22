@@ -29,7 +29,7 @@ import {
   spacing,
   type as typeScale,
 } from '../../src/theme/tokens';
-import { countEvents, deleteEvent, getEvent, listEventsInRange, listEventsPage, updateEventVisibility } from '../../src/sync/store';
+import { countEvents, deleteEvent, getEvent, listEventsInRange, listEventsPage } from '../../src/sync/store';
 import {
   REPORT_SUMMARY_FAILED_TOAST,
   REPORT_SUMMARY_NOT_RELATED_TOAST,
@@ -52,14 +52,9 @@ import DeleteCardDialog, {
   deleteToastStyles,
 } from '../../src/timeline/DeleteCardDialog';
 import { deleteCopyFor } from '../../src/timeline/deleteCopy';
-import { setEventSharedRemote } from '../../src/partner/sharing';
 import { seedShareDefaultFromServer } from '../../src/partner/shareStore';
 import { useLovedBy } from '../../src/partner/useLovedBy';
-import type { Visibility } from '../../src/lib/types';
 
-/** Per-entry Shared toggle toasts (mockup 33-entry-sharing device C). */
-const SHARE_ON_TOAST = 'Shared with your partner.';
-const SHARE_OFF_TOAST = 'Not shared — your partner won\u2019t see this entry.';
 import WeekFilterDropdown, {
   type WeekFilterValue,
 } from '../../src/timeline/WeekFilterDropdown';
@@ -219,43 +214,6 @@ export default function LogsScreen() {
     }, 1800);
     void syncNow().catch(() => {});
   }, [deleteTarget, syncNow]);
-  /**
-   * Mockup 33-entry-sharing device C: the retroactive per-entry Shared
-   * switch on feed cards. Persists locally (visibility flip + sync
-   * outbox), mirrors to the server's set_event_shared best-effort, and
-   * confirms with the sharing-aware toast.
-   */
-  const [shareToast, setShareToast] = useState<string | null>(null);
-  const shareToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    return () => {
-      if (shareToastTimer.current) clearTimeout(shareToastTimer.current);
-    };
-  }, []);
-  const handleSharingChange = useCallback(
-    (event: LocalEvent, shared: boolean) => {
-      const next: Visibility = shared ? 'shared' : 'private';
-      try {
-        updateEventVisibility(event.id, next);
-      } catch {
-        return;
-      }
-      setEvents((prev) =>
-        prev.map((e) => (e.id === event.id ? { ...e, visibility: next } : e)),
-      );
-      if (shareToastTimer.current) clearTimeout(shareToastTimer.current);
-      setShareToast(shared ? SHARE_ON_TOAST : SHARE_OFF_TOAST);
-      shareToastTimer.current = setTimeout(() => {
-        setShareToast(null);
-        shareToastTimer.current = null;
-      }, 2400);
-      // Direct server mirror (best-effort); the sync outbox is the
-      // offline-safe path.
-      void setEventSharedRemote(event.id, shared).catch(() => {});
-      void syncNow().catch(() => {});
-    },
-    [syncNow],
-  );
   // Seed the global sharing default from the server on first run of a
   // second device (no-op when a local value already exists).
   useEffect(() => {
@@ -550,7 +508,6 @@ export default function LogsScreen() {
             onRevisitLookBack={scrollToEvent}
             onAppointmentPress={openAppointment}
             onCardDelete={openDeleteConfirm}
-            onSharingChange={handleSharingChange}
             lovedBy={lovedBy}
             onEndReached={loadMore}
             refreshing={refreshing}
@@ -582,13 +539,6 @@ export default function LogsScreen() {
         <View style={deleteToastStyles.wrap} pointerEvents="none">
           <View style={deleteToastStyles.pill} testID="report-summary-toast">
             <Text style={deleteToastStyles.text}>{reportToast}</Text>
-          </View>
-        </View>
-      ) : null}
-      {shareToast !== null ? (
-        <View style={deleteToastStyles.wrap} pointerEvents="none">
-          <View style={deleteToastStyles.pill} testID="share-toggle-toast">
-            <Text style={deleteToastStyles.text}>{shareToast}</Text>
           </View>
         </View>
       ) : null}

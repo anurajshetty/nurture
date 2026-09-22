@@ -33,14 +33,10 @@ import {
   subscribeReportSummary,
   type ReportSummaryState,
 } from '../reportSummary/client';
-import SharedSwitch from '../components/SharedSwitch';
+import FamilyShareIcon from '../components/FamilyShareIcon';
 import ContractionWave from '../partner/ContractionWave';
 import { readActivityCard } from '../labor/feed';
-import {
-  canToggleSharing,
-  isSharedVisibility,
-  shareToggleLabels,
-} from '../partner/sharing';
+import { canToggleSharing, isSharedVisibility } from '../partner/sharing';
 import { lovedByLabel } from '../partner/partnerHome';
 
 interface TypeMeta {
@@ -79,8 +75,8 @@ function formatTime(iso: string): string {
 
 /**
  * Compact day label for the shareable card header (mockup 33-entry-sharing
- * device C): "Today", "Yesterday", or "Sep 24" — no time, so the header
- * stays on one line next to the switch.
+ * device C): "Today", "Yesterday", or "Sep 24" — no time, so the kicker
+ * stays on one line.
  */
 function formatDay(iso: string): string {
   return formatLocalDay(iso);
@@ -309,16 +305,6 @@ export interface EventCardProps {
    */
   onCardDelete?: (event: LocalEvent) => void;
   /**
-   * When present and the event is a shareable type (log entries, kick
-   * sessions, appointments, Activity cards, report summaries — mockup
-   * 33-entry-sharing device C, Anuraj approved Sept 21, 2026), the
-   * card header carries the real per-entry Shared switch ("Shared" /
-   * "Not shared"). Flipping it calls this with the event and the new
-   * shared state; the parent persists it (local visibility + sync +
-   * server mirror). Non-shareable types keep the visibility label.
-   */
-  onSharingChange?: (event: LocalEvent, shared: boolean) => void;
-  /**
    * Loved-by partner names for this card (mockup 34, owner side).
    * Rendered as "Loved by {name}" under the card body when non-empty.
    * The parent feeds this from get_entry_loves(); absent = unknown.
@@ -394,7 +380,6 @@ export default function EventCard({
   event,
   onAppointmentPress,
   onCardDelete,
-  onSharingChange,
   lovedBy,
   partnerMode,
   loved,
@@ -424,12 +409,15 @@ export default function EventCard({
   // parent wires onCardDelete. Never on partner cards.
   const deletable = !!onCardDelete && !partner;
   const delCopy = deletable ? deleteCopyFor(event) : null;
-  // Mockup 33-entry-sharing device C: shareable cards carry the real
-  // per-entry Shared switch in the header instead of the static
-  // visibility label. Never on partner cards.
-  const shareable = canToggleSharing(event.type) && !!onSharingChange && !partner;
-  const entryShared = isSharedVisibility(event.visibility);
-  const shareLabels = shareToggleLabels(entryShared);
+  // Mockup 33B (Anuraj approved Sept 21, 2026): per-entry Shared switches
+  // are gone from every feed card. Shareable card types (log entries,
+  // kick sessions, appointments, Activity cards, report summaries) show
+  // the read-only family icon in the top-right corner — only when the
+  // entry is shared. Unshared entries show the × alone. Never on partner
+  // cards: the partner only ever sees shared entries.
+  const shareableType = canToggleSharing(event.type) && !partner;
+  const showFamilyIcon =
+    deletable && shareableType && isSharedVisibility(event.visibility);
   // Contraction-timing cards keep the partner's warm wave (mockup 34,
   // Anuraj approved) inside the identical card shell; the feed's plain
   // text lines render everywhere else.
@@ -470,11 +458,11 @@ export default function EventCard({
   // "Backing up…" state may be shown — for photos or files.
 
   /**
-   * The meta row carries the per-entry Shared switch. It renders as a
-   * SIBLING of the pressable body — never nested inside it — so tapping
-   * the switch never opens the appointment editor (the same sibling
-   * pattern the delete × uses; nested Pressables fire both handlers on
-   * native).
+   * The meta row for shareable card types carries the compact
+   * "{label} · {day}" kicker (mockup 33B) — no switch, no caption, no
+   * visibility label. Sharing status lives only in the top-right family
+   * icon. Non-shareable types keep the classic type row + time +
+   * visibility label.
    */
   /**
    * Partner mode: the same meta row minus every owner-only control —
@@ -502,7 +490,7 @@ export default function EventCard({
     <View>
       <View style={styles.meta}>
         <View style={styles.metaLeft}>
-          {shareable ? (
+          {shareableType ? (
             <View style={[styles.typeRow, styles.shrink]}>
               <View style={[styles.dot, { backgroundColor: eventDots[meta.dot] }]}>
                 <Text style={styles.dotGlyph}>{meta.glyph}</Text>
@@ -528,33 +516,19 @@ export default function EventCard({
               ) : null}
             </>
           )}
-          {!shareable && !isAppointment ? (
+          {!shareableType && !isAppointment ? (
             <Text style={styles.visibility}>{visibilityLabel(event.visibility)}</Text>
           ) : null}
-          {!shareable && isAppointment ? (
+          {!shareableType && isAppointment ? (
             <Text style={[styles.visibility, styles.visibilityInline]}>
               {visibilityLabel(event.visibility)}
             </Text>
           ) : null}
         </View>
-        {shareable ? (
-          <View style={styles.shareHead} testID={`event-card-share-${event.id}`}>
-            <Text style={styles.shareStatus}>{shareLabels.status}</Text>
-            <SharedSwitch
-              value={entryShared}
-              onChange={(next) => onSharingChange!(event, next)}
-              accessibilityLabel={`Share this ${meta.label.toLowerCase()} with your partner`}
-              testID={`event-card-share-switch-${event.id}`}
-              compact
-            />
-          </View>
-        ) : isAppointment ? (
+        {!shareableType && isAppointment ? (
           <Text style={[styles.time, styles.timeRight]} testID={`event-card-date-${event.id}`}>{formatTime(event.occurredAt)}</Text>
         ) : null}
       </View>
-      {shareable ? (
-        <Text style={styles.shareHint}>{shareLabels.hint}</Text>
-      ) : null}
     </View>
   );
 
@@ -642,7 +616,7 @@ export default function EventCard({
     <View style={deletable || partner ? styles.cardWrap : undefined}>
       {appointmentPressable ? (
         <Card
-          style={[styles.card, deletable && styles.cardDeletable]}
+          style={[styles.card, deletable && styles.cardDeletable, showFamilyIcon && styles.cardShared]}
           testID={`event-card-${event.id}`}
         >
           {metaRow}
@@ -657,7 +631,7 @@ export default function EventCard({
         </Card>
       ) : (
         <Card
-          style={[styles.card, deletable && styles.cardDeletable, partner && styles.cardPartner]}
+          style={[styles.card, deletable && styles.cardDeletable, showFamilyIcon && styles.cardShared, partner && styles.cardPartner]}
           testID={`event-card-${event.id}`}
         >
           {metaRow}
@@ -675,6 +649,15 @@ export default function EventCard({
         >
           <Text style={styles.delGlyph}>×</Text>
         </Pressable>
+      ) : null}
+      {/* Mockup 33B: the read-only family icon — shared entries only,
+          top-right, immediately left of the ×. A status indicator, NOT a
+          control: no Pressable, no tap target. */}
+      {showFamilyIcon ? (
+        <FamilyShareIcon
+          testID={`event-card-share-icon-${event.id}`}
+          style={styles.shareIcon}
+        />
       ) : null}
       {/* Partner home: the ONLY allowed difference from the feed card —
           the heart sits in the top-right corner (same 44×44 corner
@@ -817,23 +800,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 'auto',
   },
-  // Per-entry Shared switch in the card header (mockup 33-entry-sharing
-  // device C): rides the right end of the meta row.
-  shareHead: {
-    marginLeft: 'auto',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+  // Mockup 33B: read-only family icon — shared entries only. Absolute,
+  // immediately left of the 44×44 delete ×, vertically centered on it.
+  // Non-interactive: no tap target, no Pressable.
+  shareIcon: {
+    position: 'absolute',
+    top: 16,
+    right: 52,
   },
-  shareStatus: {
-    ...typeScale.footnote,
-    color: colors.coralDeep,
-    fontWeight: '700',
-  },
-  shareHint: {
-    ...typeScale.footnote,
-    color: colors.muted,
-    marginTop: 2,
+  /** Mockup 33B: extra right padding clears the family icon + × corner. */
+  cardShared: {
+    paddingRight: 88,
   },
   title: {
     ...typeScale.headline,
