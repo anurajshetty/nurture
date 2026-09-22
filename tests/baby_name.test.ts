@@ -35,7 +35,8 @@ import {
   getMatrixRow,
 } from '../src/briefing/matrix';
 
-declare const process: { exit(code: number): void };
+declare const process: { exit(code: number): void; cwd(): string };
+declare function require(id: string): any;
 
 let passed = 0;
 let failed = 0;
@@ -56,11 +57,14 @@ function bodyText(body: DelightBody): string {
 }
 
 // --- withBabyName ---------------------------------------------------------
+// Anuraj (Sept 21, 2026): the app never asks for the baby's gender, so a
+// named baby is always rendered "baby {name}" (e.g. "baby Mira") — never
+// the bare name alone, and never a gendered pronoun.
 {
-  check('name set, capitalized token', withBabyName('{Name} is growing.', 'Wren'), 'Wren is growing.');
-  check('name set, lowercase token', withBabyName('and {name} has been tasting.', 'Wren'), 'and Wren has been tasting.');
-  check('possessive rides along', withBabyName("{Name}'s grip is strong.", 'Wren'), "Wren's grip is strong.");
-  check('mid-sentence possessive', withBabyName("early term — {name}'s organs are ready.", 'Wren'), "early term — Wren's organs are ready.");
+  check('name set, capitalized token', withBabyName('{Name} is growing.', 'Wren'), 'Baby Wren is growing.');
+  check('name set, lowercase token', withBabyName('and {name} has been tasting.', 'Wren'), 'and baby Wren has been tasting.');
+  check('possessive rides along', withBabyName("{Name}'s grip is strong.", 'Wren'), "Baby Wren's grip is strong.");
+  check('mid-sentence possessive', withBabyName("early term — {name}'s organs are ready.", 'Wren'), "early term — baby Wren's organs are ready.");
   check(
     'no name → generic fallback',
     withBabyName('{Name} is growing and {name} is loved.', null),
@@ -69,7 +73,7 @@ function bodyText(body: DelightBody): string {
   check('blank name → generic fallback', withBabyName('{Name} is growing.', '   '), 'Your baby is growing.');
   check('undefined → generic fallback', withBabyName('How big is {name}?', undefined), 'How big is your baby?');
   check('no tokens → untouched', withBabyName('Did you know?', 'Wren'), 'Did you know?');
-  check('name is trimmed', withBabyName('Hello, {Name}!', '  Wren  '), 'Hello, Wren!');
+  check('name is trimmed', withBabyName('Hello, {Name}!', '  Wren  '), 'Hello, Baby Wren!');
   check(
     'token constants are the documented pair',
     [BABY_NAME_TOKEN_CAP, BABY_NAME_TOKEN],
@@ -113,6 +117,110 @@ const FORMER_NAME_PATTERN = new RegExp('\\b' + 'mi' + 'ra' + '\\b', 'i');
   }
   const hits = texts.filter((t) => FORMER_NAME_PATTERN.test(t));
   check('no curated string hardcodes a personal name', hits, []);
+}
+
+// --- audit: baby-referring copy must be gender-neutral --------------------
+// Anuraj (Sept 21, 2026, caught live on his phone): the app never asks for
+// the baby's gender, so ALL baby-referring user-visible copy must avoid
+// he/she/him/her/his/hers. Mother-referring copy (the pregnant woman —
+// known female) is allowlisted below and must NOT be "fixed".
+//
+// The audit scans string literals (+ JSX text) in the copy-bearing files.
+// Any gendered hit that is not on the mother-referring allowlist fails the
+// suite — so reintroducing baby-gendered copy breaks the build.
+const fs = require('fs') as {
+  readFileSync(p: string, enc: string): string;
+  existsSync(p: string): boolean;
+};
+const nodePath = require('path') as { join(...parts: string[]): string };
+const ROOT = process.cwd();
+
+const GENDERED = /\b(she|her|hers|him|his)\b/i;
+
+// Known mother-referring strings (the pregnant woman / mother-to-be).
+// Fragments, matched case-insensitively against the offending literal.
+const MOTHER_ALLOWLIST: readonly string[] = [
+  'off her plate',
+  'her favorite takeout',
+  'sense of smell',
+  'strong-smelling stuff',
+  'grabs your hand to feel',
+  'first flutters soon',
+  'write her a note',
+  'keep it forever',
+  'her appetite is back',
+  'her feet are doing overtime',
+  'her favorites within arm',
+  'antacids she likes',
+  'heating pad before she asks',
+  'a stroll, not a race',
+  'her center of gravity',
+  'paint roller',
+  'drive her, wait with the good snacks',
+  'tired in a way sleep doesn\u2019t fix',
+  'doing beautifully',
+  'valaikaapu',
+  'mother-to-be with bangles',
+  'blessingway',
+  'women in her life',
+  'her journal entries will appear here',
+  'entries she recorded herself',
+  'share her pregnancy journey',
+  "she's feeling ",
+  "moments she's shared with you",
+  "you're her guest",
+];
+
+const LINT_FILES: readonly string[] = [
+  'src/briefing/matrix.ts',
+  'src/briefing/delight.ts',
+  'src/briefing/context.ts',
+  'src/kicks/pattern.ts',
+  'src/kicks/reminder.ts',
+  'src/kicks/KickHomeCard.tsx',
+  'src/kicks/KickHistoryScreen.tsx',
+  'src/kicks/KickCountingScreen.tsx',
+  'src/partner/partnerHome.ts',
+  'src/partner/PartnerHomeScreen.tsx',
+  'src/onboarding/shareInvite.ts',
+  'src/export/obVisit.ts',
+];
+
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^\S:])\/\/[^\n]*/g, '$1');
+}
+
+function extractLiterals(src: string): string[] {
+  const out: string[] = [];
+  const re = /('(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) out.push(m[1]);
+  // JSX text nodes: text between > and < (multi-word runs only)
+  const jsx = />([^<>{}]{4,})</g;
+  while ((m = jsx.exec(src)) !== null) out.push(m[1]);
+  return out;
+}
+
+{
+  const offenders: string[] = [];
+  for (const rel of LINT_FILES) {
+    const abs = nodePath.join(ROOT, rel);
+    if (!fs.existsSync(abs)) {
+      offenders.push(`${rel}: FILE MISSING`);
+      continue;
+    }
+    const literals = extractLiterals(stripComments(fs.readFileSync(abs, 'utf8')));
+    for (const lit of literals) {
+      const gm = lit.match(GENDERED);
+      if (!gm) continue;
+      const low = lit.toLowerCase();
+      const allowed = MOTHER_ALLOWLIST.some((frag) => low.includes(frag.toLowerCase()));
+      if (!allowed) offenders.push(`${rel}: ${lit.slice(0, 110)}`);
+    }
+  }
+  check('no non-allowlisted gendered baby copy', offenders, []);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

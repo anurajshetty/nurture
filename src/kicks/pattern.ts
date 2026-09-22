@@ -3,7 +3,7 @@
  * Sept 20, 2026).
  *
  * The feed card's "Save to my next appointment" link appears ONLY when a
- * session deviates from her usual pattern — never for ordinary sessions.
+ * session deviates from their usual pattern — never for ordinary sessions.
  * The history screen's gentle pattern line ("Usually about 15–20 minutes,
  * most evenings.") is computed here too.
  *
@@ -11,9 +11,9 @@
  * - No grades, streaks, red/green verdicts, or safety claims. These
  *   functions return facts (averages, a mode) and one gentle flag reason;
  *   every user-facing line routes reduced movement to her provider.
- * - "Notably longer": the session ran at least 1.5× her recent average
+ * - "Notably longer": the session ran at least 1.5× their recent average
  *   duration (needs ≥2 prior sessions — no pattern without history).
- * - "Notably weaker": her chosen strength dropped below her usual
+ * - "Notably weaker": the chosen strength dropped below their usual
  *   strength (the mode of prior sessions' strengths).
  * - When both apply, duration wins (it is the headline metric).
  *
@@ -92,8 +92,8 @@ export function usualStrength(
 }
 
 /**
- * Why this session deviates from her usual pattern, or null when it is
- * ordinary. `prior` = her sessions before this one (use
+ * Why this session deviates from their usual pattern, or null when it is
+ * ordinary. `prior` = their sessions before this one (use
  * recentKickSessions(all, session.id)). Pure.
  */
 export function deviationReason(
@@ -140,13 +140,13 @@ export function isDeviating(
  */
 export function deviationNote(reason: DeviationReason): string {
   if (reason === 'longer') {
-    return 'A bit longer than her usual — if she feels quieter than normal, your provider is the right call.';
+    return 'A bit longer than their usual — if they feel quieter than normal, your provider is the right call.';
   }
-  return 'A little quieter than her usual — if that worries you, your provider is the right call.';
+  return 'A little quieter than their usual — if that worries you, your provider is the right call.';
 }
 
 /* ------------------------------------------------------------------ */
-/* Pattern summary ("Her pattern" card)                                */
+/* Pattern summary ("Baby's pattern" card)                                */
 /* ------------------------------------------------------------------ */
 
 type DayPart = 'morning' | 'afternoon' | 'evening' | 'night';
@@ -196,7 +196,7 @@ function modeDayPart(
 }
 
 /**
- * "She's most active in the evening." — the gentle week-scoped pattern
+ * "Your baby is most active in the evening." — the gentle week-scoped pattern
  * note for the Home card (mockup 21 rev2). Needs ≥2 sessions with a clear
  * (untied) most-active time of day; null otherwise, so the card shows
  * just the counts line. No verdicts, no streaks. Pure.
@@ -206,7 +206,7 @@ export function weekPatternNote(
 ): string | null {
   if (sessions.length < 2) return null;
   const best = modeDayPart(sessions);
-  return best ? `She's most active in the ${best}.` : null;
+  return best ? `Your baby is most active in the ${best}.` : null;
 }
 
 /**

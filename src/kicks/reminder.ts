@@ -155,7 +155,7 @@ export async function refreshKickReminder(): Promise<void> {
       content: {
         title: 'Kick counting',
         // Warm and pressure-free, no health details on the lock screen.
-        body: 'A quiet moment to notice her movements.',
+        body: 'A quiet moment to notice your baby\u2019s movements.',
         data: { kind: 'kick-reminder' },
       },
       trigger: {

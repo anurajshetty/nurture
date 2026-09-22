@@ -549,7 +549,7 @@ check(
     kick('b', 10, 900, 'strong', '2026-09-20T19:30:00'),
     kick('c', 10, 900, 'strong', '2026-09-21T08:00:00'),
   ]),
-  "She's most active in the evening.",
+  "Your baby is most active in the evening.",
 );
 check(
   'weekPatternNote: <2 sessions → null',
@@ -570,7 +570,7 @@ check(
     kick('a', 10, 900, null, '2026-09-19T08:00:00'),
     kick('b', 10, 900, null, '2026-09-20T09:00:00'),
   ]),
-  "She's most active in the morning.",
+  "Your baby is most active in the morning.",
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);

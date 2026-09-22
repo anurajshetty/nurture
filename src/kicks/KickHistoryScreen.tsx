@@ -1,5 +1,5 @@
 /**
- * "Her pattern" — the weekly kick-session list (Willow, mockup 22 —
+ * "Baby's pattern" — the weekly kick-session list (Willow, mockup 22 —
  * Anuraj approved Sept 20, 2026).
  *
  * Full-screen overlay: plain session cards, one gentle pattern summary
@@ -12,7 +12,7 @@
  * opens this screen WEEK-SCOPED via the `weekRange` prop — title "This
  * week's kicks", only that week's sessions, and an empty state whose coral
  * "Start counting" button opens the counter (the card itself never opens
- * the counter). Deviation notes still compare against her full prior
+ * the counter). Deviation notes still compare against their full prior
  * history (all-time priors), so the approved deviation math is unchanged —
  * only the displayed rows are week-filtered.
  */
@@ -123,7 +123,7 @@ function ReminderOptInSheet({
       <View style={styles.sheetBody}>
         <Text style={styles.sheetTitle}>A quiet evening nudge?</Text>
         <Text style={styles.sheetCopy}>
-          Most evenings she moves around 8. If you&apos;d like, we&apos;ll
+          Most evenings your baby moves around 8. If you&apos;d like, we&apos;ll
           send one gentle reminder — never more, and you can pause it
           anytime.
         </Text>
@@ -222,7 +222,7 @@ export default function KickHistoryScreen({
           <Text style={styles.backText}>‹ Week</Text>
         </Pressable>
         <Text style={styles.title}>
-          {weekRange ? "This week's kicks" : 'Her pattern'}
+          {weekRange ? "This week's kicks" : "Baby's pattern"}
         </Text>
         <View style={styles.back} />
       </View>
@@ -238,7 +238,7 @@ export default function KickHistoryScreen({
             </View>
             <Text style={styles.emptyTitle}>No kicks logged yet</Text>
             <Text style={styles.emptyBody}>
-              When she&apos;s usually active, settle in and tap the kicks
+              When your baby&apos;s usually active, settle in and tap the kicks
               button below — one quiet session at a time.
             </Text>
             <Pressable
@@ -262,7 +262,7 @@ export default function KickHistoryScreen({
               </Text>
               <Text style={styles.patternLine}>
                 {patternLine ??
-                  'A couple more sessions and we’ll start seeing her pattern.'}
+                  'A couple more sessions and we’ll start seeing your baby’s pattern.'}
               </Text>
             </View>
 

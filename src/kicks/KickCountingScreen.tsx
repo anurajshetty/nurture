@@ -196,7 +196,7 @@ export default function KickCountingScreen({
               {formatKickWeekdayTime(startedAt.current)}
             </Text>
             <Text style={styles.prompt}>
-              How did she feel? Optional — skip if you like.
+              How did they feel? Optional — skip if you like.
             </Text>
             <View style={styles.strengthRow}>
               {KICK_STRENGTHS.map((s) => {

@@ -3,7 +3,7 @@
 Kick counter interactive test (Willow, Anuraj approved Sept 20, 2026) —
 the week-19 gate, floating kicks pill, Home card, counting screen
 (tap / pause / resume / end / auto-summary / strength / save / discard /
-exit), history screen ("Her pattern", session rows, reminder opt-in),
+exit), history screen ("Baby's pattern", session rows, reminder opt-in),
 Logs feed card (deviation-only save link, attach, confirmation), and the
 appointment sheet KICKS section — against the real web export at 390x844
 served under /willow/ (with ?testhooks=1).
@@ -33,7 +33,7 @@ Locked behaviors under test:
       off again; the choice persists.
   (f) feed card: time + "N movements in X minutes" + strength note; the
       gentle flag + care line + "Save to my next appointment" appear ONLY
-      on sessions that deviate from her usual pattern; ordinary sessions
+      on sessions that deviate from their usual pattern; ordinary sessions
       show no link.
   (g) save link: attaches ONLY to the immediate next future appointment
       (never skips a full one); max 5 per appointment hides the link;
@@ -72,7 +72,7 @@ FLAG = "This one felt different from your usual \u2014 worth mentioning at your 
 CARE_FEED = "If movements feel less than usual, call your care team \u2014 don\u2019t wait on it."
 CARE_COUNTING = "Quieter than usual? Contact your provider \u2014 they\u2019d rather hear from you."
 EXIT_TOAST = "Session ended \u2014 nothing was saved."
-PATTERN_FALLBACK = "A couple more sessions and we\u2019ll start seeing her pattern."
+PATTERN_FALLBACK = "A couple more sessions and we\u2019ll start seeing your baby\u2019s pattern."
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -299,7 +299,7 @@ def run():
               "C10b: State B title")
         check("1 session this week \u00b7 3 movements" in card_text,
               "C10c: State B summary line")
-        check("She's most active" not in card_text,
+        check("most active in the" not in card_text,
               "C10d: no pattern note with a single session")
         check(page.get_by_test_id("kicks-fab").count() == 1,
               "C11: pill stays too")
@@ -581,8 +581,8 @@ def run():
         INK = "rgb(47, 43, 39)"
         BODY = "rgb(92, 85, 77)"
         SAGE = "rgb(147, 177, 146)"
-        state_a_body = ("She's getting big enough for her movements to form a "
-                        "pattern. When she's usually active, tap the kicks "
+        state_a_body = ("Your baby is getting big enough for their movements to form a "
+                        "pattern. When they're usually active, tap the kicks "
                         "button below and count along \u2014 one quiet session "
                         "at a time.")
         a = card_styles("Start recording kicks", state_a_body)
@@ -615,7 +615,7 @@ def run():
         card_text = page.get_by_test_id("week-kick-card").inner_text()
         check("2 sessions this week \u00b7 20 movements" in card_text,
               "F7: State B summary after two sessions")
-        check("She's most active in the evening." in card_text,
+        check("Your baby is most active in the evening." in card_text,
               "F8: gentle week-scoped pattern note with 2+ sessions")
         b = card_styles("This week's kicks",
                         "2 sessions this week \u00b7 20 movements")

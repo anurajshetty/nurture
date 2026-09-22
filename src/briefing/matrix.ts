@@ -461,7 +461,7 @@ const ROW_11: WeekMatrixRow = {
 const ROW_12: WeekMatrixRow = {
   week: 12,
   anchors: {
-    baby: '{Name} is sprouting fingernails, and her reflexes are waking up \u2014 fingers curl, toes flex, tiny sucking motions begin.',
+    baby: '{Name} is sprouting fingernails, and their reflexes are waking up \u2014 fingers curl, toes flex, tiny sucking motions begin.',
     body: 'For many, the nausea fog is lifting \u2014 appetite and energy often start returning now.',
   },
   milestones: [
@@ -510,7 +510,7 @@ const ROW_12: WeekMatrixRow = {
 const ROW_13: WeekMatrixRow = {
   week: 13,
   anchors: {
-    baby: 'Welcome to the second trimester \u2014 {name}\u2019s bones are starting to harden, and her paper-thin skin will soon thicken.',
+    baby: 'Welcome to the second trimester \u2014 {name}\u2019s bones are starting to harden, and their paper-thin skin will soon thicken.',
     body: 'Many people turn a corner now \u2014 less nausea, more energy, and the news often starts to travel.',
   },
   milestones: [
@@ -559,7 +559,7 @@ const ROW_13: WeekMatrixRow = {
 const ROW_14: WeekMatrixRow = {
   week: 14,
   anchors: {
-    baby: '{Name} is officially a second-trimester baby. Her neck is lengthening and her body is catching up to her head.',
+    baby: '{Name} is officially a second-trimester baby. Their neck is lengthening and their body is catching up to their head.',
     body: 'Energy often starts returning now — the fog of the first trimester lifting, a little at a time.',
   },
   milestones: [
@@ -572,16 +572,16 @@ const ROW_14: WeekMatrixRow = {
     },
   ],
   prep: [],
-  nextWeekTeaser: 'Next week: her legs outgrow her arms — and her taste buds switch on.',
+  nextWeekTeaser: 'Next week: their legs outgrow their arms — and their taste buds switch on.',
   delight: {
     factIds: ['lanugo', 'swallowing-practice', 'heartbeat-fast'],
     freshAngles: ['The second-trimester turn', 'Energy on its way back', 'A downy first coat'],
   },
   routineSeeds: {
     baby: [
-      'Her neck is more defined now, and her body is growing faster than her head.',
-      'Fine downy lanugo is starting to cover her skin — it will help the vernix stick later on.',
-      'Her spleen is beginning to make red blood cells, and her heart beats on strongly.',
+      'Their neck is more defined now, and their body is growing faster than their head.',
+      'Fine downy lanugo is starting to cover their skin — it will help the vernix stick later on.',
+      'Their spleen is beginning to make red blood cells, and their heart beats on strongly.',
     ],
     body: [
       'Energy often starts coming back now — many people feel the first-trimester fog lifting.',
@@ -608,21 +608,21 @@ const ROW_14: WeekMatrixRow = {
 const ROW_15: WeekMatrixRow = {
   week: 15,
   anchors: {
-    baby: '{Name}\'s legs have grown longer than her arms — the proportions are evening out, and she\'s looking more like a newborn in miniature.',
+    baby: '{Name}\'s legs have grown longer than their arms — the proportions are evening out, and they\'re looking more like a newborn in miniature.',
     body: 'Many feel more like themselves this week — steadier days, and a bump that may be quietly appearing.',
   },
   milestones: [],
   prep: [],
-  nextWeekTeaser: 'Next week: her eyes start practicing their moves.',
+  nextWeekTeaser: 'Next week: their eyes start practicing their moves.',
   delight: {
     factIds: ['flavors-amniotic', 'swallowing-practice', 'hiccups'],
     freshAngles: ['Proportions evening out', 'Tasting the world already', 'Light through closed lids'],
   },
   routineSeeds: {
     baby: [
-      'Her legs have grown longer than her arms — the body proportions are evening out.',
-      'Taste buds are forming, and she can already sense light through her closed eyelids.',
-      'She\'s inhaling amniotic fluid — breathing practice for her little lungs.',
+      'Their legs have grown longer than their arms — the body proportions are evening out.',
+      'Taste buds are forming, and they can already sense light through their closed eyelids.',
+      'They\'re inhaling amniotic fluid — breathing practice for their little lungs.',
     ],
     body: [
       'Many feel more like themselves this week — energy up, steadier days.',
@@ -630,8 +630,8 @@ const ROW_15: WeekMatrixRow = {
       'Nasal stuffiness and tender gums are common as blood flow increases.',
     ],
     know: [
-      'Her bones are hardening enough to start showing on ultrasound images.',
-      'Her scalp hair pattern is forming now — the part line she will keep.',
+      'Their bones are hardening enough to start showing on ultrasound images.',
+      'Their scalp hair pattern is forming now — the part line they will keep.',
     ],
     tips: [
       'Many enjoy gentle movement again — walks, swimming, whatever feels good.',
@@ -640,38 +640,38 @@ const ROW_15: WeekMatrixRow = {
     ],
   },
   firstTimeNote:
-    'You still won\'t feel her yet — most first-time parents feel the first flutters between 18 and 22 weeks, so there\'s nothing to wait anxiously for.',
+    'You still won\'t feel them yet — most first-time parents feel the first flutters between 18 and 22 weeks, so there\'s nothing to wait anxiously for.',
   experiencedNote:
-    'Second time around, you may feel her sooner — many experienced parents recognize the flutters earlier, sometimes this very week.',
+    'Second time around, you may feel them sooner — many experienced parents recognize the flutters earlier, sometimes this very week.',
   quietDay: { lookbackEligible: true },
 };
 
 const ROW_16: WeekMatrixRow = {
   week: 16,
   anchors: {
-    baby: 'Her eyes are making slow side-to-side movements under closed lids. The wiring between brain and limbs is switching on.',
-    body: 'She\'s busy in there, though most people can\'t feel it yet. Round-ligament twinges — brief low pulls — are common as things stretch.',
+    baby: 'Their eyes are making slow side-to-side movements under closed lids. The wiring between brain and limbs is switching on.',
+    body: 'They\'re busy in there, though most people can\'t feel it yet. Round-ligament twinges — brief low pulls — are common as things stretch.',
   },
   milestones: [],
   prep: [],
-  nextWeekTeaser: 'Next week: a layer of warmth — fat stores begin under her skin.',
+  nextWeekTeaser: 'Next week: a layer of warmth — fat stores begin under their skin.',
   delight: {
     factIds: ['hiccups', 'startle-reflex', 'crying-practice'],
     freshAngles: ['The wiring switches on', 'Eyes practicing their moves', 'Hiccups before breaths'],
   },
   routineSeeds: {
     baby: [
-      'Her eyes are making slow side-to-side movements under closed lids.',
-      'Her nervous system and skeleton have wired up enough to coordinate limb movements.',
-      'Her eyes are becoming sensitive to light, even though they stay shut.',
+      'Their eyes are making slow side-to-side movements under closed lids.',
+      'Their nervous system and skeleton have wired up enough to coordinate limb movements.',
+      'Their eyes are becoming sensitive to light, even though they stay shut.',
     ],
     body: [
-      'She\'s moving plenty, though most people can\'t feel it yet — she\'s still small.',
+      'They\'re moving plenty, though most people can\'t feel it yet — they\'re still small.',
       'Brief twinges low in the belly are common as the ligaments stretch.',
       'Skin may be changing — some people notice a new glow, others new spots or dryness.',
     ],
     know: [
-      'Her ears are close to reaching their final position.',
+      'Their ears are close to reaching their final position.',
       'Hiccups often start around now — silent practice for the breathing muscles.',
     ],
     tips: [
@@ -690,21 +690,21 @@ const ROW_16: WeekMatrixRow = {
 const ROW_17: WeekMatrixRow = {
   week: 17,
   anchors: {
-    baby: 'A thin layer of fat is forming under {name}\'s skin — her built-in warmth. She\'s practicing sucking and swallowing for the world outside.',
+    baby: 'A thin layer of fat is forming under {name}\'s skin — their built-in warmth. They\'re practicing sucking and swallowing for the world outside.',
     body: 'The appetite is often back, with opinions. The bump is becoming harder to hide.',
   },
   milestones: [],
   prep: [],
-  nextWeekTeaser: 'Next week: her ears settle into place, and the world starts to sound.',
+  nextWeekTeaser: 'Next week: their ears settle into place, and the world starts to sound.',
   delight: {
     factIds: ['swallowing-practice', 'flavors-amniotic', 'heartbeat-fast'],
     freshAngles: ['A layer of warmth', 'Feeding rehearsal', 'Hearing comes online'],
   },
   routineSeeds: {
     baby: [
-      'Fat stores are beginning to develop under her skin — warmth and energy for later.',
-      'She\'s practicing sucking and swallowing — a feeding rehearsal.',
-      'Her hearing is making big strides; her ears are nearly in their final form.',
+      'Fat stores are beginning to develop under their skin — warmth and energy for later.',
+      'They\'re practicing sucking and swallowing — a feeding rehearsal.',
+      'Their hearing is making big strides; their ears are nearly in their final form.',
     ],
     body: [
       'Lightheadedness sometimes appears around now, as the circulation keeps expanding.',
@@ -712,8 +712,8 @@ const ROW_17: WeekMatrixRow = {
       'The bump is becoming harder to hide — and harder not to smile about.',
     ],
     know: [
-      'Her skeleton is still mostly soft cartilage — flexible by design.',
-      'Her toenails are starting to develop this week.',
+      'Their skeleton is still mostly soft cartilage — flexible by design.',
+      'Their toenails are starting to develop this week.',
     ],
     tips: [
       'Many people find a snack between meals keeps energy steadier.',
@@ -722,7 +722,7 @@ const ROW_17: WeekMatrixRow = {
     ],
   },
   firstTimeNote:
-    'Fat under her skin isn\'t chubbiness — it\'s insulation she\'ll need after birth. She\'s still tiny.',
+    'Fat under their skin isn\'t chubbiness — it\'s insulation they\'ll need after birth. They\'re still tiny.',
   experiencedNote:
     'You know the appetite surge is coming — stock the foods that actually satisfied you last time, not the ones you imagined wanting.',
   quietDay: { lookbackEligible: true },
@@ -731,21 +731,21 @@ const ROW_17: WeekMatrixRow = {
 const ROW_18: WeekMatrixRow = {
   week: 18,
   anchors: {
-    baby: 'Her ears have reached their final position — hearing is switching on. A door slamming might earn a little jump.',
+    baby: 'Their ears have reached their final position — hearing is switching on. A door slamming might earn a little jump.',
     body: 'The first flutters often arrive sometime around now — or in the coming weeks. Many say it feels like popcorn or tiny bubbles.',
   },
   milestones: [],
   prep: [],
-  nextWeekTeaser: 'Next week: vernix — her own protective coat.',
+  nextWeekTeaser: 'Next week: vernix — their own protective coat.',
   delight: {
     factIds: ['startle-reflex', 'heartbeat-fast', 'crying-practice'],
     freshAngles: ['Ears in final position', 'The startle reflex', 'Flutters incoming'],
   },
   routineSeeds: {
     baby: [
-      'Her ears have reached their final position — hearing is switching on.',
-      'Loud sounds may make her jump — the startle reflex is wired up.',
-      'Her eyes face forward now, and her nervous system is building its protective myelin.',
+      'Their ears have reached their final position — hearing is switching on.',
+      'Loud sounds may make them jump — the startle reflex is wired up.',
+      'Their eyes face forward now, and their nervous system is building its protective myelin.',
     ],
     body: [
       'The first flutters often arrive sometime around now — or in the coming weeks.',
@@ -753,12 +753,12 @@ const ROW_18: WeekMatrixRow = {
       'Round-ligament twinges are common with quick movements.',
     ],
     know: [
-      'She can likely hear your heartbeat and the rumble of your digestion.',
-      'She\'s moving a lot in there — somersaults in a roomy womb.',
+      'They can likely hear your heartbeat and the rumble of your digestion.',
+      'They\'re moving a lot in there — somersaults in a roomy womb.',
     ],
     tips: [
       'When you feel a flutter, pause and notice — many people remember their first.',
-      'Talking or singing to her is a lovely habit to start — she can hear you.',
+      'Talking or singing to them is a lovely habit to start — they can hear you.',
       'Many people rest a partner\'s hand on the bump at quiet times — flutters are easier to catch when you\'re still.',
     ],
   },
@@ -772,7 +772,7 @@ const ROW_18: WeekMatrixRow = {
 const ROW_19: WeekMatrixRow = {
   week: 19,
   anchors: {
-    baby: '{Name} is getting her protective coat — vernix, a waxy layer over her skin. Meanwhile the brain\'s sensory areas are specializing.',
+    baby: '{Name} is getting their protective coat — vernix, a waxy layer over their skin. Meanwhile the brain\'s sensory areas are specializing.',
     body: 'The bump is usually unmistakable now. Skin keeps changing too — many notice new glow, new spots, or both.',
   },
   milestones: [],
@@ -784,9 +784,9 @@ const ROW_19: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'A waxy coating called vernix is covering her skin — protection from the fluid.',
+      'A waxy coating called vernix is covering their skin — protection from the fluid.',
       'The brain\'s sensory areas for touch, taste, smell, sight, and sound are specializing.',
-      'Her arms and legs are now in proportion — growth is slowing, refining instead.',
+      'Their arms and legs are now in proportion — growth is slowing, refining instead.',
     ],
     body: [
       'The bump is usually unmistakable now — and may itch as it stretches.',
@@ -794,7 +794,7 @@ const ROW_19: WeekMatrixRow = {
       'Back aches are common as posture keeps adjusting.',
     ],
     know: [
-      'Her kidneys are making urine — it becomes part of the amniotic fluid.',
+      'Their kidneys are making urine — it becomes part of the amniotic fluid.',
       'Wake-and-sleep patterns are becoming more regular.',
     ],
     tips: [
@@ -804,7 +804,7 @@ const ROW_19: WeekMatrixRow = {
     ],
   },
   firstTimeNote:
-    'Vernix is just a protective coating, not something to worry about — most of it is gone before she\'s born.',
+    'Vernix is just a protective coating, not something to worry about — most of it is gone before they\'re born.',
   experiencedNote:
     'You remember how the bump appeared overnight last time — enjoy the slower reveal, or brace for the same.',
   quietDay: { lookbackEligible: true },
@@ -813,8 +813,8 @@ const ROW_19: WeekMatrixRow = {
 const ROW_20: WeekMatrixRow = {
   week: 20,
   anchors: {
-    baby: 'Halfway there — {name} is swallowing mouthfuls of amniotic fluid, practicing for her first real drink.',
-    body: 'The anatomy scan usually happens in this window — a long, detailed look at how she\'s growing.',
+    baby: 'Halfway there — {name} is swallowing mouthfuls of amniotic fluid, practicing for their first real drink.',
+    body: 'The anatomy scan usually happens in this window — a long, detailed look at how they\'re growing.',
   },
   milestones: [
     {
@@ -822,18 +822,18 @@ const ROW_20: WeekMatrixRow = {
       label: 'Halfway there',
       weekOffset: 0,
       tone: 'celebrate',
-      copy: 'Halfway through — 20 weeks of growing her, and 20 to go. Worth a small celebration.',
+      copy: 'Halfway through — 20 weeks of growing them, and 20 to go. Worth a small celebration.',
     },
     {
       id: 'anatomy-scan',
       label: 'Anatomy scan',
       weekOffset: 0,
       tone: 'inform',
-      copy: 'The anatomy scan usually happens between 18 and 22 weeks — a detailed look at how she\'s growing.',
+      copy: 'The anatomy scan usually happens between 18 and 22 weeks — a detailed look at how they\'re growing.',
     },
   ],
   prep: [],
-  nextWeekTeaser: 'Next week: her bone marrow starts making blood cells.',
+  nextWeekTeaser: 'Next week: their bone marrow starts making blood cells.',
   delight: {
     factIds: ['swallowing-practice', 'vernix', 'placenta'],
     rotatingBoost: ['milestone'],
@@ -841,17 +841,17 @@ const ROW_20: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'She\'s swallowing amniotic fluid every day — digestive practice.',
-      'Her heartbeat is strong enough to be heard with a stethoscope at a check-up.',
-      'Her eyebrows are forming, and her hair is growing in.',
+      'They\'re swallowing amniotic fluid every day — digestive practice.',
+      'Their heartbeat is strong enough to be heard with a stethoscope at a check-up.',
+      'Their eyebrows are forming, and their hair is growing in.',
     ],
     body: [
-      'The anatomy scan usually lands around now — a detailed look at her growth.',
-      'Her movements are getting stronger — kicks and rolls instead of flutters.',
-      'Many feel her more after meals or when lying quietly.',
+      'The anatomy scan usually lands around now — a detailed look at their growth.',
+      'Their movements are getting stronger — kicks and rolls instead of flutters.',
+      'Many feel them more after meals or when lying quietly.',
     ],
     know: [
-      'From 20 weeks, she\'s measured head to heel, not head to bottom.',
+      'From 20 weeks, they\'re measured head to heel, not head to bottom.',
       'Most of the essential building is done — now it\'s growing and practicing.',
     ],
     tips: [
@@ -870,7 +870,7 @@ const ROW_20: WeekMatrixRow = {
 const ROW_21: WeekMatrixRow = {
   week: 21,
   anchors: {
-    baby: 'Her bone marrow has started making red blood cells — a new factory opening. Her taste buds are working too — dinner flavors reach her already.',
+    baby: 'Their bone marrow has started making red blood cells — a new factory opening. Their taste buds are working too — dinner flavors reach them already.',
     body: 'Kicks and rolls are getting stronger and more regular. You may catch one from the outside soon.',
   },
   milestones: [],
@@ -882,9 +882,9 @@ const ROW_21: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'Her bone marrow has started making red blood cells — a new factory opening.',
-      'Her taste buds are working — flavors from your meals reach her in the fluid.',
-      'Her movements are more coordinated — kicks, rolls, and cord-grabbing.',
+      'Their bone marrow has started making red blood cells — a new factory opening.',
+      'Their taste buds are working — flavors from your meals reach them in the fluid.',
+      'Their movements are more coordinated — kicks, rolls, and cord-grabbing.',
     ],
     body: [
       'Kicks may be visible from the outside now — a hand on the belly can catch one.',
@@ -892,27 +892,27 @@ const ROW_21: WeekMatrixRow = {
       'Skin may feel drier or more sensitive as it stretches.',
     ],
     know: [
-      'Her liver and spleen have been making blood cells too — now the marrow joins in.',
-      'Eyebrows and eyelids are formed — she can blink.',
+      'Their liver and spleen have been making blood cells too — now the marrow joins in.',
+      'Eyebrows and eyelids are formed — they can blink.',
     ],
     tips: [
-      'Many people start noticing her active hours — often evenings, when you rest.',
+      'Many people start noticing their active hours — often evenings, when you rest.',
       'Resting on your side with a pillow between the knees is a common comfort.',
       'Many people do a quiet kick-watch in the evening — lying still and just noticing.',
     ],
   },
   firstTimeNote:
-    'If kicks feel stronger on some days and quiet on others, that\'s usual — she still has room to turn away.',
+    'If kicks feel stronger on some days and quiet on others, that\'s usual — they still have room to turn away.',
   experiencedNote:
-    'You know her quiet days aren\'t a report card — you\'ve learned her rhythm is hers, not a schedule.',
+    'You know their quiet days aren\'t a report card — you\'ve learned their rhythm is theirs, not a schedule.',
   quietDay: { lookbackEligible: true },
 };
 
 const ROW_22: WeekMatrixRow = {
   week: 22,
   anchors: {
-    baby: 'Her lips, eyelids, and eyebrows are becoming distinct — a face you can almost picture. Her senses are all coming online.',
-    body: 'Sleep often needs more engineering now — pillows everywhere is normal. Her movements are a daily show.',
+    baby: 'Their lips, eyelids, and eyebrows are becoming distinct — a face you can almost picture. Their senses are all coming online.',
+    body: 'Sleep often needs more engineering now — pillows everywhere is normal. Their movements are a daily show.',
   },
   milestones: [],
   prep: [],
@@ -923,17 +923,17 @@ const ROW_22: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'Her lips, eyelids, and eyebrows are becoming distinct — her face is nearly complete.',
-      'She\'s fully coated in lanugo, which holds the vernix to her skin.',
-      'Her senses are waking up — she can feel touch, hear sounds, and sense light.',
+      'Their lips, eyelids, and eyebrows are becoming distinct — their face is nearly complete.',
+      'They\'re fully coated in lanugo, which holds the vernix to their skin.',
+      'Their senses are waking up — they can feel touch, hear sounds, and sense light.',
     ],
     body: [
       'Sleep often needs more engineering now — pillows everywhere is normal.',
       'Back and hip aches are common as everything keeps adjusting.',
-      'Her movements are strong and regular — a daily show.',
+      'Their movements are strong and regular — a daily show.',
     ],
     know: [
-      'Her lungs are still maturing — among the last systems to finish.',
+      'Their lungs are still maturing — among the last systems to finish.',
       'Some people notice gentle, irregular tightenings — practice contractions — around now.',
     ],
     tips: [
@@ -943,7 +943,7 @@ const ROW_22: WeekMatrixRow = {
     ],
   },
   firstTimeNote:
-    'Her face is nearly complete now — the ultrasound photos start looking like a person you know.',
+    'Their face is nearly complete now — the ultrasound photos start looking like a person you know.',
   experiencedNote:
     'You know what\'s coming in the third trimester — these are the weeks to enjoy the sweet spot.',
   quietDay: { lookbackEligible: true },
@@ -952,35 +952,35 @@ const ROW_22: WeekMatrixRow = {
 const ROW_23: WeekMatrixRow = {
   week: 23,
   anchors: {
-    baby: 'Ridges are forming on {name}\'s fingertips — her fingerprints, one of a kind. Her lungs are practicing the movements of breathing.',
-    body: 'She moves on her own schedule — often livelier when you lie down at night. Those rhythmic jerks are usually hiccups.',
+    baby: 'Ridges are forming on {name}\'s fingertips — their fingerprints, one of a kind. Their lungs are practicing the movements of breathing.',
+    body: 'They move on their own schedule — often livelier when you lie down at night. Those rhythmic jerks are usually hiccups.',
   },
   milestones: [],
   prep: [],
-  nextWeekTeaser: 'Next week: the growing continues — and her world of sound gets richer.',
+  nextWeekTeaser: 'Next week: the growing continues — and their world of sound gets richer.',
   delight: {
     factIds: ['fingerprints', 'rem-sleep', 'hiccups'],
     freshAngles: ['Fingerprints, one of a kind', 'Breathing rehearsal', 'Dream-sleep begins'],
   },
   routineSeeds: {
     baby: [
-      'Ridges are forming on her fingers and toes — fingerprints, one of a kind.',
-      'Her lungs are practicing the movements of breathing.',
+      'Ridges are forming on their fingers and toes — fingerprints, one of a kind.',
+      'Their lungs are practicing the movements of breathing.',
       'Rapid eye movements have begun — the sleep stage where adults dream.',
     ],
     body: [
-      'She moves on her own schedule — often livelier when you lie down at night.',
+      'They move on their own schedule — often livelier when you lie down at night.',
       'Hiccups may appear as tiny rhythmic jerks — breathing-muscle practice.',
       'Swelling in feet and ankles is common now.',
     ],
     know: [
-      'Her weight will nearly double in the next month.',
-      'Her lanugo may darken around now — sometimes visible on ultrasound.',
+      'Their weight will nearly double in the next month.',
+      'Their lanugo may darken around now — sometimes visible on ultrasound.',
     ],
     tips: [
       'Many people rest with feet up in the evenings — ankles appreciate it.',
-      'Noticing her active times is a sweet evening ritual.',
-      'Many people keep a small notebook of her patterns — fun to look back on later.',
+      'Noticing their active times is a sweet evening ritual.',
+      'Many people keep a small notebook of their patterns — fun to look back on later.',
     ],
   },
   firstTimeNote:
@@ -1563,7 +1563,7 @@ const ROW_36: WeekMatrixRow = {
     baby: [
       'Gaining about an ounce a day. The plumping-up phase.',
       'The brain and lungs are putting on finishing touches.',
-      'She\'s likely head-down now, settling into place for her arrival.',
+      'They\'re likely head-down now, settling into place for their arrival.',
     ],
     body: [
       'Weekly check-ins often start now. They\'re usually short and reassuring.',
@@ -1572,7 +1572,7 @@ const ROW_36: WeekMatrixRow = {
     ],
     know: [
       'Group B strep screening usually happens around 36–37 weeks — a quick swab, nothing more.',
-      'Kick counts: many providers suggest keeping an eye on her usual pattern.',
+      'Kick counts: many providers suggest keeping an eye on their usual pattern.',
     ],
     tips: [
       'Keep the hospital bag by the door. Knowing it\'s packed feels good.',
@@ -1611,8 +1611,8 @@ const ROW_37: WeekMatrixRow = {
   routineSeeds: {
     baby: [
       'At early term, the brain and lungs are ready for the outside world.',
-      'She\'s gaining steadily, about half a pound a week.',
-      'Vernix is mostly gone, and her skin is smoothing out.',
+      'They\'re gaining steadily, about half a pound a week.',
+      'Vernix is mostly gone, and their skin is smoothing out.',
     ],
     body: [
       'The "any day now" feeling is real, and it\'s completely normal.',
@@ -1638,7 +1638,7 @@ const ROW_37: WeekMatrixRow = {
 const ROW_38: WeekMatrixRow = {
   week: 38,
   anchors: {
-    baby: '{Name}\'s grip is strong now. She\'ll wrap those tiny fingers around yours.',
+    baby: '{Name}\'s grip is strong now. They\'ll wrap those tiny fingers around yours.',
     body: 'The finish line is close enough to picture — rest is the assignment.',
   },
   milestones: [
@@ -1659,13 +1659,13 @@ const ROW_38: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'Her organs are ready, and she\'s mostly gaining weight now.',
-      'Her grip reflex is strong now, ready to wrap around your finger.',
-      'Her brain is still developing quickly.',
+      'Their organs are ready, and they\'re mostly gaining weight now.',
+      'Their grip reflex is strong now, ready to wrap around your finger.',
+      'Their brain is still developing quickly.',
     ],
     body: [
       'Trouble sleeping is pretty common now. Naps count.',
-      'You might feel her drop lower. That\'s the "lightening" everyone talks about.',
+      'You might feel them drop lower. That\'s the "lightening" everyone talks about.',
       'Swelling in feet and ankles is common. Rest with your feet up.',
     ],
     know: [
@@ -1678,7 +1678,7 @@ const ROW_38: WeekMatrixRow = {
     ],
   },
   firstTimeNote:
-    '"Lightening" — when she drops lower — can make breathing easier and walking stranger, both at once.',
+    '"Lightening" — when they drop lower — can make breathing easier and walking stranger, both at once.',
   experiencedNote:
     'You remember the restless nights. This time, try the things that worked last time sooner — you already know your tricks.',
   quietDay: { lookbackEligible: true },
@@ -1687,7 +1687,7 @@ const ROW_38: WeekMatrixRow = {
 const ROW_39: WeekMatrixRow = {
   week: 39,
   anchors: {
-    baby: 'Full term. {name} is ready whenever she is. The grand finale.',
+    baby: 'Full term. {name} is ready whenever they are. The grand finale.',
     body: 'You\'ve done the long work — now it\'s waiting, wonderfully.',
   },
   milestones: [
@@ -1704,12 +1704,12 @@ const ROW_39: WeekMatrixRow = {
   delight: {
     factIds: ['crying-practice', 'fingerprints', 'heartbeat-fast'],
     rotatingBoost: ['tradition'],
-    freshAngles: ['Celebrating the long build', 'Ready whenever she is'],
+    freshAngles: ['Celebrating the long build', 'Ready whenever they are'],
   },
   routineSeeds: {
     baby: [
       'At full term, every system is ready for the outside world.',
-      'She\'s about 20 inches long and a little over 7 pounds.',
+      'They\'re about 20 inches long and a little over 7 pounds.',
       'The placenta is still working hard, right to the end.',
     ],
     body: [
@@ -1736,8 +1736,8 @@ const ROW_39: WeekMatrixRow = {
 const ROW_40: WeekMatrixRow = {
   week: 40,
   anchors: {
-    baby: 'The due date is {name}\'s estimated arrival. She\'ll come on her own schedule.',
-    body: 'You\'ve carried her 40 weeks — an extraordinary, ordinary miracle.',
+    baby: 'The due date is {name}\'s estimated arrival. They\'ll come on their own schedule.',
+    body: 'You\'ve carried them 40 weeks — an extraordinary, ordinary miracle.',
   },
   milestones: [
     {
@@ -1749,7 +1749,7 @@ const ROW_40: WeekMatrixRow = {
     },
   ],
   prep: LATE_PREP,
-  nextWeekTeaser: 'Next week: if she\'s still cozy, extra check-ins keep everyone reassured.',
+  nextWeekTeaser: 'Next week: if they\'re still cozy, extra check-ins keep everyone reassured.',
   delight: {
     factIds: ['vernix', 'skull-soft', 'blood-type-bones'],
     rotatingBoost: ['partner'],
@@ -1757,9 +1757,9 @@ const ROW_40: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'She\'s fully ready, just waiting for the right moment.',
+      'They\'re fully ready, just waiting for the right moment.',
       'Around 20 inches long and 7½ pounds. A classic newborn size.',
-      'Her skull is still soft and flexible. That helps with the birth itself.',
+      'Their skull is still soft and flexible. That helps with the birth itself.',
     ],
     body: [
       'Waiting is the work now, and it\'s real work.',
@@ -1776,7 +1776,7 @@ const ROW_40: WeekMatrixRow = {
     ],
   },
   firstTimeNote:
-    'If she\'s not here yet, that\'s normal — nearly half of first babies arrive after 40 weeks.',
+    'If they\'re not here yet, that\'s normal — nearly half of first babies arrive after 40 weeks.',
   experiencedNote:
     'You know the waiting game. Same playbook: rest, distraction, and trust.',
   quietDay: { lookbackEligible: true },
@@ -1805,9 +1805,9 @@ const ROW_41: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'She\'s still growing, a little more plump each day.',
+      'They\'re still growing, a little more plump each day.',
       'The placenta gets monitored more closely now. It\'s routine and reassuring.',
-      'She\'s running out of room to move, but she\'ll try anyway.',
+      'They\'re running out of room to move, but they\'ll try anyway.',
     ],
     body: [
       'Non-stress tests or biophysical profiles may be scheduled. They\'re simple, painless check-ins.',
@@ -1853,9 +1853,9 @@ const ROW_42: WeekMatrixRow = {
   },
   routineSeeds: {
     baby: [
-      'She\'s fully developed now, just waiting for the right moment.',
+      'They\'re fully developed now, just waiting for the right moment.',
       'Extra monitoring continues, so everyone is watched closely.',
-      'The plan for her arrival is made together with your provider.',
+      'The plan for their arrival is made together with your provider.',
     ],
     body: [
       'You\'re at the very end of the longest wait.',
@@ -1868,7 +1868,7 @@ const ROW_42: WeekMatrixRow = {
     ],
     tips: [
       'You\'re almost there. Really.',
-      'One day, very soon, you\'ll hold her.',
+      'One day, very soon, you\'ll hold them.',
     ],
   },
   firstTimeNote:
@@ -1899,7 +1899,7 @@ export const FALLBACK_ROW: WeekMatrixRow = {
   routineSeeds: {
     baby: [
       'Growth is the theme. Every week adds size and new refinements.',
-      'Her systems are developing on their own remarkable schedule.',
+      'Their systems are developing on their own remarkable schedule.',
     ],
     body: [
       'Your body is adapting beautifully to its extraordinary task.',

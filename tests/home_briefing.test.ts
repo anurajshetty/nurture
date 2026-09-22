@@ -725,7 +725,7 @@ async function babyNamePolicyTests(): Promise<void> {
     check('name: live statuses', updates.map((u) => u[0]), ['generating', 'live']);
     const live = updates[1][1] as Briefing;
     const size = live.slots.find((s) => s.slotId === 'delight-card-size');
-    check('name: size card title uses the name', size?.title, 'How big is Wren?');
+    check('name: size card title uses the name', size?.title, 'How big is baby Wren?');
     const baby = live.slots.find((s) => s.slotId === 'routine-baby');
     checkTrue('name: routine-baby preview uses the name', (baby?.preview ?? '').includes('Wren'));
     const flat = JSON.stringify(live.slots);
@@ -767,7 +767,7 @@ async function babyNamePolicyTests(): Promise<void> {
     const live = updates[1][1] as Briefing;
     const rotating = live.slots.find((s) => s.slotId === 'delight-card-rotating');
     check('name-day: celebration card title', rotating?.title, "Your baby's name");
-    checkTrue('name-day: preview celebrates the name', (rotating?.preview ?? '').includes('You chose Wren ♥'));
+    checkTrue('name-day: preview celebrates the name', (rotating?.preview ?? '').includes('You chose baby Wren ♥'));
   }
 
   // 4. The offline path substitutes too.
@@ -777,7 +777,7 @@ async function babyNamePolicyTests(): Promise<void> {
     check('name: offline statuses', updates.map((u) => u[0]), ['offline']);
     const briefing = updates[0][1] as Briefing;
     const size = briefing.slots.find((s) => s.slotId === 'delight-card-size');
-    check('name: offline size title uses the name', size?.title, 'How big is Wren?');
+    check('name: offline size title uses the name', size?.title, 'How big is baby Wren?');
   }
 }
 

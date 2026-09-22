@@ -273,17 +273,20 @@ export function setBabyName(name: string | null): void {
 /**
  * Substitutes the {Name}/{name} tokens in curated copy with the baby's
  * name when one is set, or the generic fallback otherwise. Pure.
- * "{Name}'s" → "<name>'s" / "Your baby's" — the possessive rides along.
+ * "{Name}'s" -> "Baby <name>'s" / "Your baby's" — the possessive rides along.
  *
- * The name is inserted verbatim (trimmed) for both tokens — the token case
- * only selects the fallback: sentence-initial `{Name}` → "Your baby",
- * mid-sentence `{name}` → "your baby". Curated copy must use the token
- * whose case matches the grammatical position.
+ * Anuraj (Sept 21, 2026): the app never asks for the baby's gender, so a
+ * named baby is always "baby {name}" (e.g. "baby Mira"), never the bare
+ * name alone. The name is inserted verbatim (trimmed) for both tokens —
+ * the token case only selects the fallback and the "baby" prefix casing:
+ * sentence-initial `{Name}` -> "Baby <name>" / "Your baby",
+ * mid-sentence `{name}` -> "baby <name>" / "your baby". Curated copy must
+ * use the token whose case matches the grammatical position.
  */
 export function withBabyName(text: string, name: string | null | undefined): string {
   const clean = typeof name === 'string' ? name.trim() : '';
-  const cap = clean.length > 0 ? clean : 'Your baby';
-  const low = clean.length > 0 ? clean : 'your baby';
+  const cap = clean.length > 0 ? `Baby ${clean}` : 'Your baby';
+  const low = clean.length > 0 ? `baby ${clean}` : 'your baby';
   return text.split(BABY_NAME_TOKEN_CAP).join(cap).split(BABY_NAME_TOKEN).join(low);
 }
 

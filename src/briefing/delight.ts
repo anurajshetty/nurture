@@ -188,28 +188,28 @@ export const FACTS: FactEntry[] = [
     body: [
       [
         { text: 'Flavors from your lunch — garlic, vanilla, carrot — drift into the amniotic fluid, and {name} has been tasting them for weeks. ' },
-        { text: "Tonight's dinner is her first restaurant.", bold: true },
+        { text: "Tonight's dinner is their first restaurant.", bold: true },
       ],
     ],
   },
   {
     id: 'voice-recognition',
     weeks: [28, 40],
-    preview: 'She already knows your voice from a stranger’s…',
+    preview: 'Your baby already knows your voice from a stranger’s…',
     body: [
       [
         { text: '{Name} can already tell your voice apart from a stranger’s. ' },
-        { text: 'Newborns recognize the rhythm of the language they heard in the womb — she has been listening for weeks.', bold: true },
+        { text: 'Newborns recognize the rhythm of the language they heard in the womb — they have been listening for weeks.', bold: true },
       ],
     ],
   },
   {
     id: 'eyes-open-close',
     weeks: [26, 40],
-    preview: 'Her eyes can open and close now…',
+    preview: 'Their eyes can open and close now…',
     body: [
       [
-        { text: 'Her eyes can open and close now — and bright light through the belly wall may get a reaction. ' },
+        { text: 'Their eyes can open and close now — and bright light through the belly wall may get a reaction. ' },
         { text: 'Try shining a soft flashlight and saying hello.', bold: true },
       ],
     ],
@@ -231,7 +231,7 @@ export const FACTS: FactEntry[] = [
     preview: 'Those tiny rhythmic jerks? Usually hiccups…',
     body: [
       [
-        { text: 'Those tiny rhythmic jerks are usually hiccups — she has been practicing them for weeks. ' },
+        { text: 'Those tiny rhythmic jerks are usually hiccups — they have been practicing them for weeks. ' },
         { text: 'Nobody knows exactly why babies hiccup in the womb; the leading theory is that it exercises the breathing muscles.', bold: true },
       ],
     ],
@@ -239,10 +239,10 @@ export const FACTS: FactEntry[] = [
   {
     id: 'fingerprints',
     weeks: [20, 40],
-    preview: 'Her fingerprints are already one of a kind…',
+    preview: 'Their fingerprints are already one of a kind…',
     body: [
       [
-        { text: 'Her fingerprints are forming — the swirls on her fingertips are already one of a kind. ' },
+        { text: 'Their fingerprints are forming — the swirls on their fingertips are already one of a kind. ' },
         { text: 'No one else in history will ever have this exact pattern.', bold: true },
       ],
     ],
@@ -250,10 +250,10 @@ export const FACTS: FactEntry[] = [
   {
     id: 'heartbeat-fast',
     weeks: [12, 40],
-    preview: 'Her heart beats about twice as fast as yours…',
+    preview: 'Their heart beats about twice as fast as yours…',
     body: [
       [
-        { text: 'Her heart beats about twice as fast as yours — roughly 120 to 160 times a minute. ' },
+        { text: 'Their heart beats about twice as fast as yours — roughly 120 to 160 times a minute. ' },
         { text: 'That galloping rhythm is the sound most parents remember forever.', bold: true },
       ],
     ],
@@ -261,10 +261,10 @@ export const FACTS: FactEntry[] = [
   {
     id: 'swallowing-practice',
     weeks: [12, 40],
-    preview: 'She swallows a little of her world every day…',
+    preview: 'Your baby swallows a little of their world every day…',
     body: [
       [
-        { text: 'She swallows amniotic fluid every day — it’s how her digestion is rehearsing for the real thing. ' },
+        { text: 'They swallow amniotic fluid every day — it’s how their digestion is rehearsing for the real thing. ' },
         { text: 'Practice, practice, practice.', bold: true },
       ],
     ],
@@ -272,10 +272,10 @@ export const FACTS: FactEntry[] = [
   {
     id: 'vernix',
     weeks: [12, 40],
-    preview: 'She arrives with her own protective coating…',
+    preview: 'Your baby arrives with their own protective coating…',
     body: [
       [
-        { text: 'A creamy coating called vernix protects her skin in the fluid — it’s why newborns sometimes arrive looking a little frosted. ' },
+        { text: 'A creamy coating called vernix protects their skin in the fluid — it’s why newborns sometimes arrive looking a little frosted. ' },
         { text: 'Nature’s own moisturizer.', bold: true },
       ],
     ],
@@ -283,10 +283,10 @@ export const FACTS: FactEntry[] = [
   {
     id: 'brain-folds',
     weeks: [24, 40],
-    preview: 'Her brain is folding itself into shape…',
+    preview: 'Their brain is folding itself into shape…',
     body: [
       [
-        { text: 'Her brain is developing its folds and grooves now — more surface area for all that wiring. ' },
+        { text: 'Their brain is developing its folds and grooves now — more surface area for all that wiring. ' },
         { text: 'The most complex object in the known universe, under construction.', bold: true },
       ],
     ],
@@ -294,21 +294,21 @@ export const FACTS: FactEntry[] = [
   {
     id: 'light-turn',
     weeks: [32, 40],
-    preview: 'She may turn toward bright light…',
+    preview: 'Your baby may turn toward bright light…',
     body: [
       [
-        { text: 'By now she may turn toward bright light — researchers have watched it happen on scans. ' },
-        { text: 'Her world is dark, but she’s already curious about the edges of it.', bold: true },
+        { text: 'By now they may turn toward bright light — researchers have watched it happen on scans. ' },
+        { text: 'Their world is dark, but they’re already curious about the edges of it.', bold: true },
       ],
     ],
   },
   {
     id: 'startle-reflex',
     weeks: [12, 40],
-    preview: 'Loud sounds can make her startle…',
+    preview: 'Loud sounds can make them startle…',
     body: [
       [
-        { text: 'Loud sounds can make her startle — the reflex is wired up and working. ' },
+        { text: 'Loud sounds can make them startle — the reflex is wired up and working. ' },
         { text: 'If a door slams and you feel a jump, that was a tiny person with opinions.', bold: true },
       ],
     ],
@@ -320,28 +320,28 @@ export const FACTS: FactEntry[] = [
     body: [
       [
         { text: 'Scans have caught what looks like REM sleep in there — the same sleep stage where adults dream. ' },
-        { text: 'Whether that means dreaming, nobody can say — but her brain is clearly rehearsing something.', bold: true },
+        { text: 'Whether that means dreaming, nobody can say — but their brain is clearly rehearsing something.', bold: true },
       ],
     ],
   },
   {
     id: 'cord-slack',
     weeks: [12, 40],
-    preview: 'Her cord has plenty of slack for somersaults…',
+    preview: 'Their cord has plenty of slack for somersaults…',
     body: [
       [
-        { text: 'Her umbilical cord is about as long as she is — with plenty of slack for somersaults. ' },
-        { text: 'It’s her lifeline, her jungle gym, and her favorite toy, all in one.', bold: true },
+        { text: 'Their umbilical cord is about as long as they are — with plenty of slack for somersaults. ' },
+        { text: 'It’s their lifeline, their jungle gym, and their favorite toy, all in one.', bold: true },
       ],
     ],
   },
   {
     id: 'amniotic-pool',
     weeks: [12, 40],
-    preview: 'She floats in her own private pool…',
+    preview: 'Your baby floats in their own private pool…',
     body: [
       [
-        { text: 'She floats in about a quart of amniotic fluid — her own private pool, kept at perfect body temperature. ' },
+        { text: 'They float in about a quart of amniotic fluid — their own private pool, kept at perfect body temperature. ' },
         { text: 'It cushions every tumble and carries every flavor.', bold: true },
       ],
     ],
@@ -349,7 +349,7 @@ export const FACTS: FactEntry[] = [
   {
     id: 'crying-practice',
     weeks: [12, 40],
-    preview: 'Ultrasound has caught her practicing crying faces…',
+    preview: 'Ultrasound has caught those practice crying faces…',
     body: [
       [
         { text: 'Researchers filming with ultrasound have watched babies practice crying faces — brows furrowed, mouth open. ' },
@@ -360,10 +360,10 @@ export const FACTS: FactEntry[] = [
   {
     id: 'skull-soft',
     weeks: [12, 40],
-    preview: 'Her skull stays soft on purpose…',
+    preview: 'Their skull stays soft on purpose…',
     body: [
       [
-        { text: 'Her bones are hardening from soft cartilage — except the skull, which stays flexible for the journey out. ' },
+        { text: 'Their bones are hardening from soft cartilage — except the skull, which stays flexible for the journey out. ' },
         { text: 'The plates won’t fully fuse until well after birth.', bold: true },
       ],
     ],
@@ -371,10 +371,10 @@ export const FACTS: FactEntry[] = [
   {
     id: 'surfactant',
     weeks: [34, 40],
-    preview: 'Her lungs are making something soapy…',
+    preview: 'Their lungs are making something soapy…',
     body: [
       [
-        { text: 'Her lungs are making surfactant now — a soapy substance that will help them inflate with her first breath. ' },
+        { text: 'Their lungs are making surfactant now — a soapy substance that will help them inflate with their first breath. ' },
         { text: 'One of the last systems to finish, right on schedule.', bold: true },
       ],
     ],
@@ -382,10 +382,10 @@ export const FACTS: FactEntry[] = [
   {
     id: 'placenta',
     weeks: [12, 40],
-    preview: 'The placenta grew right alongside her…',
+    preview: 'The placenta grew right alongside them…',
     body: [
       [
-        { text: 'The placenta grew right alongside her — part pantry, part post office, all temporary. ' },
+        { text: 'The placenta grew right alongside them — part pantry, part post office, all temporary. ' },
         { text: 'It’s the only organ the body builds from scratch and then retires.', bold: true },
       ],
     ],
@@ -393,10 +393,10 @@ export const FACTS: FactEntry[] = [
   {
     id: 'lanugo',
     weeks: [12, 24],
-    preview: 'She’s wearing a fine downy coat…',
+    preview: 'Your baby’s wearing a fine downy coat…',
     body: [
       [
-        { text: 'A fine down called lanugo covers her skin right now — most of it sheds before she arrives. ' },
+        { text: 'A fine down called lanugo covers their skin right now — most of it sheds before they arrive. ' },
         { text: 'A first wardrobe, worn once and returned.', bold: true },
       ],
     ],
@@ -408,17 +408,17 @@ export const FACTS: FactEntry[] = [
     body: [
       [
         { text: 'Most babies settle head-down around now — the classic launch position. ' },
-        { text: 'If she’s still breech, she has company: plenty of babies flip fashionably late.', bold: true },
+        { text: 'If they’re still breech, they have company: plenty of babies flip fashionably late.', bold: true },
       ],
     ],
   },
   {
     id: 'blood-type-bones',
     weeks: [12, 40],
-    preview: 'She already has her own blood type…',
+    preview: 'Your baby already has their own blood type…',
     body: [
       [
-        { text: 'She already has her own blood type — and about 300 bones, some of which will fuse as she grows. ' },
+        { text: 'They already have their own blood type — and about 300 bones, some of which will fuse as they grow. ' },
         { text: 'Adults make do with 206.', bold: true },
       ],
     ],
@@ -490,7 +490,7 @@ export const PARTNER_TIPS: Record<number, { preview: string; body: DelightBody }
   },
   26: {
     preview: 'Try reading aloud in the evenings…',
-    body: [[{ text: 'Her eyes can open and close now. ' }, { text: 'Try reading aloud in the evenings — she may already know your voice.', bold: true }]],
+    body: [[{ text: 'Their eyes can open and close now. ' }, { text: 'Try reading aloud in the evenings — they may already know your voice.', bold: true }]],
   },
   27: {
     preview: 'Take over one weekly chore, permanently…',
@@ -764,7 +764,7 @@ function pickSize(week: number): DelightCard {
       [
         { text: `About the size of ${entry.delight} — ` },
         { text: `${entry.length}, ${entry.weight}.`, bold: true },
-        { text: ` ${w < MAX_SIZE_WEEK ? 'Taller than she is heavy, for now.' : 'The classic, at last.'}` },
+        { text: ` ${w < MAX_SIZE_WEEK ? 'Taller than they are heavy, for now.' : 'The classic, at last.'}` },
       ],
     ],
     tint: tile.tint,
@@ -811,7 +811,7 @@ function milestoneFor(week: number): BankEntry {
   }
   return {
     preview: 'Week 40 — the grand finale…',
-    body: [[{ text: 'Week 40', bold: true }, { text: ' — the grand finale. She’s officially ready whenever she is.' }]],
+    body: [[{ text: 'Week 40', bold: true }, { text: ' — the grand finale. Your baby’s officially ready whenever they are.' }]],
   };
 }
 

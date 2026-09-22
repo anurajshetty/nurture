@@ -63,8 +63,8 @@ export function KickHomeCard({
         <>
           <Text style={styles.title}>Start recording kicks</Text>
           <Text style={styles.body}>
-            She&apos;s getting big enough for her movements to form a
-            pattern. When she&apos;s usually active, tap the kicks button
+            Your baby is getting big enough for their movements to form a
+            pattern. When they&apos;re usually active, tap the kicks button
             below and count along — one quiet session at a time.
           </Text>
         </>
