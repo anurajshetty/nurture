@@ -5,7 +5,7 @@
  * the new-log composer is TEXT-ONLY — kicker "New log", title "What's
  * on your mind?", lede, a 120pt textarea, a footer row with the real
  * Shared switch (starting at the global default), and a full-width
- * "Save log". After a save the composer settles away and the
+ * "Save". After a save the composer settles away and the
  * sharing-aware toast confirms it ("Log saved — shared with your
  * partner." / "Log saved — only you can see it.").
  *

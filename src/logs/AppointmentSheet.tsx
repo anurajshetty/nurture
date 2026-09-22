@@ -10,9 +10,14 @@
  * (/logs?appointment=<id>) so the new appointment visibly lands where
  * she expects it (the appointment editor opens there once the
  * Logs-side param handling lands).
+ *
+ * Keyboard-open layout (Anuraj caught live on his iPhone, Sept 2026):
+ * the content scrolls inside the shared BottomSheet — header stays fully
+ * visible, fields scroll, and "Save appointment" stays reachable and
+ * fully visible above the keyboard via the whole-app KeyboardAvoid.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import BottomSheet from '../components/BottomSheet';
 import { DatePickerField } from '../components/DatePickerField';
@@ -110,6 +115,18 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
       onClose={onClose}
       accessibilityLabel="New appointment"
       testID="appointment-sheet">
+      {/*
+        Scrollable content (whole-app keyboard rule, Anuraj Sept 2026):
+        with the keyboard up the sheet must keep its header fully
+        visible, let the fields scroll, and keep "Save appointment"
+        reachable and fully visible above the keyboard. The grabber
+        stays pinned above the scroll area (rendered by BottomSheet).
+      */}
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+        testID="appointment-sheet-scroll">
       <Text style={styles.title}>New appointment</Text>
       <Text style={styles.lede}>It will land in your Logs with your questions ready.</Text>
 
@@ -195,11 +212,15 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
         style={({ pressed }) => [styles.save, pressed && styles.savePressed]}>
         <Text style={styles.saveText}>Save appointment</Text>
       </Pressable>
+      </ScrollView>
     </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
+  content: {
+    flexGrow: 1,
+  },
   title: {
     fontFamily: 'Georgia',
     fontSize: 21,

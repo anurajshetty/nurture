@@ -5,9 +5,15 @@
  * Mockup structure: kicker "New log", title "What's on your mind?",
  * lede "A quick note — just write, and save.", a 120pt textarea,
  * a footer row (hint + real Shared switch), and a full-width primary
- * "Save log". The switch starts at the global default (ON unless she
+ * "Save". The switch starts at the global default (ON unless she
  * changed it). The handshake explainer sits above the card, shown once
  * — not repeated per render.
+ *
+ * Sheet chrome comes from the shared BottomSheet (Anuraj, Sept 2026):
+ * grabber pill + pull-down-to-dismiss, safe-area bottom padding, and
+ * the whole-app KeyboardAvoid — no per-sheet close button, no custom
+ * overlay. Content scrolls inside the sheet so nothing is clipped when
+ * the keyboard is up.
  *
  * Save is disabled until there is text. Toasts (parent renders them):
  * "Log saved — shared with your partner." /
@@ -17,13 +23,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { colors, minTouch, radii, spacing, type } from '../theme/tokens';
-import { KeyboardAvoid } from '../components/KeyboardAvoid';
+import BottomSheet from '../components/BottomSheet';
 import SharedSwitch from '../components/SharedSwitch';
 import { HANDSHAKE_COPY, shareToggleLabels } from '../partner/sharing';
 import { readShareDefaultSync } from '../partner/shareStore';
@@ -33,7 +40,7 @@ import type { LocalEvent } from '../lib/types';
 export interface NewLogFormProps {
   /** Called with the saved event after a successful save. */
   onSaved: (event: LocalEvent) => void;
-  /** Close without saving (× / scrim). */
+  /** Close without saving (pull-down / scrim). */
   onClose: () => void;
 }
 
@@ -74,101 +81,73 @@ export default function NewLogForm({ onSaved, onClose }: NewLogFormProps) {
   };
 
   return (
-    <View style={styles.overlay} testID="new-log-overlay">
-      <Pressable
-        style={styles.scrim}
-        onPress={onClose}
-        accessibilityRole="button"
-        accessibilityLabel="Close new log"
-        testID="new-log-scrim"
-      />
-      <KeyboardAvoid style={styles.avoid}>
-        <View style={styles.card} testID="new-log-card">
-          <View style={styles.explainerWrap} testID="new-log-explainer">
-            <Text style={styles.explainerText}>{HANDSHAKE_COPY}</Text>
-          </View>
-          <View style={styles.headerRow}>
-            <View style={styles.headerText}>
-              <Text style={styles.kicker}>New log</Text>
-              <Text style={styles.title}>What&apos;s on your mind?</Text>
-              <Text style={styles.lede}>A quick note — just write, and save.</Text>
-            </View>
-            <Pressable
-              onPress={onClose}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-              hitSlop={8}
-              style={styles.closeBtn}
-              testID="new-log-close"
-            >
-              <Text style={styles.closeGlyph}>×</Text>
-            </Pressable>
-          </View>
-          <TextInput
-            ref={inputRef}
-            testID="new-log-input"
-            style={styles.input}
-            value={text}
-            onChangeText={setText}
-            placeholder="Write it down…"
-            placeholderTextColor={colors.muted}
-            multiline
-            textAlignVertical="top"
-            returnKeyType="default"
-            accessibilityLabel="Log text"
-          />
-          <View style={styles.footer} testID="new-log-share-row">
-            <View style={styles.shareText}>
-              <Text style={styles.shareLabel}>{labels.status}</Text>
-              <Text style={styles.hint}>{labels.hint}</Text>
-            </View>
-            <SharedSwitch
-              value={shared}
-              onChange={setShared}
-              accessibilityLabel="Share this log with your partner"
-              testID="new-log-share-switch"
-              compact
-            />
-          </View>
-          <Pressable
-            testID="new-log-save"
-            onPress={handleSave}
-            disabled={!canSave}
-            accessibilityRole="button"
-            accessibilityLabel="Save log"
-            accessibilityState={{ disabled: !canSave }}
-            style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
-          >
-            <Text style={[styles.saveLabel, !canSave && styles.saveLabelDisabled]}>
-              Save log
-            </Text>
-          </Pressable>
+    <BottomSheet
+      visible
+      onClose={onClose}
+      testID="new-log-overlay"
+      accessibilityLabel="New log"
+    >
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+        testID="new-log-scroll"
+      >
+        <View style={styles.explainerWrap} testID="new-log-explainer">
+          <Text style={styles.explainerText}>{HANDSHAKE_COPY}</Text>
         </View>
-      </KeyboardAvoid>
-    </View>
+        <View style={styles.headerText}>
+          <Text style={styles.kicker}>New log</Text>
+          <Text style={styles.title}>What&apos;s on your mind?</Text>
+          <Text style={styles.lede}>A quick note — just write, and save.</Text>
+        </View>
+        <TextInput
+          ref={inputRef}
+          testID="new-log-input"
+          style={styles.input}
+          value={text}
+          onChangeText={setText}
+          placeholder="Write it down…"
+          placeholderTextColor={colors.muted}
+          multiline
+          textAlignVertical="top"
+          returnKeyType="default"
+          accessibilityLabel="Log text"
+        />
+        <View style={styles.footer} testID="new-log-share-row">
+          <View style={styles.shareText}>
+            <Text style={styles.shareLabel}>{labels.status}</Text>
+            <Text style={styles.hint}>{labels.hint}</Text>
+          </View>
+          <SharedSwitch
+            value={shared}
+            onChange={setShared}
+            accessibilityLabel="Share this log with your partner"
+            testID="new-log-share-switch"
+            compact
+          />
+        </View>
+        <Pressable
+          testID="new-log-save"
+          onPress={handleSave}
+          disabled={!canSave}
+          accessibilityRole="button"
+          accessibilityLabel="Save"
+          accessibilityState={{ disabled: !canSave }}
+          style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
+        >
+          <Text style={[styles.saveLabel, !canSave && styles.saveLabelDisabled]}>
+            Save
+          </Text>
+        </Pressable>
+      </ScrollView>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    ...StyleSheet.absoluteFill,
-    justifyContent: 'flex-end',
-  },
-  scrim: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(47,43,39,0.45)',
-  },
-  avoid: {
-    width: '100%',
-  },
-  card: {
-    backgroundColor: colors.card,
-    borderTopLeftRadius: radii.sheet,
-    borderTopRightRadius: radii.sheet,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xxxl,
-    maxHeight: '92%',
+  content: {
+    flexGrow: 1,
   },
   explainerWrap: {
     backgroundColor: colors.blush,
@@ -182,13 +161,9 @@ const styles = StyleSheet.create({
     color: colors.coralDeep,
     textAlign: 'center',
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+  headerText: {
     marginBottom: spacing.md,
   },
-  headerText: { flex: 1, paddingRight: spacing.md },
   kicker: {
     ...type.footnote,
     color: colors.coralDeep,
@@ -204,19 +179,6 @@ const styles = StyleSheet.create({
   },
   lede: {
     ...type.body,
-    color: colors.muted,
-  },
-  closeBtn: {
-    width: minTouch,
-    height: minTouch,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: -spacing.sm,
-    marginTop: -spacing.sm,
-  },
-  closeGlyph: {
-    fontSize: 28,
-    lineHeight: 30,
     color: colors.muted,
   },
   input: {

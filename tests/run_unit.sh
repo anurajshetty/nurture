@@ -141,6 +141,12 @@ npx tsc --ignoreConfig tests/partner_home.test.ts src/partner/partnerHome.ts src
 OUT=/tmp/nurture-parity-tests
 npx tsc --ignoreConfig tests/partner_card_parity.test.ts --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "partner_card_parity" env NODE_PATH="$PWD/node_modules" node $OUT/tests/partner_card_parity.test.js
 
+# New-log composer + appointment sheet (Anuraj caught live, Sept 2026):
+# "Save" label, shared BottomSheet (grabber + pull-down dismiss, no x),
+# scrollable sheet content with the keyboard up.
+OUT=/tmp/nurture-newlog-tests
+npx tsc --ignoreConfig tests/new_log_sheet.test.ts --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "new_log_sheet" env NODE_PATH="$PWD/node_modules" node $OUT/tests/new_log_sheet.test.js
+
 OUT=/tmp/nurture-syncheal-tests
 npx tsc --ignoreConfig tests/sync_identity_healing.test.ts src/sync/engine.ts src/sync/store.ts src/auth/identity.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "sync_identity_healing" node $OUT/tests/sync_identity_healing.test.js
 
