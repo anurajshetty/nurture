@@ -515,7 +515,7 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete, onS
   return (
     <View style={deletable ? styles.cardWrap : undefined}>
       {appointmentPressable ? (
-        <View
+        <Card
           style={[styles.card, deletable && styles.cardDeletable]}
           testID={`event-card-${event.id}`}
         >
@@ -528,7 +528,7 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete, onS
           >
             {bodyContent}
           </Pressable>
-        </View>
+        </Card>
       ) : (
         <Card
           style={[styles.card, deletable && styles.cardDeletable]}
