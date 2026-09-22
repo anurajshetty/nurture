@@ -16,6 +16,8 @@
 
 import type { PartnerRpc } from './inviteCodes';
 import { classifyRpcError } from './inviteCodes';
+import { buildDaySections, type TimelineSection } from '../timeline/timeline';
+import type { LocalEvent } from '../lib/types';
 
 /* ------------------------------------------------------------------ */
 /* Shared entry — the partner's view of one of her entries             */
@@ -26,8 +28,16 @@ export interface PartnerSharedEvent {
   id: string;
   /** EventType string ('note' | 'kick_session' | 'appointment' | 'activity' | 'report' | ...). */
   type: string;
-  /** ISO 8601 — drives day-group placement and "tonight"/"last night". */
+  /** ISO 8601 — the entry's subject date (e.g. an appointment's scheduled time). */
   occurredAt: string;
+  /**
+   * ISO 8601 — the day the entry was LOGGED. Drives day-group placement,
+   * mirroring the feed's storyDateOf (createdAt || occurredAt): an
+   * appointment logged today groups under "Today" even when it is
+   * scheduled tomorrow. Falls back to occurredAt when the row predates
+   * the created_at column.
+   */
+  createdAt: string;
   /** The event payload (text, mood, kick counts, appointment fields, ...). */
   data: Record<string, unknown>;
   /** This partner's loved state (from get_my_loves, intersected at render). */
@@ -52,6 +62,12 @@ export function mapSharedEventRow(row: unknown): PartnerSharedEvent | null {
           ? (r.occurredAt as string)
           : null;
     if (!id || !type || !occurredAt) return null;
+    const createdRaw =
+      typeof r.created_at === 'string' && r.created_at.length > 0
+        ? r.created_at
+        : typeof r.createdAt === 'string' && r.createdAt.length > 0
+          ? (r.createdAt as string)
+          : null;
     let data: Record<string, unknown> = {};
     if (r.data && typeof r.data === 'object') {
       data = r.data as Record<string, unknown>;
@@ -63,7 +79,14 @@ export function mapSharedEventRow(row: unknown): PartnerSharedEvent | null {
         /* keep {} */
       }
     }
-    return { id, type, occurredAt, data, lovedByMe: false };
+    return {
+      id,
+      type,
+      occurredAt,
+      createdAt: createdRaw ?? occurredAt,
+      data,
+      lovedByMe: false,
+    };
   } catch {
     return null;
   }
@@ -72,6 +95,85 @@ export function mapSharedEventRow(row: unknown): PartnerSharedEvent | null {
 /** Newest-first by occurredAt. */
 export function sortSharedNewest(events: PartnerSharedEvent[]): PartnerSharedEvent[] {
   return [...events].sort((a, b) => (a.occurredAt < b.occurredAt ? 1 : a.occurredAt > b.occurredAt ? -1 : 0));
+}
+
+function cleanish(v: unknown): string | null {
+  return typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
+/**
+ * Adapts a shared entry to the feed's LocalEvent shape so partner home
+ * renders the SAME EventCard component the Logs feed uses — same
+ * container, same meta row, same body sections (Anuraj, Sept 2026:
+ * partner cards must look exactly like the feed cards; the only
+ * difference is the heart's position, handled inside EventCard's
+ * partnerMode).
+ *
+ * Normalizations (data only, never the design):
+ * - the feed's note body reads data.text (falling back to data.note);
+ *   shared rows may carry the prose under `body`/`summary` — copy the
+ *   first non-empty one to data.text so the shared body section renders
+ *   it identically.
+ * - the feed's report-summary card reads data.reportSummary; shared rows
+ *   carry it once the summary is ready. When absent but legacy
+ *   title/summary fields exist, synthesize the ready state so the
+ *   identical card structure still shows the essential info.
+ */
+export function toPartnerLocalEvent(e: PartnerSharedEvent): LocalEvent {
+  const data: Record<string, unknown> = { ...e.data };
+  if (!cleanish(data.text) && !cleanish(data.note)) {
+    const alt = cleanish(data.body) ?? cleanish(data.summary);
+    if (alt) data.text = alt;
+  }
+  if (e.type === 'report' && !isRecord(data.reportSummary)) {
+    const title = cleanish(data.title);
+    const summary = cleanish(data.summary);
+    if (title && summary) {
+      data.reportSummary = {
+        status: 'ready',
+        title,
+        summary,
+        attachmentName: '',
+        needsAttention: false,
+      };
+    }
+  }
+  return {
+    id: e.id,
+    userId: null,
+    pregnancyId: null,
+    type: e.type as LocalEvent['type'],
+    occurredAt: e.occurredAt,
+    visibility: 'shared',
+    data,
+    idempotencyKey: `partner-${e.id}`,
+    deletedAt: null,
+    updatedAt: e.occurredAt,
+    createdAt: e.createdAt,
+    dirty: false,
+  };
+}
+
+/**
+ * The feed's day-grouping, reused (Anuraj, Sept 2026): entries group by
+ * the LOCAL calendar day they were LOGGED (storyDateOf = createdAt ||
+ * occurredAt — never an appointment's scheduled date), newest day first;
+ * labels are the feed's "Today" / "Yesterday" / "Weekday, Mon D".
+ * Delegates to the feed's buildDaySections so the two surfaces can never
+ * disagree on boundaries, labels, or order.
+ */
+export function buildPartnerSections(
+  events: PartnerSharedEvent[],
+  todayLocalISO?: string,
+): TimelineSection[] {
+  return buildDaySections(
+    events.map(toPartnerLocalEvent),
+    todayLocalISO,
+  );
 }
 
 /* ------------------------------------------------------------------ */

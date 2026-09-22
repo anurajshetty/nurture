@@ -22,6 +22,7 @@ import type { TimelineSection } from './timeline';
 import type { LookBack } from './lookback';
 import LookBackCard from './LookBackCard';
 import EventCard from '../composer/EventCard';
+import DayGroupHeader from './DayGroupHeader';
 
 interface TimelineListProps {
   sections: TimelineSection[];
@@ -41,25 +42,6 @@ interface TimelineListProps {
   onRefresh(): void;
   listEmpty: ReactElement | null;
   sectionListRef?: Ref<SectionList<LocalEvent, TimelineSection>>;
-}
-
-/**
- * Day group header: small uppercase muted label, per the approved mockup.
- * Day groups are quiet navigation — coral stays reserved for kickers and
- * active elements, so the label reads in the feed's muted gray.
- *
- * Sticky-section-header rule (Sept 2026 overlap bug): the background must
- * cover the header's FULL footprint. Backgrounds don't cover margins, so
- * the spacing around the text is padding (never margins) — otherwise
- * cards scrolling underneath show through the transparent margin zones
- * when the header sticks.
- */
-function DayGroupHeader({ section }: { section: TimelineSection }) {
-  return (
-    <View style={styles.daygroup} testID={`day-group-${section.key}`}>
-      <Text style={styles.dayLabel}>{section.title}</Text>
-    </View>
-  );
 }
 
 export default function TimelineList({
@@ -130,25 +112,5 @@ const styles = StyleSheet.create({
     // bottom): the last cards never slide underneath it.
     paddingBottom: 112,
     flexGrow: 1,
-  },
-  daygroup: {
-    // Sticky section header: the cream background must cover the header's
-    // FULL footprint. Backgrounds don't cover margins, so the spacing
-    // around the text is padding (never margins) — otherwise cards
-    // scrolling underneath show through the transparent margin zones when
-    // the header sticks (Sept 2026 overlap bug).
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
-    paddingHorizontal: 2,
-    backgroundColor: colors.bg,
-    zIndex: 1,
-  },
-  /** Small uppercase muted label — day groups are quiet navigation. */
-  dayLabel: {
-    fontSize: 12,
-    letterSpacing: 1.7,
-    textTransform: 'uppercase',
-    fontWeight: '700',
-    color: colors.muted,
   },
 });

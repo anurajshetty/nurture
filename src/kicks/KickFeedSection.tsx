@@ -47,7 +47,7 @@ export const KICK_FLAG_LINE =
 export const KICK_FEED_CARE_LINE =
   'If movements feel less than usual, call your care team — don’t wait on it.';
 
-export default function KickFeedSection({ event }: { event: LocalEvent }) {
+export default function KickFeedSection({ event, partnerMode }: { event: LocalEvent; partnerMode?: boolean }) {
   const [confirmed, setConfirmed] = useState<string | null>(null);
   const [linkHidden, setLinkHidden] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,10 +63,13 @@ export default function KickFeedSection({ event }: { event: LocalEvent }) {
 
   // Deviation is computed once, against her sessions before this one.
   // All store reads are wrapped: a feed card must never crash the list.
+  // Partner cards skip this whole block: the deviation flag and the
+  // "Save to my next appointment" link are owner-only actions, and the
+  // local stores hold the PARTNER's data, not hers.
   let reason: 'longer' | 'weaker' | null = null;
   let nextAppt: LocalEvent | null = null;
   let showLink = false;
-  if (session && !linkHidden && !confirmed) {
+  if (session && !partnerMode && !linkHidden && !confirmed) {
     try {
       const prior = recentKickSessions(
         listKickSessions(),
@@ -87,7 +90,7 @@ export default function KickFeedSection({ event }: { event: LocalEvent }) {
       reason = null;
       showLink = false;
     }
-  } else if (session) {
+  } else if (session && !partnerMode) {
     // Link hidden/confirmed — the flag still shows on deviating sessions.
     try {
       reason = deviationReason(

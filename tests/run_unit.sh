@@ -133,7 +133,13 @@ OUT=/tmp/nurture-sharing-tests
 npx tsc --ignoreConfig tests/partner_sharing.test.ts src/partner/sharing.ts src/partner/inviteCodes.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "partner_sharing" node $OUT/tests/partner_sharing.test.js
 
 OUT=/tmp/nurture-tests-phome
-npx tsc --ignoreConfig tests/partner_home.test.ts src/partner/partnerHome.ts src/partner/inviteCodes.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "partner_home" env TZ=America/Los_Angeles node $OUT/tests/partner_home.test.js
+npx tsc --ignoreConfig tests/partner_home.test.ts src/partner/partnerHome.ts src/partner/inviteCodes.ts src/timeline/timeline.ts src/lib/types.ts src/onboarding/dates.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "partner_home" env TZ=America/Los_Angeles node $OUT/tests/partner_home.test.js
+
+# Partner-home card parity (Anuraj, Sept 2026): partner cards must reuse the
+# feed's EventCard exactly, with the only difference being the top-right
+# heart; day-grouping reuses the feed's buildDaySections + DayGroupHeader.
+OUT=/tmp/nurture-parity-tests
+npx tsc --ignoreConfig tests/partner_card_parity.test.ts --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "partner_card_parity" env NODE_PATH="$PWD/node_modules" node $OUT/tests/partner_card_parity.test.js
 
 OUT=/tmp/nurture-syncheal-tests
 npx tsc --ignoreConfig tests/sync_identity_healing.test.ts src/sync/engine.ts src/sync/store.ts src/auth/identity.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "sync_identity_healing" node $OUT/tests/sync_identity_healing.test.js

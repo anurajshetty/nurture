@@ -1,8 +1,9 @@
 // tests/partner_home.test.ts — partner home pure logic (mockup 34).
-// Run: npx tsc --ignoreConfig tests/partner_home.test.ts src/partner/partnerHome.ts src/partner/inviteCodes.ts --outDir /tmp/ph --module commonjs --target es2022 --skipLibCheck --esModuleInterop && env TZ=America/Los_Angeles node /tmp/ph/tests/partner_home.test.js
+// Run: npx tsc --ignoreConfig tests/partner_home.test.ts src/partner/partnerHome.ts src/partner/inviteCodes.ts src/timeline/timeline.ts src/lib/types.ts src/onboarding/dates.ts --outDir /tmp/ph --module commonjs --target es2022 --skipLibCheck --esModuleInterop && env TZ=America/Los_Angeles node /tmp/ph/tests/partner_home.test.js
 // (Also covered by tests/run_unit.sh.)
 import {
   buildAtAGlance,
+  buildPartnerSections,
   contractionSummaryLine,
   contractionWave,
   getPartnerOwnerName,
@@ -12,6 +13,7 @@ import {
   myLoveLabel,
   PARTNER_OWNER_NAME_FALLBACK,
   sortSharedNewest,
+  toPartnerLocalEvent,
   type PartnerSharedEvent,
 } from '../src/partner/partnerHome';
 
@@ -35,6 +37,7 @@ function ev(over: Partial<PartnerSharedEvent> = {}): PartnerSharedEvent {
     id: `e${Math.random()}`,
     type: 'note',
     occurredAt: '2026-09-21T19:00:00-07:00',
+    createdAt: '2026-09-21T19:00:00-07:00',
     data: {},
     lovedByMe: false,
     ...over,
@@ -48,6 +51,57 @@ function ev(over: Partial<PartnerSharedEvent> = {}): PartnerSharedEvent {
   check('missing id -> null', mapSharedEventRow({ type: 'note', occurred_at: 'x' }) === null);
   check('missing type -> null', mapSharedEventRow({ id: 'a', occurred_at: 'x' }) === null);
   check('garbage -> null', mapSharedEventRow(null) === null && mapSharedEventRow(42) === null);
+  // created_at drives day-group placement (the feed's storyDateOf);
+  // rows predating the column fall back to occurred_at.
+  check(
+    'created_at maps',
+    mapSharedEventRow({ id: 'a', type: 'note', occurred_at: '2026-09-22T14:00:00Z', created_at: '2026-09-21T19:00:00Z', data: {} })?.createdAt === '2026-09-21T19:00:00Z',
+  );
+  check(
+    'created_at falls back to occurred_at',
+    mapSharedEventRow({ id: 'a', type: 'note', occurred_at: '2026-09-21T19:00:00Z', data: {} })?.createdAt === '2026-09-21T19:00:00Z',
+  );
+}
+
+/* --- toPartnerLocalEvent (feed-card adaptation) ----------------------- */
+{
+  const note = toPartnerLocalEvent(ev({ id: 'n1', data: { body: 'little dance party' } }));
+  check('note body normalizes to data.text', note.data.text === 'little dance party', note.data.text);
+  check('note keeps ids', note.id === 'n1' && note.idempotencyKey === 'partner-n1');
+  check('note visibility shared', note.visibility === 'shared');
+  check('note createdAt preserved', note.createdAt === '2026-09-21T19:00:00-07:00');
+  const rep = toPartnerLocalEvent(
+    ev({ id: 'r1', type: 'report', data: { title: 'Week 33 summary', summary: 'rest up' } }),
+  );
+  const rs = rep.data.reportSummary as { status?: string; title?: string; summary?: string };
+  check('report synthesizes ready state', rs?.status === 'ready' && rs?.title === 'Week 33 summary' && rs?.summary === 'rest up', JSON.stringify(rs));
+}
+
+/* --- buildPartnerSections (the feed's day-grouping, reused) ------------
+ * REGRESSION GUARD (Anuraj, Sept 2026): partner home grouped by
+ * occurredAt, so an appointment logged today but scheduled tomorrow
+ * appeared under "Tuesday, Sep 22" while her other logs said "Today".
+ * Partner home must group by the day the entry was LOGGED (storyDateOf
+ * = createdAt || occurredAt) — exactly the feed's grouping.
+ * ------------------------------------------------------------------------ */
+{
+  const today = '2026-09-21';
+  const appt = ev({
+    id: 'appt',
+    type: 'appointment',
+    occurredAt: '2026-09-22T14:00:00-07:00', // scheduled tomorrow
+    createdAt: '2026-09-21T16:00:00-07:00', // logged today
+    data: { title: 'OB visit' },
+  });
+  const note = ev({ id: 'note', occurredAt: '2026-09-21T19:00:00-07:00', createdAt: '2026-09-21T19:00:00-07:00', data: { text: 'hi' } });
+  const secs = buildPartnerSections([appt, note], today);
+  check('tomorrow-scheduled appt groups under Today', secs.length === 1 && secs[0].title === 'Today', secs.map((s) => s.title));
+  check('Today section holds both entries', secs[0]?.data.length === 2);
+  const yest = buildPartnerSections([ev({ id: 'y', occurredAt: '2026-09-20T10:00:00-07:00', createdAt: '2026-09-20T10:00:00-07:00' }), note], today);
+  check('yesterday label', yest.length === 2 && yest[1].title === 'Yesterday', yest.map((s) => s.title));
+  const old = buildPartnerSections([ev({ id: 'o', occurredAt: '2026-09-18T10:00:00-07:00', createdAt: '2026-09-18T10:00:00-07:00' })], today);
+  check('weekday label format', old.length === 1 && old[0].title === 'Friday, Sep 18', old[0]?.title);
+  check('newest day first', yest[0].title === 'Today');
 }
 
 /* --- sortSharedNewest ------------------------------------------------- */
@@ -152,15 +206,17 @@ function ev(over: Partial<PartnerSharedEvent> = {}): PartnerSharedEvent {
  * textAnchor="middle" the start label's first glyphs render left of x=0 and
  * get clipped by the viewport (caught on a real 390pt render: "10:02 PM"
  * showed as "0:02 PM"). The start label must anchor "start", the end
- * label "end", so both stay fully inside the visible area.
+ * label "end", so both stay fully inside the visible area. (The wave was
+ * extracted to src/partner/ContractionWave.tsx during the Sept 2026 card
+ * parity work; the guard scans the new file.)
  * ------------------------------------------------------------------------ */
 {
   const fs = require('fs');
   const path = require('path');
-  const src: string = fs.readFileSync(path.join(process.cwd(), 'src', 'partner', 'PartnerHomeScreen.tsx'), 'utf8');
-  const waveBlock = src.slice(src.indexOf('function ContractionWave'), src.indexOf('function CardBody'));
-  check('wave start label anchors start (not middle)', /textAnchor="start"/.test(waveBlock) && !/textAnchor="middle"/.test(waveBlock));
-  check('wave end label anchors end', /textAnchor="end"/.test(waveBlock));
+  const src: string = fs.readFileSync(path.join(process.cwd(), 'src', 'partner', 'ContractionWave.tsx'), 'utf8');
+  check('wave start label anchors start (not middle)', /textAnchor="start"/.test(src) && !/textAnchor="middle"/.test(src));
+  check('wave end label anchors end', /textAnchor="end"/.test(src));
+  check('wave keeps partner testID', /testID="partner-wave"/.test(src));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

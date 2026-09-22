@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Path, Svg } from 'react-native-svg';
 import Card from '../components/Card';
 import {
   colors,
@@ -33,6 +34,8 @@ import {
   type ReportSummaryState,
 } from '../reportSummary/client';
 import SharedSwitch from '../components/SharedSwitch';
+import ContractionWave from '../partner/ContractionWave';
+import { readActivityCard } from '../labor/feed';
 import {
   canToggleSharing,
   isSharedVisibility,
@@ -182,7 +185,7 @@ function PhotoPlaceholder({ label }: { label: string }) {
 /* re-renders through `subscribeReportSummary` — no polling.            */
 /* ------------------------------------------------------------------ */
 
-function ReportSummarySection({ event }: { event: LocalEvent }) {
+function ReportSummarySection({ event, partnerMode }: { event: LocalEvent; partnerMode?: boolean }) {
   const [state, setState] = useState<ReportSummaryState | null>(() =>
     readReportSummaryState(event.data),
   );
@@ -205,6 +208,9 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
 
   useEffect(() => {
     if (event.type !== 'report') return;
+    // Partner cards are a pure view of the shared data: no resume, no
+    // subscription — the summary arrives in data.reportSummary.
+    if (partnerMode) return;
     // Close the fast-completion race: the summary may have finished
     // between the card's first render and this effect — re-read the
     // persisted state first so the card never shows a stale
@@ -220,7 +226,7 @@ function ReportSummarySection({ event }: { event: LocalEvent }) {
       const fresh = getEvent(event.id);
       setState(readReportSummaryState(fresh?.data ?? {}));
     });
-  }, [event.id, event.type]);
+  }, [event.id, event.type, partnerMode]);
 
   if (event.type !== 'report') return null;
   if (!state) return null;
@@ -340,6 +346,26 @@ export interface EventCardProps {
    * The parent feeds this from get_entry_loves(); absent = unknown.
    */
   lovedBy?: string[];
+  /**
+   * Partner home (card parity — Anuraj, Sept 2026): the partner feed
+   * renders the SAME EventCard with partnerMode. The ONLY difference
+   * from the feed card is the heart, which sits in the TOP-RIGHT corner
+   * as the single interaction. Everything else — the shared Card
+   * container, the meta row, the body sections, the typography — is
+   * identical by construction. Owner-only controls never render here:
+   * no share switch, no delete ×, no visibility label, no appointment
+   * editor pressable.
+   */
+  partnerMode?: boolean;
+  /** partnerMode: the current loved state for the top-right heart. */
+  loved?: boolean;
+  /** partnerMode: toggles the love on the entry. */
+  onToggleLove?: (eventId: string) => void;
+  /**
+   * partnerMode: quiet "Loved by {name}" line under the body when the
+   * entry is loved (same styling as the feed's lovedBy line).
+   */
+  partnerLoveText?: string;
 }
 
 /** "1 question to ask" / "2 questions to ask" — proper pluralization. */
@@ -347,9 +373,60 @@ function questionsLine(count: number): string {
   return count === 1 ? '1 question to ask' : `${count} questions to ask`;
 }
 
-export default function EventCard({ event, onAppointmentPress, onCardDelete, onSharingChange, lovedBy }: EventCardProps) {
+/** Partner heart glyph: coral-filled when loved, quiet outline otherwise. */
+function HeartGlyph({ loved }: { loved: boolean }) {
+  return (
+    <Svg viewBox="0 0 24 24" width={26} height={26}>
+      <Path
+        d="M12 20.5C7 16.5 3.5 13.3 3.5 9.6 3.5 7 5.5 5 8 5c1.6 0 3.1.8 4 2.1C12.9 5.8 14.4 5 16 5c2.5 0 4.5 2 4.5 4.6 0 3.7-3.5 6.9-8.5 10.9z"
+        fill={loved ? colors.coralDeep : 'none'}
+        stroke={loved ? colors.coralDeep : colors.muted}
+        strokeWidth={1.8}
+      />
+    </Svg>
+  );
+}
+
+function partnerCleanText(v: unknown): string | null {
+  return typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
+}
+
+/** "Tuesday, Sep 22 · 2:00 PM" — the appointment's scheduled moment. */
+function partnerApptWhen(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  const day = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return `${day} · ${time}`;
+}
+
+/**
+ * Partner appointment's essential info, in the feed appointment card's
+ * "{n} questions to ask" slot (same typography): when it is and who it
+ * is with. Questions are the owner's business — the partner sees the
+ * schedule.
+ */
+function partnerApptInfoLine(data: Record<string, unknown>, occurredAt: string): string {
+  const when = partnerCleanText(data.when) ?? partnerApptWhen(occurredAt);
+  const withWhom = partnerCleanText(data.provider);
+  return withWhom ? `${when} · with ${withWhom}` : when;
+}
+
+export default function EventCard({
+  event,
+  onAppointmentPress,
+  onCardDelete,
+  onSharingChange,
+  lovedBy,
+  partnerMode,
+  loved,
+  onToggleLove,
+  partnerLoveText,
+}: EventCardProps) {
   const meta = metaFor(event.type);
   const data = event.data;
+  // Partner home renders the same card minus every owner-only control.
+  const partner = !!partnerMode;
   const text = typeof data.text === 'string' ? data.text : typeof data.note === 'string' ? data.note : '';
   const atts = attachmentsOf(data);
   // Report entries are text-only: their whole rendering is the
@@ -364,17 +441,37 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete, onS
   // line on contraction-timing cards only.
   const isLaborCard = event.type === 'activity';
   const appointmentQuestions = isAppointment ? readQuestions(event) : [];
-  const appointmentPressable = isAppointment && !!onAppointmentPress;
+  const appointmentPressable = isAppointment && !!onAppointmentPress && !partner;
   // Mockup 30: the delete × renders on EVERY feed card type when the
-  // parent wires onCardDelete.
-  const deletable = !!onCardDelete;
+  // parent wires onCardDelete. Never on partner cards.
+  const deletable = !!onCardDelete && !partner;
   const delCopy = deletable ? deleteCopyFor(event) : null;
   // Mockup 33-entry-sharing device C: shareable cards carry the real
   // per-entry Shared switch in the header instead of the static
-  // visibility label.
-  const shareable = canToggleSharing(event.type) && !!onSharingChange;
+  // visibility label. Never on partner cards.
+  const shareable = canToggleSharing(event.type) && !!onSharingChange && !partner;
   const entryShared = isSharedVisibility(event.visibility);
   const shareLabels = shareToggleLabels(entryShared);
+  // Contraction-timing cards keep the partner's warm wave (mockup 34,
+  // Anuraj approved) inside the identical card shell; the feed's plain
+  // text lines render everywhere else.
+  let showPartnerWave = false;
+  let waveCount = 0;
+  let waveSpanSec = 0;
+  let waveAvgIntervalSec: number | null = null;
+  if (partner && isLaborCard) {
+    try {
+      const c = readActivityCard(data);
+      if (c?.activityKind === 'contraction') {
+        showPartnerWave = true;
+        waveCount = c.count;
+        waveSpanSec = c.spanSec;
+        waveAvgIntervalSec = c.avgIntervalSec;
+      }
+    } catch {
+      showPartnerWave = false;
+    }
+  }
 
   let title: string | null = null;
   let chips: string[] = [];
@@ -401,7 +498,29 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete, onS
    * pattern the delete × uses; nested Pressables fire both handlers on
    * native).
    */
-  const metaRow = (
+  /**
+   * Partner mode: the same meta row minus every owner-only control —
+   * type dot + label, time beneath, no visibility label, no switch.
+   */
+  const partnerMetaRow = (
+    <View>
+      <View style={styles.meta}>
+        <View style={styles.metaLeft}>
+          <View style={styles.typeRow}>
+            <View style={[styles.dot, { backgroundColor: eventDots[meta.dot] }]}>
+              <Text style={styles.dotGlyph}>{meta.glyph}</Text>
+            </View>
+            <Text style={styles.typeLabel}>{meta.label}</Text>
+          </View>
+          <Text style={styles.time}>{formatTime(event.occurredAt)}</Text>
+        </View>
+      </View>
+    </View>
+  );
+
+  const metaRow = partner ? (
+    partnerMetaRow
+  ) : (
     <View>
       <View style={styles.meta}>
         <View style={styles.metaLeft}>
@@ -464,15 +583,36 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete, onS
   const bodyContent = (
     <>
       {title ? <Text style={styles.title}>{title}</Text> : null}
-      {isAppointment ? (
+      {isAppointment && !partner ? (
         <Text style={styles.questions} testID={`event-card-questions-${event.id}`}>
           {questionsLine(appointmentQuestions.length)}
         </Text>
       ) : null}
+      {/* Partner mode: the appointment's essential info (when + who)
+          in the same slot/typography — the feed's "{n} questions to ask"
+          is the owner's business. */}
+      {isAppointment && partner ? (
+        <Text style={styles.questions} testID={`event-card-apptinfo-${event.id}`}>
+          {partnerApptInfoLine(data, event.occurredAt)}
+        </Text>
+      ) : null}
       {/* Kick sessions render their own section (mockup 23): session
-          line, strength note, and the deviation-only appointment link. */}
-      {isKickSession ? <KickFeedSection event={event} /> : null}
-      {isLaborCard ? <LaborFeedSection event={event} /> : null}
+          line, strength note, and — owner side only — the deviation-only
+          appointment link. Partner mode renders the same lines without
+          the owner actions. */}
+      {isKickSession ? <KickFeedSection event={event} partnerMode={partner} /> : null}
+      {isLaborCard ? (
+        showPartnerWave ? (
+          <ContractionWave
+            count={waveCount}
+            spanSec={waveSpanSec}
+            avgIntervalSec={waveAvgIntervalSec}
+            occurredAt={event.occurredAt}
+          />
+        ) : (
+          <LaborFeedSection event={event} />
+        )
+      ) : null}
       {!isReport && text ? <Text style={styles.text}>{text}</Text> : null}
       {chips.length > 0 ? (
         <View style={styles.chipRow}>
@@ -502,19 +642,26 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete, onS
           ))}
         </View>
       ) : null}
-      {isReport ? <ReportSummarySection event={event} /> : null}
+      {isReport ? <ReportSummarySection event={event} partnerMode={partner} /> : null}
       {/* Mockup 34 (owner side): the partner's heart shows up here as
           "Loved by {partner name}". Quiet, warm, never a control. */}
-      {lovedBy && lovedBy.length > 0 ? (
+      {!partner && lovedBy && lovedBy.length > 0 ? (
         <Text style={styles.lovedBy} testID={`event-card-lovedby-${event.id}`}>
           ♥ {lovedByLabel(lovedBy)}
+        </Text>
+      ) : null}
+      {/* Partner side: the same quiet line, partner wording, under the
+          body — while the heart itself lives in the top-right corner. */}
+      {partner && partnerLoveText ? (
+        <Text style={styles.lovedBy} testID={`partner-lovedby-${event.id}`}>
+          ♥ {partnerLoveText}
         </Text>
       ) : null}
     </>
   );
 
   return (
-    <View style={deletable ? styles.cardWrap : undefined}>
+    <View style={deletable || partner ? styles.cardWrap : undefined}>
       {appointmentPressable ? (
         <Card
           style={[styles.card, deletable && styles.cardDeletable]}
@@ -532,7 +679,7 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete, onS
         </Card>
       ) : (
         <Card
-          style={[styles.card, deletable && styles.cardDeletable]}
+          style={[styles.card, deletable && styles.cardDeletable, partner && styles.cardPartner]}
           testID={`event-card-${event.id}`}
         >
           {metaRow}
@@ -549,6 +696,21 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete, onS
           style={({ pressed }) => [styles.delBtn, pressed && styles.delPressed]}
         >
           <Text style={styles.delGlyph}>×</Text>
+        </Pressable>
+      ) : null}
+      {/* Partner home: the ONLY allowed difference from the feed card —
+          the heart sits in the top-right corner (same 44×44 corner
+          pattern as the feed's delete ×), never nested in the card. */}
+      {partner ? (
+        <Pressable
+          testID={`partner-heart-${event.id}`}
+          accessibilityRole="button"
+          accessibilityLabel={loved ? 'Unlove this moment' : 'Love this moment'}
+          onPress={() => onToggleLove?.(event.id)}
+          hitSlop={10}
+          style={({ pressed }) => [styles.heartBtn, pressed && styles.delPressed]}
+        >
+          <HeartGlyph loved={!!loved} />
         </Pressable>
       ) : null}
     </View>
@@ -584,6 +746,23 @@ const styles = StyleSheet.create({
   },
   delPressed: {
     opacity: 0.5,
+  },
+  /**
+   * Partner heart: the ONLY allowed partner/feed difference — the same
+   * 44×44 top-right corner pattern as the delete ×.
+   */
+  heartBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  /** Partner cards: extra right padding keeps the meta row clear of the heart. */
+  cardPartner: {
+    paddingRight: 52,
   },
   delGlyph: {
     fontSize: 19,

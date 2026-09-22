@@ -39,13 +39,14 @@ PDT = timezone(timedelta(hours=-7))
 NOW = datetime.now(PDT)
 TODAY_1920 = NOW.replace(hour=19, minute=20, second=0, microsecond=0)
 TODAY_1847 = NOW.replace(hour=18, minute=47, second=0, microsecond=0)
+TODAY_1400 = NOW.replace(hour=14, minute=0, second=0, microsecond=0)
 TOMORROW_1400 = (NOW + timedelta(days=1)).replace(hour=14, minute=0, second=0, microsecond=0)
 YESTERDAY_2302 = (NOW - timedelta(days=1)).replace(hour=23, minute=2, second=0, microsecond=0)
 FRIDAY = NOW - timedelta(days=(NOW.weekday() - 4) % 7 or 7)
 FRIDAY_1000 = FRIDAY.replace(hour=10, minute=0, second=0, microsecond=0)
 
 
-def row(eid, etype, occurred, data):
+def row(eid, etype, occurred, data, created=None):
     return {
         "id": eid,
         "user_id": "owner-uuid-1",
@@ -53,14 +54,17 @@ def row(eid, etype, occurred, data):
         "occurred_at": occurred.isoformat(),
         "visibility": "shared",
         "data": data,
-        "created_at": occurred.isoformat(),
+        "created_at": (created or occurred).isoformat(),
     }
 
 
 SHARED_ROWS = [
     row("log1", "note", TODAY_1920, {"text": "Baby is so active tonight — little dance party after dinner.", "mood": "heavy but happy"}),
     row("kick1", "kick_session", TODAY_1847, {"movements": 10, "durationMin": 22}),
-    row("appt1", "appointment", TOMORROW_1400, {"title": "OB visit", "provider": "Dr. Izu"}),
+    # Logged today, scheduled tomorrow: the feed's day-grouping (createdAt)
+    # must put this under "Today" — the old partner-only grouping used the
+    # scheduled date and rendered a stray "Tuesday, Sep 22" group (Anuraj).
+    row("appt1", "appointment", TOMORROW_1400, {"title": "OB visit", "provider": "Dr. Izu"}, created=TODAY_1400),
     row("act1", "activity", YESTERDAY_2302, {"sessionKey": "s1", "activityKind": "contraction", "count": 12, "spanSec": 3600, "avgIntervalSec": 300, "avgDurationSec": 45}),
     row("rep1", "report", FRIDAY_1000, {"title": "Week 33 summary", "summary": "A busy, happy week: 3 logs, 5 kick sessions, 1 appointment."}),
 ]
@@ -195,16 +199,82 @@ def main():
             check(f"[{label}] next-up", "Next up: OB visit, tomorrow at 2:00 PM" in body)
             check(f"[{label}] kick highlight", "10 little kicks tonight" in body)
             check(f"[{label}] day group Today", "Today" in body)
+            # Day-group parity (Anuraj, Sept 2026): entries group by the day
+            # they were LOGGED. The tomorrow-scheduled appointment was logged
+            # today, so it sits under "Today" — no stray scheduled-date group.
+            group_labels = page.locator('[data-testid^="day-group-"]').all_inner_texts()
+            appt_under_today = page.evaluate(
+                """() => {
+                  const groups = document.querySelectorAll('[data-testid^="day-group-"]');
+                  const apptY = document.querySelector('[data-testid="event-card-appt1"]').getBoundingClientRect().y;
+                  return groups.length === 3
+                    && groups[0].getBoundingClientRect().y < apptY
+                    && apptY < groups[1].getBoundingClientRect().y;
+                }"""
+            )
+            check(
+                f"[{label}] appt (logged today) groups under Today",
+                len(group_labels) == 3
+                and group_labels[0] == "TODAY"
+                and group_labels[1] == "YESTERDAY"
+                and appt_under_today,
+                group_labels,
+            )
+            check(f"[{label}] day labels are the feed's muted uppercase style", page.evaluate(
+                """() => { const el = document.querySelector('[data-testid^="day-group-"] span, [data-testid^="day-group-"]'); """
+                """const t = el.querySelector('*') || el; const s = getComputedStyle(t); """
+                """return s.textTransform === 'uppercase' && s.fontSize === '12px'; }"""
+            ))
             check(f"[{label}] contraction summary", "12 contractions, most about 5 minutes apart." in body)
             check(f"[{label}] footer copy", "You're her guest — enjoy the view." in body)
             check(f"[{label}] wave renders", page.locator('[data-testid="partner-wave"]').count() == 1)
             check(f"[{label}] no page errors", len(errors) == 0, errors[:2])
 
+            # Card parity: every card uses the feed's shared Card container
+            # (white, 20px radius, 16px padding) and all cards share the same
+            # width — the only difference from the feed card is the heart.
+            card_style = page.evaluate(
+                """() => { const out = {}; for (const id of ['log1','kick1','appt1','rep1']) { """
+                """const el = document.querySelector(`[data-testid="event-card-${id}"]`); const s = getComputedStyle(el); """
+                """out[id] = { radius: s.borderRadius, bg: s.backgroundColor, pad: s.paddingTop + '/' + s.paddingLeft, w: el.getBoundingClientRect().width }; } return out; }"""
+            )
+            check(
+                f"[{label}] cards use the shared white Card surface",
+                all(
+                    v["radius"] == "20px" and v["bg"] == "rgb(255, 255, 255)" and v["pad"] == "16px/16px"
+                    for v in card_style.values()
+                ),
+                card_style,
+            )
+            widths = [round(v["w"], 1) for v in card_style.values()]
+            check(f"[{label}] all cards the same width", len(set(widths)) == 1, widths)
+
+            # Heart: top-right corner of the card (the feed's delete-x corner
+            # pattern), 44x44 — never a bottom row.
+            geom = page.evaluate(
+                """() => { const c = document.querySelector('[data-testid="event-card-log1"]').getBoundingClientRect(); """
+                """const h = document.querySelector('[data-testid="partner-heart-log1"]').getBoundingClientRect(); """
+                """return { dx: (c.x + c.width) - (h.x + h.width), dy: h.y - c.y, w: h.width, h: h.height }; }"""
+            )
+            check(
+                f"[{label}] heart sits in the card's top-right corner",
+                geom["dx"] <= 14 and geom["dy"] <= 18 and round(geom["w"]) == 44 and round(geom["h"]) == 44,
+                geom,
+            )
+
+            # Appointment card: same card language — title + info line, no
+            # partner-only When/With table rows.
+            appt_text = page.inner_text('[data-testid="event-card-appt1"]')
+            check(f"[{label}] appt card shows title", "OB visit" in appt_text, appt_text[:160])
+            check(f"[{label}] appt card shows when + provider", "Dr. Izu" in appt_text)
+            check(f"[{label}] no When/With table rows", "When" not in appt_text and "\nWith" not in appt_text, appt_text[:200])
+            check(f"[{label}] appt info line renders", page.locator('[data-testid="event-card-apptinfo-appt1"]').count() == 1)
+
             # Heart: tap to love, tap again to undo.
             heart = page.locator('[data-testid="partner-heart-log1"]')
             check(f"[{label}] heart present", heart.count() == 1)
             loved_label = page.locator('[data-testid="partner-lovedby-log1"]')
-            check(f"[{label}] unloved initially", loved_label.inner_text().strip() == "")
+            check(f"[{label}] unloved initially", loved_label.count() == 0)
             heart.click()
             page.wait_for_function(
                 "document.querySelector('[data-testid=\"partner-lovedby-log1\"]').textContent.includes('Loved by Sam')"
@@ -213,7 +283,7 @@ def main():
             page.screenshot(path=f"{SHOT_DIR}/partner-home-{label}-loved.png")
             heart.click()
             page.wait_for_function(
-                "document.querySelector('[data-testid=\"partner-lovedby-log1\"]').textContent.trim() === ''"
+                "document.querySelectorAll('[data-testid=\"partner-lovedby-log1\"]').length === 0"
             )
             check(f"[{label}] unlove clears label", True)
 
