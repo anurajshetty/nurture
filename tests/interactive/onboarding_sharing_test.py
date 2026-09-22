@@ -464,11 +464,12 @@ def main() -> None:
         check(pg.get_by_text("Nov 3, 1988").count() > 0, "f6 birthday persists")
         check(pg.get_by_text("Wren").count() > 0, "f6 baby's name persists")
 
-        # The You tab row opens the partners-list sheet (mockup 33 rev C).
+        # The You tab row opens the partners-list sheet (mockup 33 rev C,
+        # named-invite revision: the row reads "Your partners").
         row = pg.get_by_test_id("partner-sharing-row")
         check(
-            "Share with your partner" in (row.inner_text() or ""),
-            "f7 row reads Share with your partner",
+            "Your partners" in (row.inner_text() or ""),
+            "f7 row reads Your partners",
         )
         row.click()
         try:

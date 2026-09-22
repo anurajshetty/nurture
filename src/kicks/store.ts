@@ -10,6 +10,7 @@
 
 import { getDb } from '../lib/db';
 import { listEvents, saveEvent, getActivePregnancy } from '../sync/store';
+import { readShareDefaultSync } from '../partner/shareStore';
 import { readAttachedKicks } from './appointments';
 import { readKickSession } from './session';
 import type { AttachedKickSession, KickSession, KickStrength } from './types';
@@ -32,6 +33,9 @@ export function saveKickSession(input: {
       type: 'kick_session',
       occurredAt: input.occurredAt,
       pregnancyId: pregnancy?.id ?? null,
+      // Auto-saved: follows the global sharing default, no save-time UI
+      // (mockup 33-entry-sharing, Anuraj approved Sept 21, 2026).
+      visibility: readShareDefaultSync() ? 'shared' : 'private',
       data: {
         movements: input.movements,
         durationSec: input.durationSec,

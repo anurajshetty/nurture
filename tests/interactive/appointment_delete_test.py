@@ -148,7 +148,8 @@ def main():
               "Delete this appointment?" in dlg_text)
         check("dialog body exact",
               "It leaves your story and your Week, and its reminder is "
-              "cancelled too. This can\u2019t be undone." in dlg_text)
+              "cancelled too \u2014 your partner loses access as well. "
+              "This can\u2019t be undone." in dlg_text)
         check("Delete button", page.get_by_test_id(
             "delete-card-confirm").count() == 1)
         check("Delete button label exact",
@@ -190,7 +191,7 @@ def main():
         toast = page.get_by_test_id("delete-card-toast")
         check("toast appears", toast.count() == 1)
         toast_text = " ".join(toast.inner_text().split())
-        check("toast copy exact", toast_text == "Appointment deleted")
+        check("toast copy exact", toast_text == "Appointment deleted \u2014 removed from your partner\u2019s view too.")
         check("no undo offered", "Undo" not in toast_text)
         check("dialog closes on confirm",
               page.get_by_test_id("delete-card-dialog").count() == 0)

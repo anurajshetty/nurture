@@ -103,7 +103,7 @@ def open_sheet_from_logs(page):
     """Tap the Logs appointment card; returns when the sheet is open."""
     page.goto(LOGS_URL, wait_until="networkidle")
     page.wait_for_timeout(2500)
-    card = page.locator('[data-testid^="event-card-"]').first
+    card = page.locator('[data-testid^="event-card-pressable-"]').first
     card.wait_for(timeout=15000)
     card.click()
     page.get_by_test_id("appointment-editor").wait_for(timeout=15000)
@@ -249,7 +249,8 @@ def main():
           const isSub = (el) => {
             const t = el.getAttribute('data-testid') || '';
             return t.startsWith('event-card-date-') || t.startsWith('event-card-questions-')
-                || t.startsWith('event-card-delete-') || t === 'event-card-photo-placeholder';
+                || t.startsWith('event-card-delete-') || t.startsWith('event-card-share-')
+                || t.startsWith('event-card-pressable-') || t === 'event-card-photo-placeholder';
           };
           return all.filter((el) => !isSub(el)).map((el) => el.innerText);
         }""")
@@ -258,16 +259,21 @@ def main():
               "Soon visit" in feed_texts[0])
         check("older-logged appointment second (Later visit)",
               "Later visit" in feed_texts[1])
-        # Positional: the date's right edge hugs the card's right edge.
+        # Positional (mockup 33-entry-sharing device C): the per-entry Shared
+        # switch takes the right end of the meta row; the date sits by the
+        # APPOINTMENT label.
         first_card = page.locator('[data-testid^="event-card-"]',
                                   has=page.locator('[data-testid^="event-card-date-"]')).first
         card_box = first_card.bounding_box()
         date_box = first_card.locator('[data-testid^="event-card-date-"]').bounding_box()
+        switch_box = first_card.locator('[data-testid^="event-card-share-switch-"]').bounding_box()
         card_right = card_box["x"] + card_box["width"]
-        date_right = date_box["x"] + date_box["width"]
-        check("appointment date at card right edge",
-              card_right - date_right < 80
-              and date_right > card_box["x"] + card_box["width"] * 0.5)
+        switch_right = switch_box["x"] + switch_box["width"]
+        check("appointment switch at card right edge",
+              card_right - switch_right < 80
+              and switch_right > card_box["x"] + card_box["width"] * 0.5)
+        check("appointment date sits by the label (left of the switch)",
+              date_box["x"] + date_box["width"] < switch_box["x"])
         page.screenshot(path="/tmp/appt-feed-order-390x844.png")
 
         # --- 7. zero page errors ------------------------------------------

@@ -55,11 +55,11 @@ export default function DeleteCardDialog({ copy, onDismiss, onConfirm }: DeleteC
         <Pressable
           testID="delete-card-keep"
           accessibilityRole="button"
-          accessibilityLabel="Keep it"
+          accessibilityLabel="Keep"
           onPress={onDismiss}
           style={({ pressed }) => [styles.keepBtn, pressed && styles.keepPressed]}
         >
-          <Text style={styles.keepText}>Keep it</Text>
+          <Text style={styles.keepText}>Keep</Text>
         </Pressable>
       </View>
     </View>

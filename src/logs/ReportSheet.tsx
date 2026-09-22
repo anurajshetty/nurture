@@ -20,6 +20,7 @@ import { Feather } from '@expo/vector-icons';
 import BottomSheet from '../components/BottomSheet';
 import { colors, radii, spacing, type as typeScale } from '../theme/tokens';
 import { saveEvent } from '../sync/store';
+import { resolveNewEntryVisibility } from '../partner/shareStore';
 import type { EventInput, LocalEvent } from '../lib/types';
 import { pickDocument, pickFromCamera, type PendingAttachment } from '../composer/attachments';
 import { readReportBytes, ReportBytesError } from '../reportSummary/bytes';
@@ -102,11 +103,15 @@ export default function ReportSheet({ visible, onClose, onSaved }: ReportSheetPr
           // Anuraj's entry-typing rule: Add report → ALWAYS a Report entry.
           // Text-only: the filename for now, the LLM-derived name once the
           // summary lands. No attachments — nothing to back up, ever.
+          // Report summaries are shareable entries (mockup 33-entry-sharing,
+          // Anuraj approved Sept 21, 2026): the new entry follows the
+          // global default; the card carries the standard retroactive
+          // Shared switch.
           const type: EventInput['type'] = 'report';
           const event = saveEvent({
             type,
             data: { text: a.name, category: 'report', reportSummary: { status: 'summarizing' } },
-            visibility: 'private',
+            visibility: await resolveNewEntryVisibility(),
           });
           // Stash the bytes in memory (never persisted) and kick the
           // ephemeral summary flow; the feed shows the interim entry

@@ -193,6 +193,17 @@ export interface PartnerInvite {
   name: string;
   /** 'pending' until redeemed, 'accepted' after. */
   status: 'pending' | 'accepted';
+  /**
+   * The 6-char code while the invite is pending (the server returns it
+   * from my_partner_invites so she can copy it again). Accepted rows
+   * never carry a code (undefined).
+   */
+  code?: string;
+  /**
+   * Per-partner sharing switch. Defaults true for legacy rows; the
+   * partners card flips it via set_partner_sharing.
+   */
+  sharingEnabled: boolean;
 }
 
 export interface CreateInviteResult {
@@ -253,12 +264,24 @@ export async function getPartnerInvites(
     const invites: PartnerInvite[] = [];
     for (const r of rows) {
       if (r === null || typeof r !== 'object') continue;
-      const rec = r as { invite_id?: unknown; partner_name?: unknown; status?: unknown };
+      const rec = r as {
+        invite_id?: unknown;
+        partner_name?: unknown;
+        status?: unknown;
+        code?: unknown;
+        sharing_enabled?: unknown;
+      };
       const id = String(rec.invite_id ?? '');
       const name = String(rec.partner_name ?? '');
       const status = rec.status === 'accepted' ? 'accepted' : 'pending';
       if (!id || !name) continue; // unnamed rows never belong in the list
-      invites.push({ id, name, status });
+      // The code is only ever exposed on pending rows (accepted codes are
+      // spent and the server returns NULL for them).
+      const rawCode = typeof rec.code === 'string' ? rec.code.trim().toUpperCase() : '';
+      const code = status === 'pending' && isValidCodeFormat(rawCode) ? rawCode : undefined;
+      const sharingEnabled =
+        typeof rec.sharing_enabled === 'boolean' ? rec.sharing_enabled : true;
+      invites.push({ id, name, status, code, sharingEnabled });
     }
     return { status: 'ok', invites };
   } catch (e) {
@@ -302,6 +325,40 @@ export async function redeemInvite(
 
 export interface RevokeResult {
   status: 'ok' | 'no_partner_link' | 'not_configured' | 'not_ready' | 'network' | 'unknown';
+}
+
+/** Result of flipping one partner's sharing switch. */
+export interface SetSharingResult {
+  status: 'ok' | 'no_partner_link' | 'not_configured' | 'not_ready' | 'network' | 'unknown';
+}
+
+/**
+ * Owner-only per-partner sharing switch (mockup 33 partners-card,
+ * Anuraj approved Sept 21, 2026): "Sees your shared entries" /
+ * "Paused — sees nothing for now". Turning sharing off keeps the
+ * relationship but blocks every shared entry; turning it back on
+ * restores access. The server raises no_partner_link when the invite
+ * is gone (already removed).
+ */
+export async function setPartnerSharing(
+  inviteId: string,
+  enabled: boolean,
+  rpc: PartnerRpc | null = defaultRpc(),
+): Promise<SetSharingResult> {
+  if (!rpc) return { status: 'not_ready' };
+  try {
+    const { error } = await rpc.rpc('set_partner_sharing', {
+      p_invite_id: inviteId,
+      p_enabled: enabled,
+    });
+    if (error) {
+      if (/no_partner_link/i.test(error.message)) return { status: 'no_partner_link' };
+      return { status: classifyRpcError(error) } as SetSharingResult;
+    }
+    return { status: 'ok' };
+  } catch (e) {
+    return { status: classifyRpcError(e) } as SetSharingResult;
+  }
 }
 
 /** Owner severs one partner link (per invite). Never throws. */

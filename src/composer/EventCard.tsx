@@ -32,6 +32,12 @@ import {
   subscribeReportSummary,
   type ReportSummaryState,
 } from '../reportSummary/client';
+import SharedSwitch from '../components/SharedSwitch';
+import {
+  canToggleSharing,
+  isSharedVisibility,
+  shareToggleLabels,
+} from '../partner/sharing';
 
 interface TypeMeta {
   label: string;
@@ -76,6 +82,26 @@ function formatTime(iso: string): string {
   if (dayDiff === 1) return `Yesterday · ${time}`;
   const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   return `${date} · ${time}`;
+}
+
+/**
+ * Compact day label for the shareable card header (mockup 33-entry-sharing
+ * device C): "Today", "Yesterday", or "Sep 24" — no time, so the header
+ * stays on one line next to the switch.
+ */
+function formatDay(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const startOf = (x: Date) => {
+    const c = new Date(x);
+    c.setHours(0, 0, 0, 0);
+    return c;
+  };
+  const dayMs = 86_400_000;
+  const dayDiff = Math.round((startOf(now).getTime() - startOf(d).getTime()) / dayMs);
+  if (dayDiff === 0) return 'Today';
+  if (dayDiff === 1) return 'Yesterday';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function attachmentsOf(data: Record<string, unknown>): EventAttachment[] {
@@ -297,6 +323,16 @@ export interface EventCardProps {
    * Sept 20, 2026) extended to all card types.
    */
   onCardDelete?: (event: LocalEvent) => void;
+  /**
+   * When present and the event is a shareable type (log entries, kick
+   * sessions, appointments, Activity cards, report summaries — mockup
+   * 33-entry-sharing device C, Anuraj approved Sept 21, 2026), the
+   * card header carries the real per-entry Shared switch ("Shared" /
+   * "Not shared"). Flipping it calls this with the event and the new
+   * shared state; the parent persists it (local visibility + sync +
+   * server mirror). Non-shareable types keep the visibility label.
+   */
+  onSharingChange?: (event: LocalEvent, shared: boolean) => void;
 }
 
 /** "1 question to ask" / "2 questions to ask" — proper pluralization. */
@@ -304,7 +340,7 @@ function questionsLine(count: number): string {
   return count === 1 ? '1 question to ask' : `${count} questions to ask`;
 }
 
-export default function EventCard({ event, onAppointmentPress, onCardDelete }: EventCardProps) {
+export default function EventCard({ event, onAppointmentPress, onCardDelete, onSharingChange }: EventCardProps) {
   const meta = metaFor(event.type);
   const data = event.data;
   const text = typeof data.text === 'string' ? data.text : typeof data.note === 'string' ? data.note : '';
@@ -326,6 +362,12 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete }: E
   // parent wires onCardDelete.
   const deletable = !!onCardDelete;
   const delCopy = deletable ? deleteCopyFor(event) : null;
+  // Mockup 33-entry-sharing device C: shareable cards carry the real
+  // per-entry Shared switch in the header instead of the static
+  // visibility label.
+  const shareable = canToggleSharing(event.type) && !!onSharingChange;
+  const entryShared = isSharedVisibility(event.visibility);
+  const shareLabels = shareToggleLabels(entryShared);
 
   let title: string | null = null;
   let chips: string[] = [];
@@ -345,45 +387,74 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete }: E
   // (PHOTOS_PERSIST_ENABLED = false), so nothing ever uploads and no
   // "Backing up…" state may be shown — for photos or files.
 
-  return (
-    <View style={deletable ? styles.cardWrap : undefined}>
-      <Card
-        style={[styles.card, deletable && styles.cardDeletable]}
-        testID={`event-card-${event.id}`}
-        onPress={
-          appointmentPressable ? () => onAppointmentPress!(event.id) : undefined
-        }
-        accessibilityLabel={
-          appointmentPressable ? `Appointment. ${title ?? ''}. Tap to open.` : undefined
-        }
-      >
+  /**
+   * The meta row carries the per-entry Shared switch. It renders as a
+   * SIBLING of the pressable body — never nested inside it — so tapping
+   * the switch never opens the appointment editor (the same sibling
+   * pattern the delete × uses; nested Pressables fire both handlers on
+   * native).
+   */
+  const metaRow = (
+    <View>
       <View style={styles.meta}>
-        <View style={styles.typeRow}>
-          <View style={[styles.dot, { backgroundColor: eventDots[meta.dot] }]}>
-            <Text style={styles.dotGlyph}>{meta.glyph}</Text>
-          </View>
-          <Text style={styles.typeLabel}>{meta.label}</Text>
-        </View>
-        {/*
-          Appointment cards (Anuraj, Sept 2026): the appointment date sits
-          at the RIGHT end of the card; the visibility label tucks in right
-          after the APPOINTMENT label. Every other entry keeps the date
-          next to its label with visibility pushed right.
-        */}
-        {isAppointment ? (
-          <>
+        <View style={styles.metaLeft}>
+          {shareable ? (
+            <View style={[styles.typeRow, styles.shrink]}>
+              <View style={[styles.dot, { backgroundColor: eventDots[meta.dot] }]}>
+                <Text style={styles.dotGlyph}>{meta.glyph}</Text>
+              </View>
+              <Text
+                style={[styles.typeLabel, styles.shrink, styles.shareKicker]}
+                testID={`event-card-date-${event.id}`}
+                numberOfLines={1}
+              >
+                {meta.label} · {formatDay(event.occurredAt)}
+              </Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.typeRow}>
+                <View style={[styles.dot, { backgroundColor: eventDots[meta.dot] }]}>
+                  <Text style={styles.dotGlyph}>{meta.glyph}</Text>
+                </View>
+                <Text style={styles.typeLabel}>{meta.label}</Text>
+              </View>
+              {!isAppointment ? (
+                <Text style={styles.time}>{formatTime(event.occurredAt)}</Text>
+              ) : null}
+            </>
+          )}
+          {!shareable && !isAppointment ? (
+            <Text style={styles.visibility}>{visibilityLabel(event.visibility)}</Text>
+          ) : null}
+          {!shareable && isAppointment ? (
             <Text style={[styles.visibility, styles.visibilityInline]}>
               {visibilityLabel(event.visibility)}
             </Text>
-            <Text style={[styles.time, styles.timeRight]} testID={`event-card-date-${event.id}`}>{formatTime(event.occurredAt)}</Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.time}>{formatTime(event.occurredAt)}</Text>
-            <Text style={styles.visibility}>{visibilityLabel(event.visibility)}</Text>
-          </>
-        )}
+          ) : null}
+        </View>
+        {shareable ? (
+          <View style={styles.shareHead} testID={`event-card-share-${event.id}`}>
+            <Text style={styles.shareStatus}>{shareLabels.status}</Text>
+            <SharedSwitch
+              value={entryShared}
+              onChange={(next) => onSharingChange!(event, next)}
+              accessibilityLabel={`Share this ${meta.label.toLowerCase()} with your partner`}
+              testID={`event-card-share-switch-${event.id}`}
+            />
+          </View>
+        ) : isAppointment ? (
+          <Text style={[styles.time, styles.timeRight]} testID={`event-card-date-${event.id}`}>{formatTime(event.occurredAt)}</Text>
+        ) : null}
       </View>
+      {shareable ? (
+        <Text style={styles.shareHint}>{shareLabels.hint}</Text>
+      ) : null}
+    </View>
+  );
+
+  const bodyContent = (
+    <>
       {title ? <Text style={styles.title}>{title}</Text> : null}
       {isAppointment ? (
         <Text style={styles.questions} testID={`event-card-questions-${event.id}`}>
@@ -424,7 +495,35 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete }: E
         </View>
       ) : null}
       {isReport ? <ReportSummarySection event={event} /> : null}
-      </Card>
+    </>
+  );
+
+  return (
+    <View style={deletable ? styles.cardWrap : undefined}>
+      {appointmentPressable ? (
+        <View
+          style={[styles.card, deletable && styles.cardDeletable]}
+          testID={`event-card-${event.id}`}
+        >
+          {metaRow}
+          <Pressable
+            testID={`event-card-pressable-${event.id}`}
+            onPress={() => onAppointmentPress!(event.id)}
+            accessibilityRole="button"
+            accessibilityLabel={`Appointment. ${title ?? ''}. Tap to open.`}
+          >
+            {bodyContent}
+          </Pressable>
+        </View>
+      ) : (
+        <Card
+          style={[styles.card, deletable && styles.cardDeletable]}
+          testID={`event-card-${event.id}`}
+        >
+          {metaRow}
+          {bodyContent}
+        </Card>
+      )}
       {deletable ? (
         <Pressable
           testID={`event-card-delete-${event.id}`}
@@ -479,9 +578,23 @@ const styles = StyleSheet.create({
   meta: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
     gap: spacing.sm,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  metaLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 1,
+  },
+  shrink: {
+    flexShrink: 1,
+  },
+  shareKicker: {
+    letterSpacing: 0.2,
+  },
+  metaDate: {
+    flexShrink: 1,
   },
   typeRow: {
     flexDirection: 'row',
@@ -524,6 +637,24 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontWeight: '600',
     marginLeft: 'auto',
+  },
+  // Per-entry Shared switch in the card header (mockup 33-entry-sharing
+  // device C): rides the right end of the meta row.
+  shareHead: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  shareStatus: {
+    ...typeScale.footnote,
+    color: colors.coralDeep,
+    fontWeight: '700',
+  },
+  shareHint: {
+    ...typeScale.footnote,
+    color: colors.muted,
+    marginTop: 2,
   },
   title: {
     ...typeScale.headline,

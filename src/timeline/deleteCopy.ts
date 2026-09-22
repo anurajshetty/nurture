@@ -12,9 +12,14 @@
  *                  Sept 21 call: use "log" for everything here
  * - log          → everything else: removed everywhere it appears
  *
+ * Mockup 33-entry-sharing device C (Anuraj approved Sept 21, 2026):
+ * deleting an entry removes it from the partner's view too — every body
+ * and toast names that consequence; the dialog's quiet button reads
+ * "Keep".
+ *
  * Pure logic: no database, no expo, no react-native imports, so it is
  * unit-testable in plain node. The exact copy below is the approved
- * mockup-30 copy table — keep it verbatim.
+ * copy table — keep it verbatim.
  */
 
 import type { LocalEvent } from '../lib/types';
@@ -63,39 +68,42 @@ export const DELETE_COPY: Record<DeleteKind, DeleteCopy> = {
   appointment: {
     xLabel: 'Delete appointment',
     title: 'Delete this appointment?',
-    body: 'It leaves your story and your Week, and its reminder is cancelled too. This can\u2019t be undone.',
+    body: 'It leaves your story and your Week, and its reminder is cancelled too \u2014 your partner loses access as well. This can\u2019t be undone.',
     confirmLabel: 'Delete appointment',
-    toast: 'Appointment deleted',
+    toast: 'Appointment deleted \u2014 removed from your partner\u2019s view too.',
   },
   report: {
     xLabel: 'Delete report summary',
     title: 'Delete this summary?',
-    body: 'Only the summary card goes away \u2014 your entries stay in your story. This can\u2019t be undone.',
+    body: 'Only the summary card goes away \u2014 your entries stay in your story. Your partner loses access to it too. This can\u2019t be undone.',
     confirmLabel: 'Delete summary',
-    toast: 'Summary deleted',
+    toast: 'Summary deleted \u2014 removed from your partner\u2019s view too.',
   },
   kick_session: {
     xLabel: 'Delete kick session',
     title: 'Delete this kick session?',
-    body: 'It leaves your story. This can\u2019t be undone.',
+    body: 'It leaves your story \u2014 and your partner\u2019s view too. This can\u2019t be undone.',
     confirmLabel: 'Delete session',
-    toast: 'Kick session deleted',
+    toast: 'Kick session deleted \u2014 removed from your partner\u2019s view too.',
   },
   // Labor activities (mockup 32 rev 2 — Anuraj approved Sept 21, 2026).
-  // Verbatim "log for everything" copy (his Sept 21 ~08:07 PDT call).
+  // Verbatim "log for everything" copy (his Sept 21 ~08:07 PDT call),
+  // plus the partner consequence (mockup 33-entry-sharing device C).
   activity: {
     xLabel: 'Delete log',
     title: 'Delete this log?',
-    body: 'This log leaves your story. This can\u2019t be undone.',
+    body: 'This log leaves your story \u2014 and your partner\u2019s view too. This can\u2019t be undone.',
     confirmLabel: 'Delete log',
-    toast: 'Log deleted',
+    toast: 'Log deleted \u2014 removed from your partner\u2019s view too.',
   },
+  // Mockup 33-entry-sharing device C (verbatim): the delete dialog for
+  // a log card.
   log: {
     xLabel: 'Delete log entry',
-    title: 'Delete this entry?',
-    body: 'It leaves your story everywhere it appears. This can\u2019t be undone.',
-    confirmLabel: 'Delete entry',
-    toast: 'Entry deleted',
+    title: 'Delete this log?',
+    body: 'This log leaves your story \u2014 and your partner\u2019s view too. This can\u2019t be undone.',
+    confirmLabel: 'Delete log',
+    toast: 'Log deleted \u2014 removed from your partner\u2019s view too.',
   },
 };
 

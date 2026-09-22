@@ -125,24 +125,26 @@ COPY = {
         "xLabel": "Delete report summary",
         "title": "Delete this summary?",
         "body": "Only the summary card goes away \u2014 your entries stay "
-                "in your story. This can\u2019t be undone.",
+                "in your story. Your partner loses access to it too. "
+                "This can\u2019t be undone.",
         "confirm": "Delete summary",
-        "toast": "Summary deleted",
+        "toast": "Summary deleted \u2014 removed from your partner\u2019s view too.",
     },
     "note": {
         "xLabel": "Delete log entry",
-        "title": "Delete this entry?",
-        "body": "It leaves your story everywhere it appears. "
+        "title": "Delete this log?",
+        "body": "This log leaves your story \u2014 and your partner\u2019s view too. "
                 "This can\u2019t be undone.",
-        "confirm": "Delete entry",
-        "toast": "Entry deleted",
+        "confirm": "Delete log",
+        "toast": "Log deleted \u2014 removed from your partner\u2019s view too.",
     },
     "kick": {
         "xLabel": "Delete kick session",
         "title": "Delete this kick session?",
-        "body": "It leaves your story. This can\u2019t be undone.",
+        "body": "It leaves your story \u2014 and your partner\u2019s view too. "
+                "This can\u2019t be undone.",
         "confirm": "Delete session",
-        "toast": "Kick session deleted",
+        "toast": "Kick session deleted \u2014 removed from your partner\u2019s view too.",
     },
 }
 

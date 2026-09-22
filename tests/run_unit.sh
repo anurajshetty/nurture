@@ -129,5 +129,8 @@ npx tsc --ignoreConfig tests/week_pill_dock.test.ts src/week/pillDock.ts --outDi
 OUT=/tmp/nurture-partner-tests
 npx tsc --ignoreConfig tests/partner_invites.test.ts src/partner/inviteCodes.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "partner_invites" node $OUT/tests/partner_invites.test.js
 
+OUT=/tmp/nurture-sharing-tests
+npx tsc --ignoreConfig tests/partner_sharing.test.ts src/partner/sharing.ts src/partner/inviteCodes.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "partner_sharing" node $OUT/tests/partner_sharing.test.js
+
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

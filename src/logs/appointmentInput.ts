@@ -33,8 +33,15 @@ export function combineDateTime(date: Date, time: Date): Date {
  * Warm defaults: an untitled appointment is just "Appointment", and the
  * "with whom / where" line doubles as the note and the provider so the
  * Plan detail's when/where row picks it up.
+ *
+ * Visibility follows the caller's choice: the intake sheet passes the
+ * per-appointment switch (which starts at the global default). When
+ * omitted, falls back to 'private' (the pre-sharing default).
  */
-export function buildAppointmentInput(draft: AppointmentDraft): EventInput {
+export function buildAppointmentInput(
+  draft: AppointmentDraft,
+  visibility: EventInput['visibility'] = 'private',
+): EventInput {
   const when = combineDateTime(draft.date, draft.time);
   const title = draft.what.trim() || 'Appointment';
   const where = draft.where.trim();
@@ -42,7 +49,7 @@ export function buildAppointmentInput(draft: AppointmentDraft): EventInput {
     type: 'appointment',
     occurredAt: when.toISOString(),
     data: { title, note: where, provider: where },
-    visibility: 'private',
+    visibility,
   };
 }
 

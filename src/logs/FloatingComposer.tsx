@@ -1,18 +1,25 @@
 /**
- * FloatingComposer — the "Log entry" surface for the Logs-tab Add button
- * (Anuraj-approved Sept 2026).
+ * FloatingComposer — the "Log entry" surface for the Logs-tab Add button.
  *
- * The real in-app Composer floats above a light scrim — no bottom-sheet
- * chrome, no "Log entry" title. Floating mode hides the mood pill (kept in
- * the markup for a one-line return), offers photos only from [+], and
- * centers the [+] / action buttons. After a save the composer settles
- * away and a warm "Saved to your story" toast confirms it.
+ * Mockup 33-entry-sharing device A (Anuraj approved Sept 21, 2026):
+ * the new-log composer is TEXT-ONLY — kicker "New log", title "What's
+ * on your mind?", lede, a 120pt textarea, a footer row with the real
+ * Shared switch (starting at the global default), and a full-width
+ * "Save log". After a save the composer settles away and the
+ * sharing-aware toast confirms it ("Log saved — shared with your
+ * partner." / "Log saved — only you can see it.").
+ *
+ * The form itself lives in NewLogForm; this component is the overlay
+ * host (scrim + toast), preserving the AddMenu wiring.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Composer from '../composer/Composer';
-import { KeyboardAvoid } from '../components/KeyboardAvoid';
-import { colors, radii, spacing, shadow, type as typeScale } from '../theme/tokens';
+import { StyleSheet, Text, View } from 'react-native';
+import NewLogForm, {
+  NEW_LOG_SAVE_TOAST_PRIVATE,
+  NEW_LOG_SAVE_TOAST_SHARED,
+} from './NewLogForm';
+import { colors, radii, spacing, type as typeScale } from '../theme/tokens';
+import { isSharedVisibility } from '../partner/sharing';
 import type { LocalEvent } from '../lib/types';
 
 const TOAST_MS = 2500;
@@ -22,12 +29,12 @@ export interface FloatingComposerProps {
   onClose: () => void;
   /** Prepends the saved event to the timeline (optimistic). */
   onSaved: (event: LocalEvent) => void;
-  /** Removes the event from the timeline after Undo. */
+  /** Unused by the text-only form; kept for AddMenu wiring. */
   onUnsaved: (id: string) => void;
 }
 
-export default function FloatingComposer({ visible, onClose, onSaved, onUnsaved }: FloatingComposerProps) {
-  const [saved, setSaved] = useState(false);
+export default function FloatingComposer({ visible, onClose, onSaved }: FloatingComposerProps) {
+  const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -37,61 +44,42 @@ export default function FloatingComposer({ visible, onClose, onSaved, onUnsaved 
   }, []);
 
   // The component stays in the tree rendering null while hidden, so its
-  // state survives between sessions — reset the post-save state on every
-  // open, otherwise the second Log entry would show a stale toast.
+  // state survives between sessions — reset the toast on every open,
+  // otherwise the second Log entry would show a stale toast.
   useEffect(() => {
     if (visible) {
-      setSaved(false);
+      setToast(null);
     } else if (timer.current) {
       clearTimeout(timer.current);
       timer.current = null;
     }
   }, [visible]);
 
-  const handleSaveComplete = useCallback(() => {
-    // Settle the composer away, toast, then hand control back.
-    setSaved(true);
-    timer.current = setTimeout(onClose, TOAST_MS);
-  }, [onClose]);
+  const handleSaved = useCallback(
+    (event: LocalEvent) => {
+      onClose();
+      onSaved(event);
+      setToast(
+        isSharedVisibility(event.visibility)
+          ? NEW_LOG_SAVE_TOAST_SHARED
+          : NEW_LOG_SAVE_TOAST_PRIVATE,
+      );
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setToast(null), TOAST_MS);
+    },
+    [onClose, onSaved],
+  );
 
-  if (!visible) return null;
+  if (!visible && !toast) return null;
 
   return (
     <View style={styles.overlay} pointerEvents="box-none" testID="floating-composer">
-      {saved ? null : (
-        <>
-          <Pressable
-            style={styles.scrim}
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close log entry"
-            testID="floating-composer-scrim"
-          />
-          {/* The floating card lifts above the iOS keyboard through the
-              shared KeyboardAvoid pattern (the Logs tab opts out of
-              Screen's wrapper to avoid a double shift). */}
-          <KeyboardAvoid
-            style={styles.float}
-            pointerEvents="box-none"
-            testID="floating-composer-card"
-          >
-            <View style={styles.composerCard}>
-              <Composer
-                onSaved={onSaved}
-                onUnsaved={onUnsaved}
-                hideMoodPill
-                photosOnly
-                centerActions
-                suppressSaveToast
-                onSaveComplete={handleSaveComplete}
-              />
-            </View>
-          </KeyboardAvoid>
-        </>
-      )}
-      {saved ? (
-        <View style={styles.toast} testID="floating-composer-toast">
-          <Text style={styles.toastText}>Saved to your story</Text>
+      {visible ? (
+        <NewLogForm onSaved={handleSaved} onClose={onClose} />
+      ) : null}
+      {toast ? (
+        <View style={styles.toast} testID="floating-composer-toast" pointerEvents="none">
+          <Text style={styles.toastText}>{toast}</Text>
         </View>
       ) : null}
     </View>
@@ -107,42 +95,20 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 20,
   },
-  scrim: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.55)',
-  },
-  float: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl,
-  },
-  composerCard: {
-    // The Composer brings its own card styling; this just anchors it.
-  },
   toast: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 140,
+    left: spacing.xl,
+    right: spacing.xl,
+    bottom: spacing.xxxl,
+    backgroundColor: colors.ink,
+    borderRadius: radii.chip,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
     alignItems: 'center',
-    pointerEvents: 'none',
   },
   toastText: {
     ...typeScale.subhead,
-    fontWeight: '600',
-    color: '#fff',
-    backgroundColor: colors.ink,
-    borderRadius: radii.chip,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    overflow: 'hidden',
-    ...shadow.card,
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
 });

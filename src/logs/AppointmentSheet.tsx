@@ -17,12 +17,15 @@ import { useRouter } from 'expo-router';
 import BottomSheet from '../components/BottomSheet';
 import { DatePickerField } from '../components/DatePickerField';
 import { TimePickerField } from '../components/TimePickerField';
+import SharedSwitch from '../components/SharedSwitch';
 import { colors, radii, spacing, type as typeScale } from '../theme/tokens';
 import { getActivePregnancy, saveEvent } from '../sync/store';
 import { appointmentDateBounds } from '../onboarding/dates';
 import { refreshAppointmentReminders } from '../notifications/appointments';
 import type { LocalEvent } from '../lib/types';
 import { buildAppointmentInput } from './appointmentInput';
+import { HANDSHAKE_COPY, shareToggleLabels } from '../partner/sharing';
+import { readShareDefaultSync } from '../partner/shareStore';
 
 /** Default time when she doesn't touch the picker: 10:30 AM today. */
 function defaultTime(): Date {
@@ -44,6 +47,11 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
   const [date, setDate] = useState(() => new Date());
   const [time, setTime] = useState(defaultTime);
   const [where, setWhere] = useState('');
+  // Sharing switch starts at the global default (mockup
+  // 33-entry-sharing device B: ON unless she changed it). Changing it
+  // affects this appointment only — the global default is untouched.
+  const [shared, setShared] = useState<boolean>(() => readShareDefaultSync());
+  const shareLabels = shareToggleLabels(shared);
 
   // Picker window (Anuraj, Sept 2026): min = today (no past scheduled
   // dates); max = the pregnancy's due date + 2 months from the record, so
@@ -62,18 +70,22 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
   }, [visible]);
 
   // The sheet stays mounted while hidden — start every session with a
-  // fresh form, not the previous appointment's details.
+  // fresh form, not the previous appointment's details. The switch
+  // re-reads the global default each time it opens.
   useEffect(() => {
     if (visible) {
       setWhat('');
       setDate(new Date());
       setTime(defaultTime());
       setWhere('');
+      setShared(readShareDefaultSync());
     }
   }, [visible]);
 
   const save = useCallback(() => {
-    const event = saveEvent(buildAppointmentInput({ what, date, time, where }));
+    const event = saveEvent(
+      buildAppointmentInput({ what, date, time, where }, shared ? 'shared' : 'private'),
+    );
     // The tab shell refreshes appointment reminders on focus; scheduling
     // here too means a reminder is set even without that. Safe to skip
     // on failure.
@@ -88,7 +100,7 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
     // lands where she expects it.
     router.push({ pathname: '/logs', params: { appointment: event.id } });
     onClose();
-  }, [what, date, time, where, onSaved, onClose, router]);
+  }, [what, date, time, where, shared, onSaved, onClose, router]);
 
   return (
     <BottomSheet
@@ -153,6 +165,25 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
         />
       </View>
 
+      {/* Per-appointment sharing (mockup 33-entry-sharing device B):
+          real switch, starts at the global default. The handshake
+          explainer sits above it, shown once. */}
+      <View style={styles.explainerWrap} testID="appointment-share-explainer">
+        <Text style={styles.explainerText}>{HANDSHAKE_COPY}</Text>
+      </View>
+      <View style={styles.shareRow} testID="appointment-share-row">
+        <View style={styles.shareText}>
+          <Text style={styles.shareLabel}>{shareLabels.status}</Text>
+          <Text style={styles.shareHint}>{shareLabels.hint}</Text>
+        </View>
+        <SharedSwitch
+          value={shared}
+          onChange={setShared}
+          accessibilityLabel="Share this appointment with your partner"
+          testID="appointment-share-switch"
+        />
+      </View>
+
       <Pressable
         onPress={save}
         accessibilityRole="button"
@@ -214,6 +245,39 @@ const styles = StyleSheet.create({
     minHeight: 54,
     justifyContent: 'center',
     paddingHorizontal: spacing.sm,
+  },
+  explainerWrap: {
+    backgroundColor: colors.blush,
+    borderRadius: radii.card,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  explainerText: {
+    ...typeScale.footnote,
+    color: colors.coralDeep,
+    textAlign: 'center',
+  },
+  shareRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  shareHint: {
+    ...typeScale.subhead,
+    color: colors.muted,
+    marginTop: 2,
+  },
+  shareText: {
+    flex: 1,
+    paddingRight: spacing.md,
+  },
+  shareLabel: {
+    ...typeScale.body,
+    color: colors.ink,
+    fontWeight: '700',
   },
   save: {
     backgroundColor: colors.coral,

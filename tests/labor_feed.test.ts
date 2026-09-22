@@ -19,8 +19,9 @@
  * - Pelvic floor: "Connection breath · 3 sets · gentle guided practice,
  *   about 5 minutes."
  * - Delete (Anuraj Sept 21 ~08:07 PDT: "log" for everything):
- *   "Delete this log?" / "This log leaves your story. This can't be
- *   undone." / "Delete log" → toast "Log deleted".
+ *   "Delete this log?" / "This log leaves your story — and your partner's
+ *   view too. This can't be undone." / "Delete log" → toast "Log deleted —
+ *   removed from your partner's view too."
  * - Copy rules: no triage/verdict language, no 5-1-1 on cards.
  *
  * Regression guards (this is the release's pre-push test):
@@ -256,11 +257,11 @@ const copy = dc.DELETE_COPY[dc.deleteKindFor(activityEvent)];
 check('delete dialog title is "Delete this log?"', copy.title === 'Delete this log?', copy.title);
 check(
   'delete dialog body is verbatim',
-  copy.body === 'This log leaves your story. This can’t be undone.',
+  copy.body === 'This log leaves your story — and your partner’s view too. This can’t be undone.',
   copy.body,
 );
 check('delete confirm button is "Delete log"', copy.confirmLabel === 'Delete log', copy.confirmLabel);
-check('delete toast is "Log deleted"', copy.toast === 'Log deleted', copy.toast);
+check('delete toast is "Log deleted — removed from your partner’s view too."', copy.toast === 'Log deleted — removed from your partner’s view too.', copy.toast);
 check('delete × label uses "log"', copy.xLabel === 'Delete log', copy.xLabel);
 
 /* ---------------- REGRESSION: Activity filter ---------------- */

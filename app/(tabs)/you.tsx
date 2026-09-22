@@ -71,6 +71,13 @@ import {
 import { colors, radii, spacing, type as typeScale } from '../../src/theme/tokens';
 import ShareCodeScreen from '../../src/partner/ShareCodeScreen';
 import { getPartnerInvites, MAX_PARTNERS } from '../../src/partner/inviteCodes';
+import SharedSwitch from '../../src/components/SharedSwitch';
+import { HANDSHAKE_COPY, shareDefaultSub } from '../../src/partner/sharing';
+import {
+  readShareDefaultSync,
+  seedShareDefaultFromServer,
+  writeShareDefault,
+} from '../../src/partner/shareStore';
 
 
 const NUDGE_MIN = 17 * 60; // 5:00 PM
@@ -316,7 +323,7 @@ export default function YouScreen() {
   const [dobSheetOpen, setDobSheetOpen] = useState(false);
   const [dobDraft, setDobDraft] = useState<string | null>(null);
 
-  // Partner sharing (mockup 33 rev C, Sept 2026): the settings row opens
+  // Partner sharing (mockup 33 partners-card, Sept 2026): the settings row opens
   // the partners-list sheet; the subtitle reflects the live named-invite
   // count (None yet / N of 5), not a single boolean.
   const [partnerOpen, setPartnerOpen] = useState(false);
@@ -341,6 +348,31 @@ export default function YouScreen() {
       : partnerCount === 0
         ? 'None yet'
         : `${partnerCount} of ${MAX_PARTNERS}`;
+
+  /**
+   * Global "Share new entries with partners" default (mockup
+   * 33-entry-sharing device D, Anuraj approved Sept 21, 2026): ON
+   * unless she turns it off. Creation forms follow it; changing it
+   * affects new entries only — existing entries are never rewritten.
+   */
+  const [shareDefault, setShareDefault] = useState<boolean>(() => readShareDefaultSync());
+  useEffect(() => {
+    void seedShareDefaultFromServer().catch(() => {});
+  }, []);
+  const refreshShareDefault = useCallback(() => {
+    setShareDefault(readShareDefaultSync());
+  }, []);
+  const handleShareDefaultChange = useCallback(
+    async (next: boolean) => {
+      setShareDefault(next);
+      try {
+        await writeShareDefault(next);
+      } catch {
+        // Local flip already applied; the server mirror retries next time.
+      }
+    },
+    [],
+  );
 
   const paused = globalPauseUntil !== null;
 
@@ -949,16 +981,36 @@ export default function YouScreen() {
         Lock-screen previews stay neutral — they never show symptoms, moods, or health details.
       </Text>
 
-      <SectionHeader title="Your space" />
+      <SectionHeader title="Partner sharing" />
 
       <View style={styles.rows}>
         <SettingsRow
           icon="♥"
-          title="Share with your partner"
+          title="Your partners"
           subtitle={partnerSubtitle}
           onPress={() => setPartnerOpen(true)}
           testID="partner-sharing-row"
         />
+        <View style={styles.shareDefaultRow} testID="share-default-row">
+          <View style={styles.shareDefaultText}>
+            <Text style={styles.shareDefaultTitle}>Share new entries with partners</Text>
+            <Text style={styles.shareDefaultSub}>{shareDefaultSub(shareDefault)}</Text>
+          </View>
+          <SharedSwitch
+            value={shareDefault}
+            onChange={handleShareDefaultChange}
+            accessibilityLabel="Share new entries with partners"
+            testID="share-default-switch"
+          />
+        </View>
+        <View style={styles.shareExplainer} testID="share-default-explainer">
+          <Text style={styles.shareExplainerText}>{HANDSHAKE_COPY}</Text>
+        </View>
+      </View>
+
+      <SectionHeader title="Your space" />
+
+      <View style={styles.rows}>
         <SettingsRow
           icon="▤"
           tint={colors.blueTint}
@@ -1352,6 +1404,7 @@ export default function YouScreen() {
         onClose={() => {
           setPartnerOpen(false);
           void refreshPartnerStatus();
+          refreshShareDefault();
         }}
         accessibilityLabel="Share with your partner"
         testID="partner-sheet"
@@ -1367,7 +1420,7 @@ export default function YouScreen() {
 
       {toast ? (
         <View style={styles.toastWrap} pointerEvents="none">
-          <View style={styles.toast}>
+          <View style={styles.toast} testID="you-toast">
             <Text style={styles.toastText}>{toast}</Text>
           </View>
         </View>
@@ -1449,6 +1502,46 @@ const styles = StyleSheet.create({
 
   rows: {
     gap: spacing.sm,
+  },
+  // Global sharing default row (mockup 33-entry-sharing device D).
+  shareDefaultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.card,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    minHeight: 64,
+  },
+  shareDefaultText: {
+    flex: 1,
+    paddingRight: spacing.md,
+  },
+  shareDefaultTitle: {
+    ...typeScale.body,
+    color: colors.ink,
+    fontWeight: '600',
+  },
+  shareDefaultSub: {
+    ...typeScale.footnote,
+    color: colors.muted,
+    marginTop: 2,
+    lineHeight: 17,
+  },
+  shareExplainer: {
+    backgroundColor: colors.blush,
+    borderRadius: radii.card,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  shareExplainerText: {
+    ...typeScale.footnote,
+    color: colors.coralDeep,
+    textAlign: 'center',
+    lineHeight: 18,
   },
   note: {
     ...typeScale.subhead,

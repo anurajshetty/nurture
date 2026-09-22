@@ -32,6 +32,8 @@ interface TimelineListProps {
   onAppointmentPress?(eventId: string): void;
   /** When present, EVERY feed EventCard shows the mockup-18/30 delete × in the top-right corner. */
   onCardDelete?(event: LocalEvent): void;
+  /** When present, shareable EventCards show the per-entry Shared switch (mockup 33-entry-sharing). */
+  onSharingChange?(event: LocalEvent, shared: boolean): void;
   onEndReached(): void;
   refreshing: boolean;
   onRefresh(): void;
@@ -65,6 +67,7 @@ export default function TimelineList({
   onRevisitLookBack,
   onAppointmentPress,
   onCardDelete,
+  onSharingChange,
   onEndReached,
   refreshing,
   onRefresh,
@@ -82,6 +85,7 @@ export default function TimelineList({
           event={item}
           onAppointmentPress={onAppointmentPress}
           onCardDelete={onCardDelete}
+          onSharingChange={onSharingChange}
         />
       )}
       renderSectionHeader={({ section }) => <DayGroupHeader section={section} />}

@@ -123,6 +123,32 @@ export function saveEvent(input: EventInput): LocalEvent {
 }
 
 /**
+ * Flip an entry's shared state (mockup 33 entry-sharing, Anuraj approved
+ * Sept 21, 2026): the retroactive per-entry toggle on feed cards. Updates
+ * the local visibility and queues an upsert so the server's generated
+ * events.shared follows. updated_at is rewritten; created_at (story
+ * position) is never touched.
+ */
+export function updateEventVisibility(id: string, visibility: Visibility): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.withTransactionSync(() => {
+    db.runSync(
+      'UPDATE events SET visibility = ?, updated_at = ?, dirty = 1 WHERE id = ? AND deleted_at IS NULL',
+      visibility,
+      now,
+      id,
+    );
+    db.runSync(
+      `INSERT INTO outbox (id, event_id, op, attempts, created_at) VALUES (?, ?, 'upsert', 0, ?)`,
+      Crypto.randomUUID(),
+      id,
+      now,
+    );
+  });
+}
+
+/**
  * Soft-deletes an event: sets a local tombstone and queues a delete op.
  * The tombstone is kept until the server acknowledges the delete.
  */

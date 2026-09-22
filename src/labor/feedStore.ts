@@ -11,6 +11,7 @@
  */
 
 import { getActivePregnancy, listEvents, saveEvent } from '../sync/store';
+import { readShareDefaultSync } from '../partner/shareStore';
 import type {
   ActivityCardData,
   BreathingActivityData,
@@ -46,6 +47,9 @@ function saveLaborEvent(
       type: 'activity',
       occurredAt,
       pregnancyId: pregnancy?.id ?? null,
+      // Auto-saved: follows the global sharing default, no save-time UI
+      // (mockup 33-entry-sharing, Anuraj approved Sept 21, 2026).
+      visibility: readShareDefaultSync() ? 'shared' : 'private',
       data: { ...data, sessionKey } as Record<string, unknown>,
     });
   } catch {

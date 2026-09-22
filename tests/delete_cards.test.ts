@@ -79,10 +79,10 @@ check('appt title', appt.title === 'Delete this appointment?');
 check(
   'appt body',
   appt.body ===
-    'It leaves your story and your Week, and its reminder is cancelled too. This can\u2019t be undone.',
+    'It leaves your story and your Week, and its reminder is cancelled too \u2014 your partner loses access as well. This can\u2019t be undone.',
 );
 check('appt confirmLabel', appt.confirmLabel === 'Delete appointment');
-check('appt toast', appt.toast === 'Appointment deleted');
+check('appt toast', appt.toast === 'Appointment deleted \u2014 removed from your partner\u2019s view too.');
 
 const report = deleteCopyFor(ev('report'));
 check('report xLabel', report.xLabel === 'Delete report summary');
@@ -90,27 +90,27 @@ check('report title', report.title === 'Delete this summary?');
 check(
   'report body',
   report.body ===
-    'Only the summary card goes away \u2014 your entries stay in your story. This can\u2019t be undone.',
+    'Only the summary card goes away \u2014 your entries stay in your story. Your partner loses access to it too. This can\u2019t be undone.',
 );
 check('report confirmLabel', report.confirmLabel === 'Delete summary');
-check('report toast', report.toast === 'Summary deleted');
+check('report toast', report.toast === 'Summary deleted \u2014 removed from your partner\u2019s view too.');
 
 const kick = deleteCopyFor(ev('kick_session'));
 check('kick xLabel', kick.xLabel === 'Delete kick session');
 check('kick title', kick.title === 'Delete this kick session?');
-check('kick body', kick.body === 'It leaves your story. This can\u2019t be undone.');
+check('kick body', kick.body === 'It leaves your story \u2014 and your partner\u2019s view too. This can\u2019t be undone.');
 check('kick confirmLabel', kick.confirmLabel === 'Delete session');
-check('kick toast', kick.toast === 'Kick session deleted');
+check('kick toast', kick.toast === 'Kick session deleted \u2014 removed from your partner\u2019s view too.');
 
 const log = deleteCopyFor(ev('note'));
 check('log xLabel', log.xLabel === 'Delete log entry');
-check('log title', log.title === 'Delete this entry?');
+check('log title', log.title === 'Delete this log?');
 check(
   'log body',
-  log.body === 'It leaves your story everywhere it appears. This can\u2019t be undone.',
+  log.body === 'This log leaves your story \u2014 and your partner\u2019s view too. This can\u2019t be undone.',
 );
-check('log confirmLabel', log.confirmLabel === 'Delete entry');
-check('log toast', log.toast === 'Entry deleted');
+check('log confirmLabel', log.confirmLabel === 'Delete log');
+check('log toast', log.toast === 'Log deleted \u2014 removed from your partner\u2019s view too.');
 
 // --- DELETE_COPY table is complete ---------------------------------------
 for (const kind of ['appointment', 'report', 'kick_session', 'log']) {
