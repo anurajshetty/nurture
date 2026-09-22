@@ -13,6 +13,7 @@
 
 import * as Crypto from 'expo-crypto';
 import { getDb } from '../lib/db';
+import { awaitIdentityUserId, getIdentityUserId, noteIdentityUserId } from '../auth/identity';
 import type { EventAttachment, EventInput, LocalEvent, Pregnancy, Visibility } from '../lib/types';
 
 /** Raw events-table row as returned by SQLite. */
@@ -74,15 +75,22 @@ function rowToEvent(row: EventRow): LocalEvent {
 }
 
 /**
- * Saves a journal event locally and queues it for upload.
- * Returns the saved event immediately; never waits for the network.
+ * Core event insert. `queueOutbox` false = local-only: the row is written
+ * (visible in the feed, marked dirty) but no sync op is queued — used when
+ * the identity is unavailable so we never queue a row that can never sync.
+ * The identity-resolution sweep (`sweepIdentityPendingRows`) picks such
+ * rows up once an identity exists.
  */
-export function saveEvent(input: EventInput): LocalEvent {
+function writeEventRow(input: EventInput, queueOutbox: boolean): LocalEvent {
   const db = getDb();
   const now = new Date().toISOString();
   const event: LocalEvent = {
     id: Crypto.randomUUID(),
-    userId: input.userId ?? null,
+    // Sync bug fix (Sept 2026): stamp the resolved anonymous identity when
+    // known instead of always-null. Rows that still land with null user_id
+    // (identity unresolved at creation) are healed at push time from the
+    // live session — see pushOutbox in src/sync/engine.ts.
+    userId: input.userId ?? getIdentityUserId() ?? null,
     pregnancyId: input.pregnancyId ?? null,
     type: input.type,
     occurredAt: input.occurredAt ?? now,
@@ -112,14 +120,114 @@ export function saveEvent(input: EventInput): LocalEvent {
       event.updatedAt,
       event.createdAt,
     );
-    db.runSync(
-      `INSERT INTO outbox (id, event_id, op, attempts, created_at) VALUES (?, ?, 'upsert', 0, ?)`,
-      Crypto.randomUUID(),
-      event.id,
-      now,
-    );
+    if (queueOutbox) {
+      db.runSync(
+        `INSERT INTO outbox (id, event_id, op, attempts, created_at) VALUES (?, ?, 'upsert', 0, ?)`,
+        Crypto.randomUUID(),
+        event.id,
+        now,
+      );
+    }
   });
   return event;
+}
+
+/**
+ * Saves a journal event locally and queues it for upload.
+ * Returns the saved event immediately; never waits for the network.
+ */
+export function saveEvent(input: EventInput): LocalEvent {
+  return writeEventRow(input, true);
+}
+
+/**
+ * Creation gate (sync bug fix, Sept 2026): awaits identity resolution
+ * before stamping `user_id`, so entries created in the pre-boot race get
+ * the right owner instead of null.
+ *
+ * - Identity resolves → the entry is stamped and queued normally.
+ * - Identity still unavailable after the wait → the entry is kept
+ *   local-only (visible in the feed, dirty, no outbox op): never queue a
+ *   row that can never sync. `sweepIdentityPendingRows` stamps and queues
+ *   it once an identity exists; push-time healing is the final backstop.
+ *
+ * Resolves immediately when boot already settled — the common case adds
+ * no latency.
+ */
+export async function saveEventAwaitingIdentity(input: EventInput): Promise<LocalEvent> {
+  if (input.userId !== undefined && input.userId !== null) {
+    return writeEventRow(input, true);
+  }
+  const userId = await awaitIdentityUserId();
+  if (userId) {
+    return writeEventRow({ ...input, userId }, true);
+  }
+  return writeEventRow({ ...input, userId: null }, false);
+}
+
+/**
+ * Stamps the now-known identity onto local rows that were created while
+ * it was unavailable, and queues an upsert for rows that were kept
+ * local-only (no outbox op yet). Rows that already have ops are healed
+ * again at push time. Returns the number of rows stamped.
+ *
+ * Best-effort: throws when the DB isn't ready yet (web before
+ * ensureDbReady); callers catch and rely on push-time healing instead.
+ */
+export function sweepIdentityPendingRows(userId: string): number {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const pending = db.getAllSync<{ id: string; has_op: number }>(
+    `SELECT e.id AS id,
+            (SELECT COUNT(*) FROM outbox o WHERE o.event_id = e.id AND o.op = 'upsert') AS has_op
+       FROM events e
+      WHERE e.user_id IS NULL AND e.deleted_at IS NULL`,
+  );
+  if (pending.length === 0) return 0;
+  db.withTransactionSync(() => {
+    db.runSync('UPDATE events SET user_id = ? WHERE user_id IS NULL', userId);
+    for (const row of pending) {
+      if (row.has_op === 0) {
+        db.runSync(
+          `INSERT INTO outbox (id, event_id, op, attempts, created_at) VALUES (?, ?, 'upsert', 0, ?)`,
+          Crypto.randomUUID(),
+          row.id,
+          now,
+        );
+      }
+    }
+  });
+  return pending.length;
+}
+
+/**
+ * Counts local (non-deleted) events still waiting on an identity —
+ * the "visibly pending" set for engineering diagnostics.
+ */
+export function getIdentityPendingCount(): number {
+  const row = getDb().getFirstSync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM events WHERE user_id IS NULL AND deleted_at IS NULL',
+  );
+  return row?.n ?? 0;
+}
+
+/**
+ * Single entry point for "the identity resolved to this (possibly null)
+ * value": records it in the shared cache and, when an identity exists,
+ * sweeps rows that were created while it was unavailable. Called by the
+ * boot hook and by AuthProvider's session subscription — nowhere else.
+ * The sweep is best-effort (web DB may not be ready yet); push-time
+ * healing covers whatever the sweep misses.
+ */
+export function onIdentityResolved(userId: string | null): void {
+  noteIdentityUserId(userId);
+  if (userId) {
+    try {
+      sweepIdentityPendingRows(userId);
+    } catch {
+      // Push-time healing (src/sync/engine.ts) is the backstop.
+    }
+  }
 }
 
 /**

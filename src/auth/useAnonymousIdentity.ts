@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { onIdentityResolved } from '../sync/store';
 import { ensureAnonymousSession } from './anonymousSession';
 
 /**
@@ -16,6 +17,10 @@ import { ensureAnonymousSession } from './anonymousSession';
  * is kept, so quota history survives. Failures are quiet
  * (console.warn only): chat degrades to the server's shared anonymous
  * bucket rather than a dead screen, and the next boot retries.
+ *
+ * The resolved identity is reported to the shared cache (sync bug fix,
+ * Sept 2026) so entry creation stamps the right owner and rows created
+ * before resolution are swept — never stuck with a null user_id.
  */
 export function useAnonymousIdentity(): void {
   useEffect(() => {
@@ -25,6 +30,16 @@ export function useAnonymousIdentity(): void {
       const outcome = await ensureAnonymousSession(supabase.auth);
       if (outcome === 'failed' && !cancelled) {
         console.warn('[auth] anonymous sign-in unavailable; chat uses the shared anonymous bucket');
+      }
+      if (!cancelled) {
+        try {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          onIdentityResolved(session?.user?.id ?? null);
+        } catch {
+          onIdentityResolved(null);
+        }
       }
     })();
     return () => {

@@ -14,7 +14,8 @@
  *   (used to exercise pregnancy-week bands and the week-jump button)
  */
 
-import { clearAllEvents, listEvents, saveEvent, savePregnancy } from './sync/store';
+import { clearAllEvents, getIdentityPendingCount, listEvents, saveEvent, savePregnancy } from './sync/store';
+import { getSyncDiagnostics } from './sync/engine';
 import { getDb, kvSet } from './lib/db';
 import { ONBOARDING_COMPLETED_KEY } from './onboarding/useOnboarding';
 import type { EventInput, Pregnancy } from './lib/types';
@@ -101,5 +102,13 @@ export function installTestHooks(): void {
       };
       return isKickReminderEnabled();
     },
+    /**
+     * Sync health diagnostics (sync bug fix, Sept 2026): push-failure
+     * counter, last push error + timestamp, pending queues, and
+     * identity-pending rows — failures are counted, never swallowed.
+     */
+    getSyncDiagnostics: () => getSyncDiagnostics(),
+    /** Local rows still waiting on an identity (created pre-resolution). */
+    getIdentityPendingCount: () => getIdentityPendingCount(),
   };
 }

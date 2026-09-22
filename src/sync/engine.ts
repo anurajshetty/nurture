@@ -17,6 +17,7 @@
 import * as Crypto from 'expo-crypto';
 import { supabase, isConfigured } from '../lib/supabase';
 import { getDb, kvGet, kvSet } from '../lib/db';
+import { getIdentityPendingCount, getPendingCount, getPendingPregnancyCount } from './store';
 import type { LocalEvent, Pregnancy, SyncConflict, Visibility } from '../lib/types';
 
 const LAST_SYNCED_KEY = 'sync.last_synced_at';
@@ -28,7 +29,84 @@ export interface SyncResult {
   pushed: number;
   pulled: number;
   conflicts: number;
+  /** Rows whose user_id was healed from the live session before pushing. */
+  healed: number;
   errors: string[];
+}
+
+/** Persistent diagnostic keys: push failures are counted, never swallowed. */
+const PUSH_FAILURES_KEY = 'sync.push_failures_total';
+const LAST_PUSH_ERROR_KEY = 'sync.last_push_error';
+const LAST_PUSH_ERROR_AT_KEY = 'sync.last_push_error_at';
+
+/**
+ * Records a push failure in the local kv store (sync bug fix, Sept 2026).
+ * Silent failure is what hid the null-user_id bug for so long: every
+ * failed push now bumps a counter engineering can read, with the last
+ * message and timestamp. Never throws — diagnostics must not break sync.
+ */
+function recordPushFailure(message: string): void {
+  try {
+    const raw = kvGet(PUSH_FAILURES_KEY);
+    const cur = raw ? parseInt(raw, 10) : 0;
+    kvSet(PUSH_FAILURES_KEY, String((Number.isFinite(cur) ? cur : 0) + 1));
+    kvSet(LAST_PUSH_ERROR_KEY, message.slice(0, 500));
+    kvSet(LAST_PUSH_ERROR_AT_KEY, new Date().toISOString());
+  } catch {
+    // Diagnostics must never break sync.
+  }
+}
+
+/** Engineering-visible sync health: failure counters plus pending queues. */
+export interface SyncDiagnostics {
+  /** Total push-op failures since install (never reset by a later success). */
+  pushFailuresTotal: number;
+  lastPushError: string | null;
+  lastPushErrorAt: string | null;
+  pendingOutbox: number;
+  pendingPregnancyOutbox: number;
+  /** Local rows still waiting on an identity (created pre-resolution). */
+  identityPending: number;
+  lastSyncedAt: string | null;
+}
+
+/** Reads the diagnostic counters/queues; never throws. */
+export function getSyncDiagnostics(): SyncDiagnostics {
+  const readInt = (key: string): number => {
+    try {
+      const raw = kvGet(key);
+      const n = raw ? parseInt(raw, 10) : 0;
+      return Number.isFinite(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  };
+  const readStr = (key: string): string | null => {
+    try {
+      return kvGet(key);
+    } catch {
+      return null;
+    }
+  };
+  let pendingOutbox = 0;
+  let pendingPregnancyOutbox = 0;
+  let identityPending = 0;
+  try {
+    pendingOutbox = getPendingCount();
+    pendingPregnancyOutbox = getPendingPregnancyCount();
+    identityPending = getIdentityPendingCount();
+  } catch {
+    // Local DB unreadable: report zeros rather than crashing the caller.
+  }
+  return {
+    pushFailuresTotal: readInt(PUSH_FAILURES_KEY),
+    lastPushError: readStr(LAST_PUSH_ERROR_KEY),
+    lastPushErrorAt: readStr(LAST_PUSH_ERROR_AT_KEY),
+    pendingOutbox,
+    pendingPregnancyOutbox,
+    identityPending,
+    lastSyncedAt: getLastSyncedAt(),
+  };
 }
 
 /** Raw outbox row as returned by SQLite. */
@@ -128,6 +206,12 @@ async function pushOutbox(result: SyncResult): Promise<void> {
   const client = supabase!;
   const db = getDb();
   const ops = db.getAllSync<OutboxRow>('SELECT * FROM outbox ORDER BY created_at ASC');
+  // The live session's user id heals rows stamped before the identity
+  // resolved (sync bug fix, Sept 2026). Fetched once per pass.
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+  const sessionUserId = user?.id ?? null;
   for (const op of ops) {
     try {
       if (op.op === 'upsert') {
@@ -136,10 +220,20 @@ async function pushOutbox(result: SyncResult): Promise<void> {
           db.runSync('DELETE FROM outbox WHERE id = ?', op.id);
           continue;
         }
+        // Heal: a null (or stale) user_id is rejected by the owner-only RLS
+        // policy, and retrying the same id never self-heals — stamp the
+        // current session id onto the row (persisted locally too) before
+        // pushing. A row that already carries the session id is untouched.
+        let pushUserId = row.user_id;
+        if (sessionUserId && pushUserId !== sessionUserId) {
+          db.runSync('UPDATE events SET user_id = ? WHERE id = ?', sessionUserId, op.event_id);
+          pushUserId = sessionUserId;
+          result.healed += 1;
+        }
         const { error } = await client.from('events').upsert(
           {
             id: row.id,
-            user_id: row.user_id,
+            user_id: pushUserId,
             pregnancy_id: row.pregnancy_id,
             type: row.type,
             occurred_at: row.occurred_at,
@@ -177,7 +271,12 @@ async function pushOutbox(result: SyncResult): Promise<void> {
       }
     } catch (e) {
       db.runSync('UPDATE outbox SET attempts = attempts + 1 WHERE id = ?', op.id);
-      result.errors.push(`push ${op.op} ${op.event_id}: ${e instanceof Error ? e.message : String(e)}`);
+      const message = `push ${op.op} ${op.event_id}: ${e instanceof Error ? e.message : String(e)}`;
+      result.errors.push(message);
+      // Sync bug fix (Sept 2026): failures are counted and recorded, never
+      // silently swallowed — the swallowed RLS rejections are what hid the
+      // null-user_id bug.
+      recordPushFailure(message);
     }
   }
 }
@@ -276,7 +375,7 @@ async function pullEvents(result: SyncResult): Promise<void> {
  * data is never at risk.
  */
 export async function syncNow(): Promise<SyncResult> {
-  const result: SyncResult = { pushed: 0, pulled: 0, conflicts: 0, errors: [] };
+  const result: SyncResult = { pushed: 0, pulled: 0, conflicts: 0, healed: 0, errors: [] };
   if (!isConfigured || !supabase) return result;
   try {
     const {
@@ -425,9 +524,9 @@ async function pushPregnancyOutbox(result: SyncResult): Promise<void> {
       result.pushed += 1;
     } catch (e) {
       db.runSync('UPDATE pregnancy_outbox SET attempts = attempts + 1 WHERE id = ?', op.id);
-      result.errors.push(
-        `push pregnancy ${op.pregnancy_id}: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      const message = `push pregnancy ${op.pregnancy_id}: ${e instanceof Error ? e.message : String(e)}`;
+      result.errors.push(message);
+      recordPushFailure(message);
     }
   }
 }

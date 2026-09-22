@@ -19,7 +19,7 @@ import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import BottomSheet from '../components/BottomSheet';
 import { colors, radii, spacing, type as typeScale } from '../theme/tokens';
-import { saveEvent } from '../sync/store';
+import { saveEventAwaitingIdentity } from '../sync/store';
 import { resolveNewEntryVisibility } from '../partner/shareStore';
 import type { EventInput, LocalEvent } from '../lib/types';
 import { pickDocument, pickFromCamera, type PendingAttachment } from '../composer/attachments';
@@ -108,7 +108,9 @@ export default function ReportSheet({ visible, onClose, onSaved }: ReportSheetPr
           // global default; the card carries the standard retroactive
           // Shared switch.
           const type: EventInput['type'] = 'report';
-          const event = saveEvent({
+          // Creation gate (sync bug fix, Sept 2026): await identity
+          // resolution before stamping user_id.
+          const event = await saveEventAwaitingIdentity({
             type,
             data: { text: a.name, category: 'report', reportSummary: { status: 'summarizing' } },
             visibility: await resolveNewEntryVisibility(),

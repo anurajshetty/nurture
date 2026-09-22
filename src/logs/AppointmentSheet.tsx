@@ -19,7 +19,7 @@ import { DatePickerField } from '../components/DatePickerField';
 import { TimePickerField } from '../components/TimePickerField';
 import SharedSwitch from '../components/SharedSwitch';
 import { colors, radii, spacing, type as typeScale } from '../theme/tokens';
-import { getActivePregnancy, saveEvent } from '../sync/store';
+import { getActivePregnancy, saveEventAwaitingIdentity } from '../sync/store';
 import { appointmentDateBounds } from '../onboarding/dates';
 import { refreshAppointmentReminders } from '../notifications/appointments';
 import type { LocalEvent } from '../lib/types';
@@ -82,8 +82,10 @@ export default function AppointmentSheet({ visible, onClose, onSaved }: Appointm
     }
   }, [visible]);
 
-  const save = useCallback(() => {
-    const event = saveEvent(
+  const save = useCallback(async () => {
+    // Creation gate (sync bug fix, Sept 2026): await identity resolution
+    // before stamping user_id — never queue a row that can never sync.
+    const event = await saveEventAwaitingIdentity(
       buildAppointmentInput({ what, date, time, where }, shared ? 'shared' : 'private'),
     );
     // The tab shell refreshes appointment reminders on focus; scheduling

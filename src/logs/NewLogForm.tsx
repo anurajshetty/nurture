@@ -27,7 +27,7 @@ import { KeyboardAvoid } from '../components/KeyboardAvoid';
 import SharedSwitch from '../components/SharedSwitch';
 import { HANDSHAKE_COPY, shareToggleLabels } from '../partner/sharing';
 import { readShareDefaultSync } from '../partner/shareStore';
-import { saveEvent } from '../sync/store';
+import { saveEventAwaitingIdentity } from '../sync/store';
 import type { LocalEvent } from '../lib/types';
 
 export interface NewLogFormProps {
@@ -55,12 +55,14 @@ export default function NewLogForm({ onSaved, onClose }: NewLogFormProps) {
   const canSave = text.trim().length > 0 && !saving;
   const labels = shareToggleLabels(shared);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const clean = text.trim();
     if (!clean || saving) return;
     setSaving(true);
     try {
-      const event = saveEvent({
+      // Creation gate (sync bug fix, Sept 2026): await identity resolution
+      // before stamping user_id — never queue a row that can never sync.
+      const event = await saveEventAwaitingIdentity({
         type: 'note',
         data: { text: clean },
         visibility: shared ? 'shared' : 'private',

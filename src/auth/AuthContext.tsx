@@ -20,6 +20,7 @@ import { Platform } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase, isConfigured, AUTH_NOT_CONFIGURED_MESSAGE } from '../lib/supabase';
+import { onIdentityResolved } from '../sync/store';
 
 /**
  * Magic-link redirect target. Native uses the app deep link (handled by the
@@ -72,6 +73,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!cancelled) {
           setSession(data.session);
           setLoading(false);
+          // Sync bug fix (Sept 2026): keep the shared identity cache (and
+          // its pending-row sweep) in step with the session.
+          onIdentityResolved(data.session?.user?.id ?? null);
         }
       })
       .catch(() => {
@@ -80,7 +84,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!cancelled) setSession(nextSession);
+      if (!cancelled) {
+        setSession(nextSession);
+        // Covers upgrades (linkIdentity), sign-out, and token refreshes.
+        onIdentityResolved(nextSession?.user?.id ?? null);
+      }
     });
     return () => {
       cancelled = true;

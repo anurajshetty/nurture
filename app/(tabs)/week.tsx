@@ -36,7 +36,7 @@ import {
   listEvents,
   listEventsInRange,
   listPregnancies,
-  saveEvent,
+  saveEventAwaitingIdentity,
 } from '../../src/sync/store';
 import { addDaysISO, todayISO } from '../../src/onboarding/dates';
 import { sizeArtSlot, randomSizeArtSlotIndex, SizeArtSlot } from '../../src/week/sizeArt';
@@ -334,11 +334,13 @@ export default function WeekScreen() {
     }, []),
   );
 
-  const saveQuestion = useCallback(() => {
+  const saveQuestion = useCallback(async () => {
     const text = draft.trim();
     if (!text) return;
     try {
-      saveEvent({ type: 'question', data: { text } });
+      // Creation gate (sync bug fix, Sept 2026): await identity resolution
+      // before stamping user_id.
+      await saveEventAwaitingIdentity({ type: 'question', data: { text } });
     } catch {
       // The question stays in the draft; never lose her words.
       return;

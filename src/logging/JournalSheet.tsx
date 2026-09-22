@@ -26,8 +26,8 @@
  * caption under the box.
  *
  * Write path matches the composer note shape exactly so the timeline
- * renders uniformly: `saveEvent({ type: 'note', data: { text,
- * attachments? }, visibility })`, then fire-and-forget
+ * renders uniformly: `saveEventAwaitingIdentity({ type: 'note', data: {
+ * text, attachments? }, visibility })`, then fire-and-forget
  * `enqueueMediaUploads` for cloud backup (Epic 2.3 seam). The visibility
  * picker (Epic 7, §7.1) defaults journal notes to private — "a few words,
  * just for you" — and she can mark a note shared any time.
@@ -56,7 +56,7 @@ import { BottomSheet } from '../components';
 import Segmented from '../components/Segmented';
 import { colors, minTouch, radii, spacing, type as typeScale } from '../theme/tokens';
 import { kvDelete, kvGet, kvSet } from '../lib/db';
-import { saveEvent } from '../sync/store';
+import { saveEventAwaitingIdentity } from '../sync/store';
 import { enqueueMediaUploads } from '../sync/media';
 import {
   defaultVisibilityForType,
@@ -278,7 +278,7 @@ export default function JournalSheet({ visible, onClose }: JournalSheetProps) {
     });
   }, []);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const noteText = text.trim();
     if ((!noteText && attachments.length === 0) || saving) return;
     endVoiceSession();
@@ -288,7 +288,9 @@ export default function JournalSheet({ visible, onClose }: JournalSheetProps) {
       const data: Record<string, unknown> = { text: noteText };
       if (atts.length > 0) data.attachments = atts;
       // Identical to the composer note write, with the chosen visibility.
-      const event = saveEvent({ type: 'note', data, visibility });
+      // Creation gate (sync bug fix, Sept 2026): await identity resolution
+      // before stamping user_id.
+      const event = await saveEventAwaitingIdentity({ type: 'note', data, visibility });
       try {
         kvDelete(JOURNAL_DRAFT_KEY);
       } catch {

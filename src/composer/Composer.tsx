@@ -27,7 +27,7 @@ import BottomSheet from '../components/BottomSheet';
 import { DatePickerField } from '../components/DatePickerField';
 import { appointmentDateBounds, toISODate } from '../onboarding/dates';
 import { colors, radii, shadow, spacing, type as typeScale } from '../theme/tokens';
-import { deleteEvent, getActivePregnancy, saveEvent } from '../sync/store';
+import { deleteEvent, getActivePregnancy, saveEventAwaitingIdentity } from '../sync/store';
 import {
   drainMediaOutbox,
   enqueueMediaUploads,
@@ -279,7 +279,7 @@ export default function Composer({
     [onSaved, showToast, syncNow, suppressSaveToast, onSaveComplete],
   );
 
-  const send = useCallback(() => {
+  const send = useCallback(async () => {
     const noteText = text.trim();
     if (!noteText && !hasAttachments) return;
 
@@ -292,7 +292,9 @@ export default function Composer({
     if (noteText) data.text = noteText;
     if (atts.length > 0) data.attachments = atts;
 
-    const event = saveEvent({ type, data, visibility: 'private' });
+    // Creation gate (sync bug fix, Sept 2026): await identity resolution
+    // before stamping user_id — never queue a row that can never sync.
+    const event = await saveEventAwaitingIdentity({ type, data, visibility: 'private' });
     lastNoteRef.current = noteText;
     setText('');
     setAttachments([]);
@@ -347,13 +349,13 @@ export default function Composer({
   }, [toast, onUnsaved, syncNow]);
 
   const pickMood = useCallback(
-    (id: MoodId) => {
+    async (id: MoodId) => {
       setMoodOpen(false);
       if (moodTimer.current) {
         clearTimeout(moodTimer.current);
         moodTimer.current = null;
       }
-      const event = saveEvent({ type: 'mood', data: { mood: id }, visibility: 'private' });
+      const event = await saveEventAwaitingIdentity({ type: 'mood', data: { mood: id }, visibility: 'private' });
       setLastMoodAt();
       setPillVisible(false);
       afterSave(event, `Saved — feeling ${id.toLowerCase()}`);
@@ -378,7 +380,7 @@ export default function Composer({
     }
   }, [proposalIdx, proposals.length]);
 
-  const confirmProposal = useCallback(() => {
+  const confirmProposal = useCallback(async () => {
     const p = proposals[proposalIdx];
     if (!p) return;
     // buildEvent is invoked ONLY here — from her explicit "Save" tap.
@@ -387,7 +389,7 @@ export default function Composer({
     const opts =
       p.kind === 'appointment' ? { occurredAt: toISODate(appointmentDate ?? new Date()) } : undefined;
     const input = p.buildEvent(lastNoteRef.current, opts);
-    const event = saveEvent({ ...input, visibility: 'private' });
+    const event = await saveEventAwaitingIdentity({ ...input, visibility: 'private' });
     advanceProposal();
     afterSave(event, 'Saved to your story');
   }, [proposals, proposalIdx, appointmentDate, advanceProposal, afterSave]);
