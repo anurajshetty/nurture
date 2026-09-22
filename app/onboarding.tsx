@@ -541,20 +541,18 @@ export default function OnboardingScreen() {
           <View style={styles.shareCodeHost}>
             {/*
               Onboarding shows the same "Your partners" card as the You tab
-              (mockup 33 rev, Anuraj's five points): inline popup add flow,
-              no Continue — adding happens on this screen. The ghost skip
-              below only advances the wizard (cf. step 4's "Not now").
-            */}
+              (mockup 33 rev, Anuraj's five points): inline popup add flow.
+              "Add a partner" is the primary action; the secondary Continue
+              below advances the wizard (Anuraj, Sept 21, 2026 — replaces the
+              earlier ghost "Skip for now"). */}
             <ShareCodeScreen onToast={showToast} />
           </View>
           <View style={styles.spacer} />
           <Button
-            title="Skip for now"
+            title="Continue"
             variant="ghost"
             onPress={() => setStep(3)}
-            style={styles.ghostButton}
-            textStyle={styles.ghostText}
-            testID="onboarding-share-skip"
+            testID="onboarding-share-continue"
           />
         </View>
       )}

@@ -76,8 +76,18 @@ export function pregnancyWeekForDay(dueDate: string, dayISO: string): number | n
  * appointment cards belong to the week they were logged in.
  */
 export function pregnancyWeekForEvent(dueDate: string, occurredAt: string): number | null {
-  // The YYYY-MM-DD date part of the ISO timestamp; timezone-neutral.
-  return pregnancyWeekForDay(dueDate, occurredAt.slice(0, 10));
+  // The event's DEVICE-LOCAL calendar day — never the UTC date slice.
+  // The week filter must agree with day grouping (localDayISO) and the
+  // current-week pill (todayISO): an 11:30 PM entry belongs to the week
+  // containing its local day. Slicing the UTC date part pushed evening
+  // entries into the next UTC day's week, so on the night before a week
+  // boundary the whole current-week feed rendered empty while "All
+  // weeks" still showed the entries (Anuraj caught live, Sept 2026).
+  // A bare YYYY-MM-DD input is already a calendar day — use it as-is.
+  const bare = /^(\d{4})-(\d{2})-(\d{2})$/.exec(occurredAt.trim());
+  const day = bare ? bare[0] : localDayISO(occurredAt);
+  if (day === null) return null;
+  return pregnancyWeekForDay(dueDate, day);
 }
 
 /**

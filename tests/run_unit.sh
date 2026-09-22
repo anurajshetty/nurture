@@ -41,6 +41,9 @@ tsc1 tests/epic3_timeline.test.ts src/timeline/timeline.ts src/onboarding/dates.
 OUT=/tmp/nurture-tests-wf
 npx tsc --ignoreConfig tests/week_filter.test.ts src/timeline/timeline.ts src/onboarding/dates.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "week_filter" env TZ=UTC node $OUT/tests/week_filter.test.js
 
+OUT=/tmp/nurture-tests-wftz
+npx tsc --ignoreConfig tests/week_filter_timezone.test.ts src/timeline/timeline.ts src/onboarding/dates.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "week_filter_timezone" env TZ=America/Los_Angeles node $OUT/tests/week_filter_timezone.test.js
+
 OUT=/tmp/nurture-tests-ws
 npx tsc --ignoreConfig tests/week_logic_shared.test.ts src/onboarding/dates.ts src/timeline/timeline.ts src/week/content.ts src/briefing/context.ts src/briefing/matrix.ts src/briefing/delight.ts src/theme/tokens.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "week_logic_shared" env TZ=UTC node $OUT/tests/week_logic_shared.test.js
 

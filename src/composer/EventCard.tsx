@@ -66,20 +66,11 @@ function metaFor(type: string): TypeMeta {
   return TYPE_META[type] ?? { label: 'Moment', glyph: '◐', dot: 'note' };
 }
 
-import { formatLocalTime, formatLocalDay } from '../time/localFormat';
+import { formatLocalTime } from '../time/localFormat';
 
 /** Card header timestamp: the shared device-local formatter. */
 function formatTime(iso: string): string {
   return formatLocalTime(iso);
-}
-
-/**
- * Compact day label for the shareable card header (mockup 33-entry-sharing
- * device C): "Today", "Yesterday", or "Sep 24" — no time, so the kicker
- * stays on one line.
- */
-function formatDay(iso: string): string {
-  return formatLocalDay(iso);
 }
 
 function attachmentsOf(data: Record<string, unknown>): EventAttachment[] {
@@ -459,10 +450,11 @@ export default function EventCard({
 
   /**
    * The meta row for shareable card types carries the compact
-   * "{label} · {day}" kicker (mockup 33B) — no switch, no caption, no
-   * visibility label. Sharing status lives only in the top-right family
-   * icon. Non-shareable types keep the classic type row + time +
-   * visibility label.
+   * "{label}" kicker (mockup 33B rev, Sept 21: date removed from the
+   * kicker entirely — day-group labels carry the date) — no switch,
+   * no caption, no visibility label. Sharing status lives only in the
+   * top-right family icon. Non-shareable types keep the classic type
+   * row + time + visibility label.
    */
   /**
    * Partner mode: the same meta row minus every owner-only control —
@@ -500,7 +492,7 @@ export default function EventCard({
                 testID={`event-card-date-${event.id}`}
                 numberOfLines={1}
               >
-                {meta.label} · {formatDay(event.occurredAt)}
+                {meta.label}
               </Text>
             </View>
           ) : (

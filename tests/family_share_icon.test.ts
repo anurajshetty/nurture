@@ -350,6 +350,33 @@ const src = (p: string): string =>
   check('logs.tsx share-toast path is gone', !/share-toggle-toast/.test(logs));
 }
 
+/* --- 9. Kicker carries no date (Anuraj, Sept 21, 2026) -------------------- */
+/* Day-group labels carry the date; the card header kicker is label-only. */
+{
+  const ev = makeEvent('note', { id: 'evt-kicker-1', visibility: 'shared' });
+  const tree = EventCard({ event: ev, onCardDelete: noop }) as unknown as El;
+  const kicker = findTestID(tree, `event-card-date-${ev.id}`);
+  check('shareable card renders the kicker element', !!kicker);
+  if (kicker) {
+    const text = textStrings(kicker).join('');
+    check('kicker has no date separator', !text.includes('·'), text);
+    check(
+      'kicker has no day words',
+      !/today|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(text),
+      text,
+    );
+  }
+  const kick = makeEvent('kick_session', { id: 'evt-kicker-2', visibility: 'shared' });
+  const kickTree = EventCard({ event: kick, onCardDelete: noop }) as unknown as El;
+  const kickKicker = findTestID(kickTree, `event-card-date-${kick.id}`);
+  if (kickKicker) {
+    const text = textStrings(kickKicker).join('');
+    check('kick card kicker has no date separator', !text.includes('·'), text);
+  } else {
+    check('kick card kicker has no date separator', false, 'kicker element missing');
+  }
+}
+
 if (failures > 0) {
   console.log(`\n${failures} FAILURE(S)`);
   process.exit(1);

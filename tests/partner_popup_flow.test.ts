@@ -346,10 +346,18 @@ check(
 );
 check('at 5/5 there is no "Add a partner" button', findTestID(fullScreen, 'partners-list-add') === null);
 
-/* --- 8. No Continue on the onboarding share screen ------------------------ */
+/* --- 8. Continue button on the onboarding share screen (Anuraj, Sept 21) -- */
+/* The ghost "Skip for now" was replaced by a real secondary Continue button. */
 const onboardingSrc = src('app/onboarding.tsx');
-check('onboarding share step has no Continue button', !onboardingSrc.includes('onboarding-share-continue'));
-check('onboarding share step keeps a quiet ghost skip', onboardingSrc.includes('onboarding-share-skip'));
+check('onboarding share step has a Continue button', onboardingSrc.includes('onboarding-share-continue'));
+check(
+  'Continue button advances the wizard past the share step',
+  /title="Continue"[\s\S]*?onPress=\{\(\) => setStep\(3\)\}[\s\S]*?testID="onboarding-share-continue"/.test(onboardingSrc),
+);
+check(
+  'ghost "Skip for now" button is gone',
+  !onboardingSrc.includes('onboarding-share-skip') && !onboardingSrc.includes('title="Skip for now"'),
+);
 check(
   'onboarding renders the same partners card (no separate inline composer)',
   !onboardingSrc.includes('showListCard={false}'),
