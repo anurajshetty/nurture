@@ -539,13 +539,22 @@ export default function OnboardingScreen() {
             Your partner enters your invite code in Willow on their phone. They will only ever see what you choose to share.
           </Text>
           <View style={styles.shareCodeHost}>
-            <ShareCodeScreen onToast={showToast} showListCard={false} />
+            {/*
+              Onboarding shows the same "Your partners" card as the You tab
+              (mockup 33 rev, Anuraj's five points): inline popup add flow,
+              no Continue — adding happens on this screen. The ghost skip
+              below only advances the wizard (cf. step 4's "Not now").
+            */}
+            <ShareCodeScreen onToast={showToast} />
           </View>
           <View style={styles.spacer} />
           <Button
-            title="Continue"
+            title="Skip for now"
+            variant="ghost"
             onPress={() => setStep(3)}
-            testID="onboarding-share-continue"
+            style={styles.ghostButton}
+            textStyle={styles.ghostText}
+            testID="onboarding-share-skip"
           />
         </View>
       )}

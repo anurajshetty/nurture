@@ -147,6 +147,18 @@ npx tsc --ignoreConfig tests/partner_card_parity.test.ts --outDir $OUT --module 
 OUT=/tmp/nurture-newlog-tests
 npx tsc --ignoreConfig tests/new_log_sheet.test.ts --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "new_log_sheet" env NODE_PATH="$PWD/node_modules" node $OUT/tests/new_log_sheet.test.js
 
+# Partner onboarding one-popup add flow (Anuraj's five points, Sept 2026):
+# shared BottomSheet popup (name → Create code → code-only + Copy),
+# list row rules, 5-of-5 max note, no Continue, name-matching helper.
+OUT=/tmp/nurture-popup-tests
+npx tsc --ignoreConfig tests/partner_popup_flow.test.ts src/partner/ShareCodeScreen.tsx src/partner/CodeEntryScreen.tsx src/components/BottomSheet.tsx src/components/Button.tsx src/components/SharedSwitch.tsx src/components/KeyboardAvoid.tsx src/partner/RemoveConfirmDialog.tsx src/partner/inviteCodes.ts src/theme/tokens.ts --outDir $OUT --module commonjs --target es2022 --jsx react-jsx --skipLibCheck --esModuleInterop && run "partner_popup_flow" env NODE_PATH="$PWD/node_modules" node $OUT/tests/partner_popup_flow.test.js
+
+# Local-timezone timestamps (Anuraj, Sept 2026): every timestamp renders in
+# the viewer's local device timezone; a PST → EST change mid-session
+# recomputes times and day-group boundaries automatically.
+OUT=/tmp/nurture-localtz-tests
+npx tsc --ignoreConfig tests/local_timezone.test.ts src/time/timezone.ts src/time/localFormat.ts src/timeline/timeline.ts src/onboarding/dates.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "local_timezone" env NODE_PATH="$PWD/node_modules" node $OUT/tests/local_timezone.test.js
+
 OUT=/tmp/nurture-syncheal-tests
 npx tsc --ignoreConfig tests/sync_identity_healing.test.ts src/sync/engine.ts src/sync/store.ts src/auth/identity.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "sync_identity_healing" node $OUT/tests/sync_identity_healing.test.js
 

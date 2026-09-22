@@ -27,12 +27,15 @@ export interface ShareResult {
   error?: string;
 }
 
-/** e.g. "visit-summary-2026-09-18.html". */
+/** e.g. "visit-summary-2026-09-18.html" — stamped in the viewer's local day. */
 export function summaryFilename(generatedAtISO: string): string {
   const d = new Date(generatedAtISO);
-  const stamp = Number.isNaN(d.getTime())
-    ? 'summary'
-    : d.toISOString().slice(0, 10);
+  if (Number.isNaN(d.getTime())) return 'visit-summary-summary.html';
+  // Local calendar day (Anuraj, Sept 2026: every timestamp renders in the
+  // viewer's local device timezone) — never the UTC slice.
+  const stamp =
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-` +
+    `${String(d.getDate()).padStart(2, '0')}`;
   return `visit-summary-${stamp}.html`;
 }
 

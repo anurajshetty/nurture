@@ -48,13 +48,17 @@ import {
 } from './partnerHome';
 import EventCard from '../composer/EventCard';
 import DayGroupHeader from '../timeline/DayGroupHeader';
+import { useTimezoneVersion } from '../time/timezone';
 
 /* ------------------------------------------------------------------ */
 /* At a glance — quiet strip, NOT a card                                */
 /* ------------------------------------------------------------------ */
 
 function GlanceStrip({ events, ownerName }: { events: PartnerSharedEvent[]; ownerName: string }) {
-  const glance = useMemo(() => buildAtAGlance(events, ownerName), [events, ownerName]);
+  // Timezone-change reactivity (Anuraj, Sept 2026): at-a-glance times and
+  // day labels recompute when the device zone changes mid-session.
+  const tzVersion = useTimezoneVersion();
+  const glance = useMemo(() => buildAtAGlance(events, ownerName), [events, ownerName, tzVersion]);
   const second = glance.highlightLine ? `${glance.nextUpLine} · ${glance.highlightLine}` : glance.nextUpLine;
   return (
     <View style={styles.glance} accessibilityRole="summary" testID="partner-glance">
@@ -133,6 +137,10 @@ export default function PartnerHomeScreen() {
   const [ownerName] = useState(() => getPartnerOwnerName({ get: kvGet, set: kvSet }));
   const [myName] = useState(() => getPartnerMyName({ get: kvGet, set: kvSet }));
 
+  // Timezone-change reactivity (Anuraj, Sept 2026): a PST → EST trip while
+  // the app is open recomputes day-groups and at-a-glance times below.
+  const tzVersion = useTimezoneVersion();
+
   const load = useCallback(async () => {
     const rpc = defaultRpc();
     const [shared, loves, link] = await Promise.all([
@@ -194,7 +202,7 @@ export default function PartnerHomeScreen() {
    * like her feed. Labels are the feed's own "Today" / "Yesterday" /
    * "Weekday, Mon D" via the shared DayGroupHeader.
    */
-  const sections = useMemo(() => buildPartnerSections(events), [events]);
+  const sections = useMemo(() => buildPartnerSections(events), [events, tzVersion]);
 
   /** Loved state per entry id: optimistic toggle wins over the RPC's lovedByMe. */
   const loveById = useMemo(() => {

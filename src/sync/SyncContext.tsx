@@ -18,6 +18,7 @@ import {
 import { getPendingCount } from './store';
 import { requestSyncAfterSave } from './syncTrigger';
 import { drainMediaOutbox } from './media';
+import { checkTimezoneNow } from '../time/timezone';
 import type { SyncConflict } from '../lib/types';
 
 export type { SyncResult };
@@ -65,29 +66,43 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // mount so app start pulls newer server rows even when nothing was
   // written locally. Silent and coalesced: failures are counted in
   // getSyncDiagnostics(), never thrown into the UI.
+  //
+  // Timezone-change backstop (Anuraj, Sept 2026): the same foreground/focus
+  // moments re-check the device timezone, so a PST → EST trip switches
+  // times and day-group boundaries automatically — plus a slow interval for
+  // the (rare) case where the zone changes while the app stays foregrounded.
+  // checkTimezoneNow() is a no-op until the zone actually changes.
   useEffect(() => {
     let appStateSub: { remove(): void } | undefined;
     let onVisible: (() => void) | undefined;
     let onFocus: (() => void) | undefined;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const onForeground = () => {
+      requestSyncAfterSave();
+      checkTimezoneNow();
+    };
     if (Platform.OS === 'web') {
       onVisible = () => {
         if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-          requestSyncAfterSave();
+          onForeground();
         }
       };
-      onFocus = () => requestSyncAfterSave();
+      onFocus = () => onForeground();
       document.addEventListener('visibilitychange', onVisible);
       window.addEventListener('focus', onFocus);
     } else {
       appStateSub = AppState.addEventListener('change', (state) => {
-        if (state === 'active') requestSyncAfterSave();
+        if (state === 'active') onForeground();
       });
     }
+    interval = setInterval(checkTimezoneNow, 60_000);
     requestSyncAfterSave();
+    checkTimezoneNow();
     return () => {
       appStateSub?.remove();
       if (onVisible) document.removeEventListener('visibilitychange', onVisible);
       if (onFocus) window.removeEventListener('focus', onFocus);
+      if (interval) clearInterval(interval);
     };
   }, []);
 

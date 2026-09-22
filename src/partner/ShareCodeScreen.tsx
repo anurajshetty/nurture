@@ -1,21 +1,20 @@
 /**
- * Partner sharing — her partners list (mockup 33 partners-card,
- * Anuraj approved Sept 21, 2026; simplified per his direction the
- * same day).
+ * Partner sharing — her partners list (mockup 33 partners-card, Anuraj
+ * approved Sept 21, 2026; one-popup add flow per his five points, same day).
  *
- * Named invites, up to 5 (pending + accepted). Adding asks "Who is this
- * code for?" — the code is not created or listed until a name is given.
- * Pending rows: name line with a × + the 6-char code + Copy ("Invite
- * code — works once. Share it with them."). Accepted rows: name +
- * per-partner sharing switch + ×. The per-partner subtitle and the
- * "Sharing is a handshake" explainer were removed (Anuraj: the sheet
- * stays tight so the Add-partner button is reachable). Removing
- * anything opens the confirmation dialog first; confirmation stays
- * mandatory. At 5/5 the Add button gives way to a warm note. Used from
- * the You tab and from onboarding step 2; onboarding passes
- * showListCard={false} and shows no list card at all — just the name
- * input + Cancel/Create code, with the new code revealed below (per
- * Anuraj, Sept 2026).
+ * Named invites, up to 5 (pending + accepted). "Add a partner" opens ONE
+ * popup (the shared BottomSheet): a name field ("Who is this code for?") +
+ * "Create code" (quiet until a name is typed); creating swaps the popup to
+ * show JUST the 6-char code with Copy — nothing else. The popup dismisses
+ * via its ×, tap-outside, or pull-down; the new partner is then in the list
+ * as "Name · Invited", with "Add a partner" below the list.
+ *
+ * Row rules (unchanged): pending rows show name + "· Invited" + ×, the
+ * 6-char code + Copy ("Invite code — works once. Share it with them.");
+ * accepted rows show name + per-partner sharing switch + × (code hidden).
+ * Every × opens the confirmation dialog first. At 5/5 the add option gives
+ * way to a warm note. Used from the You tab and from onboarding step 2
+ * (which shows the same card and has no Continue — adding is inline).
  *
  * When the backend migration isn't applied yet, the surface says so
  * plainly and never crashes.
@@ -31,7 +30,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Button } from '../components';
+import { BottomSheet, Button } from '../components';
 import SharedSwitch from '../components/SharedSwitch';
 import { colors, minTouch, radii, shadow, spacing, type as typeScale } from '../theme/tokens';
 import RemoveConfirmDialog from './RemoveConfirmDialog';
@@ -40,7 +39,6 @@ import {
   createNamedInvite,
   getPartnerInvites,
   isValidName,
-  normalizeName,
   revokePartnerInvite,
   setPartnerSharing,
   type PartnerInvite,
@@ -93,36 +91,237 @@ async function copyCode(text: string): Promise<boolean> {
   return false;
 }
 
+/**
+ * The add-partner popup: name step first ("Who is this code for?" +
+ * "Create code"), then — after creating — just the 6-char code with Copy.
+ * A separate component so each phase is directly testable; the × (plus the
+ * sheet's tap-outside / pull-down) dismisses from either phase.
+ */
+export function AddPartnerPopup({
+  phase,
+  name,
+  code,
+  creating,
+  onNameChange,
+  onCreate,
+  onCopy,
+  onClose,
+}: {
+  /** 'name' = name field + Create code · 'code' = just the code + Copy. */
+  phase: 'name' | 'code';
+  name: string;
+  code: string | null;
+  creating: boolean;
+  onNameChange: (t: string) => void;
+  onCreate: () => void;
+  onCopy: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <View style={styles.popup} testID="partner-add-popup">
+      <View style={styles.popupHead}>
+        <View style={styles.popupHeadSpacer} />
+        <Pressable
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+          style={({ pressed }) => [styles.popupX, pressed && styles.pressed]}
+          testID="partner-popup-close"
+        >
+          <Text style={styles.popupXGlyph}>×</Text>
+        </Pressable>
+      </View>
+      {phase === 'name' ? (
+        <View testID="partner-popup-name-step">
+          <Text style={styles.popupTitle} accessibilityRole="header">
+            Add a partner
+          </Text>
+          <Text style={styles.popupHint}>Who is this code for?</Text>
+          <TextInput
+            value={name}
+            onChangeText={onNameChange}
+            placeholder="Partner's name"
+            placeholderTextColor={colors.muted}
+            autoCapitalize="words"
+            autoCorrect={false}
+            maxLength={30}
+            style={styles.popupInput}
+            accessibilityLabel="Partner's name"
+            testID="partner-popup-name"
+          />
+          <View style={styles.popupCta}>
+            <Button
+              title={creating ? 'Creating…' : 'Create code'}
+              onPress={onCreate}
+              disabled={!isValidName(name) || creating}
+              loading={creating}
+              testID="partner-popup-create"
+            />
+          </View>
+        </View>
+      ) : (
+        <View style={styles.popupCodeWrap} testID="partner-popup-code-step">
+          <Text
+            style={styles.popupCode}
+            selectable
+            accessibilityRole="text"
+            accessibilityLabel={`Invite code ${code ?? ''}`}
+            testID="partner-popup-code"
+          >
+            {code ?? '······'}
+          </Text>
+          <View style={styles.popupCta}>
+            <Button title="Copy" onPress={onCopy} testID="partner-popup-copy" />
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * The "Your partners" card: header + counter, then one row per invite.
+ * Pure presentational — invites arrive as props so every list state
+ * (empty, pending, accepted, mixed) is directly testable. The empty card
+ * shows just the header; "Add a partner" lives below the card.
+ */
+export function PartnersListCard({
+  invites,
+  server,
+  revokingId,
+  togglingId,
+  onRemove,
+  onCopyCode,
+  onToggle,
+}: {
+  invites: PartnerInvite[] | null;
+  server: ServerStatus;
+  revokingId: string | null;
+  togglingId: string | null;
+  onRemove: (invite: PartnerInvite) => void;
+  onCopyCode: (invite: PartnerInvite) => void;
+  onToggle: (invite: PartnerInvite, next: boolean) => void;
+}) {
+  return (
+    <View style={styles.card} testID="partners-list-card">
+      <View style={styles.headrow}>
+        <Text style={styles.head} accessibilityRole="header">
+          Your partners
+        </Text>
+        <Text style={styles.count} testID="partners-list-count">
+          {invites === null
+            ? ''
+            : invites.length === 0
+              ? 'None yet'
+              : `${invites.length} of ${MAX_PARTNERS}`}
+        </Text>
+      </View>
+
+      {invites === null ? (
+        server === 'ok' ? (
+          <Text style={styles.loading} testID="partners-list-loading">
+            Getting your partners…
+          </Text>
+        ) : (
+          <Text style={styles.note} testID="partners-list-not-ready">
+            {NOT_READY_COPY}
+          </Text>
+        )
+      ) : (
+        invites.map((invite) =>
+          invite.status === 'pending' ? (
+            <View key={invite.id} style={styles.row} testID={`partner-row-${invite.id}`}>
+              <View style={styles.rowHead}>
+                <Text style={[styles.rowName, styles.shrink]} testID={`partner-row-name-${invite.id}`}>
+                  {invite.name} <Text style={styles.rowInvited}>· Invited</Text>
+                </Text>
+                <Pressable
+                  onPress={() => onRemove(invite)}
+                  disabled={revokingId === invite.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove invite for ${invite.name}`}
+                  style={({ pressed }) => [styles.rowX, pressed && styles.pressed]}
+                  testID={`partner-row-remove-${invite.id}`}
+                >
+                  <Text style={styles.rowXGlyph}>×</Text>
+                </Pressable>
+              </View>
+              <View style={styles.codeRow}>
+                <Text style={styles.codeText} selectable testID={`partner-row-code-${invite.id}`}>
+                  {invite.code ?? '······'}
+                </Text>
+                <Pressable
+                  onPress={() => onCopyCode(invite)}
+                  disabled={!invite.code}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Copy ${invite.name}'s invite code`}
+                  style={({ pressed }) => [styles.copyBtn, pressed && styles.pressed]}
+                  testID={`partner-row-copy-${invite.id}`}
+                >
+                  <Text style={styles.copyText}>Copy</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.codeNote}>{PENDING_CODE_NOTE}</Text>
+            </View>
+          ) : (
+            <View key={invite.id} style={styles.row} testID={`partner-row-${invite.id}`}>
+              <View style={styles.acceptedHead}>
+                <Text style={[styles.rowName, styles.shrink]} testID={`partner-row-name-${invite.id}`}>
+                  {invite.name}
+                </Text>
+                <SharedSwitch
+                  value={invite.sharingEnabled}
+                  disabled={togglingId === invite.id}
+                  onChange={(next) => onToggle(invite, next)}
+                  accessibilityLabel={`Sharing for ${invite.name}`}
+                  testID={`partner-row-switch-${invite.id}`}
+                />
+                <Pressable
+                  onPress={() => onRemove(invite)}
+                  disabled={revokingId === invite.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${invite.name}`}
+                  style={({ pressed }) => [styles.rowX, pressed && styles.pressed]}
+                  testID={`partner-row-remove-${invite.id}`}
+                >
+                  <Text style={styles.rowXGlyph}>×</Text>
+                </Pressable>
+              </View>
+            </View>
+          ),
+        )
+      )}
+    </View>
+  );
+}
+
 export default function ShareCodeScreen({
   onBack,
   onToast,
   onChanged,
-  showListCard = true,
 }: {
   /** Omit inside onboarding (no back row there). */
   onBack?: () => void;
   onToast: (message: string) => void;
   /** Fires after the invite list changes (create/revoke) so the parent refreshes. */
   onChanged?: () => void;
-  /**
-   * Onboarding step 2 shows no "Your partners" card — just the name
-   * input + Cancel/Create code (the name-first invite composer is
-   * always open there). The You-tab sheet keeps the full list card.
-   */
-  showListCard?: boolean;
 }) {
   const [invites, setInvites] = useState<PartnerInvite[] | null>(null);
   const [server, setServer] = useState<ServerStatus>('ok');
-  const [adding, setAdding] = useState(!showListCard);
-  const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
-  const [newCode, setNewCode] = useState<{ name: string; code: string } | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   // In-app removal confirmation (mockup 33 partners-card). React Native
   // Web's Alert.alert is a no-op, so the dialog renders inside the sheet
   // and works identically on iOS and web.
   const [confirming, setConfirming] = useState<PartnerInvite | null>(null);
+  // One-popup add flow (mockup 33 rev, Anuraj's five points): name step,
+  // then the code-only step. Dismissing lands back on the list, where the
+  // new partner already appears (the list reloads on create).
+  const [popupOpen, setPopupOpen] = useState(false);
+  const [popupName, setPopupName] = useState('');
+  const [popupPhase, setPopupPhase] = useState<'name' | 'code'>('name');
+  const [popupCode, setPopupCode] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const r = await getPartnerInvites();
@@ -137,36 +336,35 @@ export default function ShareCodeScreen({
   const live = invites ?? [];
   const full = live.length >= MAX_PARTNERS;
 
-  const beginAdd = useCallback(() => {
-    setNewCode(null);
-    setName('');
-    setAdding(true);
+  const openPopup = useCallback(() => {
+    setPopupName('');
+    setPopupCode(null);
+    setPopupPhase('name');
+    setPopupOpen(true);
+  }, []);
+
+  const closePopup = useCallback(() => {
+    setPopupOpen(false);
   }, []);
 
   const createCode = useCallback(async () => {
-    if (!isValidName(name) || creating) return;
+    if (!isValidName(popupName) || creating) return;
     setCreating(true);
-    const r = await createNamedInvite(name);
+    const r = await createNamedInvite(popupName);
     setCreating(false);
     if (r.status === 'ok' && r.code) {
-      const created = { name: normalizeName(name), code: r.code };
-      // In onboarding (no list card) the new code reveals below the
-      // composer. In the You tab the new pending row shows its code
-      // inline, so no separate reveal card is needed.
-      if (showListCard) {
-        setNewCode(null);
-        setAdding(false);
-      } else {
-        setNewCode(created);
-      }
-      setName('');
+      setPopupCode(r.code);
+      setPopupPhase('code');
+      setPopupName('');
       onChanged?.();
+      // Reload behind the popup: dismissing lands on a list that already
+      // shows the new partner as "Name · Invited".
       load();
       return;
     }
     if (r.status === 'max_partners') {
       onToast(MAX_COPY);
-      if (showListCard) setAdding(false);
+      setPopupOpen(false);
       load();
       return;
     }
@@ -179,13 +377,14 @@ export default function ShareCodeScreen({
       return;
     }
     onToast('That didn’t go through — try again in a bit.');
-  }, [name, creating, onToast, onChanged, load, showListCard]);
+  }, [popupName, creating, onToast, onChanged, load]);
 
-  const handleCopy = useCallback(async () => {
-    if (!newCode) return;
-    const ok = await copyCode(newCode.code);
+  /** Copy the popup's code (mockup 33: "Code copied."). */
+  const handleCopyPopupCode = useCallback(async () => {
+    if (!popupCode) return;
+    const ok = await copyCode(popupCode);
     onToast(ok ? 'Code copied.' : 'Copy the code above to share it yourself.');
-  }, [newCode, onToast]);
+  }, [popupCode, onToast]);
 
   /** Copy a pending row's code (mockup 33 partners-card: "Code copied."). */
   const handleCopyRowCode = useCallback(
@@ -267,174 +466,61 @@ export default function ShareCodeScreen({
         keyboardShouldPersistTaps="handled"
         testID="partners-list"
       >
-      {onBack ? (
-        <View style={styles.backrow}>
-          <Pressable
-            onPress={onBack}
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-            style={styles.back}
-            testID="partners-list-back"
-          >
-            <Text style={styles.backGlyph}>‹</Text>
-          </Pressable>
-          <Text style={styles.backTitle}>Share with your partner</Text>
-        </View>
-      ) : null}
-
-      {showListCard ? (
-      <View style={styles.card}>
-        <View style={styles.headrow}>
-          <Text style={styles.head} accessibilityRole="header">
-            Your partners
-          </Text>
-          <Text style={styles.count} testID="partners-list-count">
-            {invites === null ? '' : live.length === 0 ? 'None yet' : `${live.length} of ${MAX_PARTNERS}`}
-          </Text>
-        </View>
-
-        {invites === null ? (
-          server === 'ok' ? (
-            <Text style={styles.loading} testID="partners-list-loading">
-              Getting your partners…
-            </Text>
-          ) : (
-            <Text style={styles.note} testID="partners-list-not-ready">
-              {NOT_READY_COPY}
-            </Text>
-          )
-        ) : live.length === 0 ? (
-          <Text style={styles.note} testID="partners-list-empty">
-            Invite the people you want following along — each gets a personal code that works once.
-          </Text>
-        ) : (
-          live.map((invite) =>
-            invite.status === 'pending' ? (
-              <View key={invite.id} style={styles.row} testID={`partner-row-${invite.id}`}>
-                <View style={styles.rowHead}>
-                  <Text style={[styles.rowName, styles.shrink]} testID={`partner-row-name-${invite.id}`}>
-                    {invite.name} <Text style={styles.rowInvited}>· Invited</Text>
-                  </Text>
-                  <Pressable
-                    onPress={() => setConfirming(invite)}
-                    disabled={revokingId === invite.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove invite for ${invite.name}`}
-                    style={({ pressed }) => [styles.rowX, pressed && styles.pressed]}
-                    testID={`partner-row-remove-${invite.id}`}
-                  >
-                    <Text style={styles.rowXGlyph}>×</Text>
-                  </Pressable>
-                </View>
-                <View style={styles.codeRow}>
-                  <Text style={styles.codeText} selectable testID={`partner-row-code-${invite.id}`}>
-                    {invite.code ?? '······'}
-                  </Text>
-                  <Pressable
-                    onPress={() => handleCopyRowCode(invite)}
-                    disabled={!invite.code}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Copy ${invite.name}'s invite code`}
-                    style={({ pressed }) => [styles.copyBtn, pressed && styles.pressed]}
-                    testID={`partner-row-copy-${invite.id}`}
-                  >
-                    <Text style={styles.copyText}>Copy</Text>
-                  </Pressable>
-                </View>
-                <Text style={styles.codeNote}>{PENDING_CODE_NOTE}</Text>
-              </View>
-            ) : (
-              <View key={invite.id} style={styles.row} testID={`partner-row-${invite.id}`}>
-                <View style={styles.acceptedHead}>
-                  <Text style={[styles.rowName, styles.shrink]} testID={`partner-row-name-${invite.id}`}>
-                    {invite.name}
-                  </Text>
-                  <SharedSwitch
-                    value={invite.sharingEnabled}
-                    disabled={togglingId === invite.id}
-                    onChange={(next) => handleSharingToggle(invite, next)}
-                    accessibilityLabel={`Sharing for ${invite.name}`}
-                    testID={`partner-row-switch-${invite.id}`}
-                  />
-                  <Pressable
-                    onPress={() => setConfirming(invite)}
-                    disabled={revokingId === invite.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${invite.name}`}
-                    style={({ pressed }) => [styles.rowX, pressed && styles.pressed]}
-                    testID={`partner-row-remove-${invite.id}`}
-                  >
-                    <Text style={styles.rowXGlyph}>×</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ),
-          )
-        )}
-      </View>
-      ) : null}
-
-      {newCode ? (
-        <View style={styles.codebig} testID="partner-new-code">
-          <Text style={styles.cbLabel}>{newCode.name}'s invite code</Text>
-          <Text style={styles.cbCode} selectable testID="partner-new-code-value">
-            {newCode.code}
-          </Text>
-          <Text style={styles.note}>This code works once — share it with {newCode.name}.</Text>
-          <View style={styles.copyrow}>
-            <Button title="Copy" onPress={handleCopy} testID="partner-new-code-copy" />
+        {onBack ? (
+          <View style={styles.backrow}>
+            <Pressable
+              onPress={onBack}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              style={styles.back}
+              testID="partners-list-back"
+            >
+              <Text style={styles.backGlyph}>‹</Text>
+            </Pressable>
+            <Text style={styles.backTitle}>Share with your partner</Text>
           </View>
-        </View>
-      ) : null}
+        ) : null}
 
-      {adding ? (
-        <View style={styles.addbox} testID="partner-add">
-          <Text style={styles.fieldLabel}>Who is this code for?</Text>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="Their name"
-            placeholderTextColor={colors.muted}
-            autoCapitalize="words"
-            autoCorrect={false}
-            maxLength={30}
-            style={styles.input}
-            accessibilityLabel="Partner name"
-            testID="partner-add-name"
-          />
-          <View style={styles.addrow}>
-            <Button
-              title="Cancel"
-              variant="ghost"
-              // Onboarding shows the composer permanently: Cancel just
-              // clears the draft name instead of dismissing the box.
-              onPress={() => (showListCard ? setAdding(false) : setName(''))}
-              testID="partner-add-cancel"
-            />
-            <View style={styles.addspacer} />
-            <Button
-              title={creating ? 'Creating…' : 'Create code'}
-              onPress={createCode}
-              disabled={!isValidName(name) || creating}
-              loading={creating}
-              testID="partner-add-create"
-            />
+        <PartnersListCard
+          invites={invites}
+          server={server}
+          revokingId={revokingId}
+          togglingId={togglingId}
+          onRemove={setConfirming}
+          onCopyCode={(invite) => void handleCopyRowCode(invite)}
+          onToggle={(invite, next) => void handleSharingToggle(invite, next)}
+        />
+
+        {invites !== null && server === 'ok' && !full ? (
+          <View style={styles.stack}>
+            <Button title="Add a partner" variant="ghost" onPress={openPopup} testID="partners-list-add" />
           </View>
-        </View>
-      ) : null}
+        ) : null}
 
-      {invites !== null && server === 'ok' && !adding && !full ? (
-        <View style={styles.stack}>
-          <Button title="Add a partner" variant="ghost" onPress={beginAdd} testID="partners-list-add" />
-        </View>
-      ) : null}
-
-      {invites !== null && server === 'ok' && full ? (
-        <Text style={styles.maxnote} testID="partners-list-max">
-          {MAX_COPY}
-        </Text>
-      ) : null}
+        {invites !== null && server === 'ok' && full ? (
+          <Text style={styles.maxnote} testID="partners-list-max">
+            {MAX_COPY}
+          </Text>
+        ) : null}
       </ScrollView>
+
+      <BottomSheet
+        visible={popupOpen}
+        onClose={closePopup}
+        accessibilityLabel="Add a partner"
+        testID="partner-add-sheet"
+      >
+        <AddPartnerPopup
+          phase={popupPhase}
+          name={popupName}
+          code={popupCode}
+          creating={creating}
+          onNameChange={setPopupName}
+          onCreate={() => void createCode()}
+          onCopy={() => void handleCopyPopupCode()}
+          onClose={closePopup}
+        />
+      </BottomSheet>
 
       <RemoveConfirmDialog
         invite={confirming}
@@ -537,42 +623,43 @@ const styles = StyleSheet.create({
     color: '#B7ACA0',
   },
   pressed: { opacity: 0.7 },
-  codebig: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radii.card,
-    padding: spacing.xxl,
-    alignItems: 'center',
-    marginTop: spacing.md,
-    ...shadow.card,
-  },
-  cbLabel: { ...typeScale.subhead, color: colors.muted },
-  cbCode: {
-    fontSize: 44,
-    fontWeight: '800',
-    letterSpacing: 10,
-    color: colors.ink,
-    marginTop: spacing.sm,
-  },
-  copyrow: { marginTop: spacing.md, alignSelf: 'stretch' },
-  addbox: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radii.card,
-    padding: spacing.lg,
-    marginTop: spacing.md,
-  },
-  fieldLabel: {
-    ...typeScale.subhead,
+  stack: { marginTop: spacing.lg },
+  maxnote: {
+    ...typeScale.body,
     color: colors.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    fontWeight: '700',
-    marginBottom: spacing.sm,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginTop: spacing.lg,
   },
-  input: {
+  // Add-partner popup (shared BottomSheet): name step, then code-only step.
+  popup: { paddingBottom: spacing.md },
+  popupHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    minHeight: minTouch,
+  },
+  popupHeadSpacer: { flex: 1 },
+  popupX: {
+    width: minTouch,
+    height: minTouch,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: -spacing.sm,
+  },
+  popupXGlyph: {
+    fontSize: 24,
+    lineHeight: 28,
+    color: colors.muted,
+  },
+  popupTitle: { ...typeScale.title, color: colors.ink, fontWeight: '700', textAlign: 'center' },
+  popupHint: {
+    ...typeScale.body,
+    color: colors.muted,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+  },
+  popupInput: {
     backgroundColor: colors.bg,
     borderWidth: 1,
     borderColor: colors.line,
@@ -581,15 +668,15 @@ const styles = StyleSheet.create({
     height: 60,
     fontSize: 18,
     color: colors.ink,
+    marginTop: spacing.md,
   },
-  addrow: { flexDirection: 'row', marginTop: spacing.md, alignItems: 'center' },
-  addspacer: { width: spacing.sm },
-  stack: { marginTop: spacing.lg },
-  maxnote: {
-    ...typeScale.body,
-    color: colors.muted,
-    textAlign: 'center',
-    lineHeight: 22,
-    marginTop: spacing.lg,
+  popupCta: { marginTop: spacing.md },
+  popupCodeWrap: { alignItems: 'center', paddingTop: spacing.sm },
+  popupCode: {
+    fontSize: 44,
+    fontWeight: '800',
+    letterSpacing: 10,
+    color: colors.ink,
+    marginTop: spacing.sm,
   },
 });

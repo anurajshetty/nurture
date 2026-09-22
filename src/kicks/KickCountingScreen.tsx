@@ -27,6 +27,7 @@ import {
   type KickStrength,
 } from './session';
 import { saveKickSession } from './store';
+import { useTimezoneVersion } from '../time/timezone';
 
 export interface KickCountingScreenProps {
   visible: boolean;
@@ -63,6 +64,9 @@ export default function KickCountingScreen({
   onSaved,
 }: KickCountingScreenProps) {
   const insets = useSafeAreaInsets();
+  // Timezone-change backstop (Anuraj, Sept 2026): the session summary line
+  // renders the device-local weekday/time — re-render on zone change.
+  useTimezoneVersion();
   const [phase, setPhase] = useState<Phase>('counting');
   const [count, setCount] = useState(0);
   const [elapsedSec, setElapsedSec] = useState(0);

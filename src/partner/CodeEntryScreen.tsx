@@ -98,7 +98,7 @@ export default function CodeEntryScreen({
           setError(null);
           setErrorSub(null);
         }}
-        placeholder="The name on your invite"
+        placeholder="e.g. Sam"
         placeholderTextColor={colors.muted}
         autoCapitalize="words"
         autoCorrect={false}
@@ -106,6 +106,12 @@ export default function CodeEntryScreen({
         accessibilityLabel="Your name"
         testID="code-entry-name"
       />
+      {/* Mockup 33 rev (Anuraj's five points): the name must be the exact
+          name the inviting partner used when creating the invite. */}
+      <Text style={styles.nameHint} testID="code-entry-name-hint">
+        Use the <Text style={styles.nameHintBold}>same name</Text> your partner entered when
+        creating this invite — it has to match exactly.
+      </Text>
 
       <Text style={styles.fieldLabel}>Invite code</Text>
       <TextInput
@@ -192,5 +198,7 @@ const styles = StyleSheet.create({
   inputInvalid: { borderColor: colors.coralDeep, backgroundColor: '#FDF4EF' },
   err: { ...typeScale.body, color: colors.coralDeep, fontWeight: '600', marginTop: spacing.md, lineHeight: 21 },
   errSub: { ...typeScale.subhead, color: colors.muted, marginTop: 4, lineHeight: 19 },
+  nameHint: { ...typeScale.body, color: colors.muted, marginTop: spacing.sm, lineHeight: 22 },
+  nameHintBold: { fontWeight: '700', color: colors.ink },
   spacer: { flex: 1, minHeight: spacing.lg },
 });

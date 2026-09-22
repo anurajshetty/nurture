@@ -44,6 +44,7 @@ import {
 } from '../../src/theme/tokens';
 import { LABOR_DISCLAIMER, TIMER_COPY as C } from '../../src/labor/copy';
 import { requestScreenWakeLock } from '../../src/labor/keepAwake';
+import { useTimezoneVersion } from '../../src/time/timezone';
 
 /* ------------------------------------------------------------------ */
 /* Pure logic (unit-tested).                                           */
@@ -404,6 +405,9 @@ type TimerView = 'idle' | 'timing' | 'logged' | 'history';
 
 export default function ContractionTimerScreen() {
   const router = useRouter();
+  // Timezone-change backstop (Anuraj, Sept 2026): history rows render
+  // device-local times — re-render when the zone changes mid-session.
+  useTimezoneVersion();
   const [view, setView] = useState<TimerView>('idle');
   const [night, setNight] = useState(false);
   const [entries, setEntries] = useState<ContractionEntry[]>([]);

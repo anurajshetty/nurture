@@ -55,6 +55,7 @@ import {
   kicksVisibleForDisplayedWeek,
   sessionsInDisplayedWeek,
 } from '../../src/kicks/session';
+import { useTimezoneVersion } from '../../src/time/timezone';
 import {
   LABOR_READINESS_MIN_WEEK,
   WEEK_CARD_COPY,
@@ -178,6 +179,10 @@ function peekSizeArt(week: number): SizeArtSlot | null {
 
 export default function WeekScreen() {
   const router = useRouter();
+  // Timezone-change backstop (Anuraj, Sept 2026): "Coming up" cards render
+  // device-local "Today at 3:00 PM" labels and kick sessions are
+  // week-scoped on device-local days — recompute on zone change.
+  const tzVersion = useTimezoneVersion();
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [viewWeek, setViewWeek] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -287,6 +292,20 @@ export default function WeekScreen() {
   useEffect(() => {
     viewWeekRef.current = viewWeek;
   }, [viewWeek]);
+
+  // Timezone change mid-session: recompute the "Coming up" cards (their
+  // "Today at 3:00 PM" labels are device-local). The render itself is
+  // already re-triggered by useTimezoneVersion above, which also refreshes
+  // the inline week-scoped kick session list.
+  useEffect(() => {
+    try {
+      const appts = listEvents(200).filter((e) => e.type === 'appointment');
+      setReminderCards(selectUpcomingAppointmentCards(appts, Date.now()));
+    } catch {
+      setReminderCards([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tzVersion]);
 
   /**
    * When the displayed week changes via prev/next paging, show that

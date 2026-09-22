@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTimezoneVersion } from '../time/timezone';
 import {
   Pressable,
   ScrollView,
@@ -158,6 +159,10 @@ export default function KickHistoryScreen({
 }: KickHistoryScreenProps) {
   const insets = useSafeAreaInsets();
   const [allSessions, setAllSessions] = useState<KickSession[]>([]);
+  // Timezone-change backstop (Anuraj, Sept 2026): session rows render
+  // device-local day/time labels — re-render them when the zone changes
+  // mid-session so a PST → EST trip updates the visible rows.
+  useTimezoneVersion();
   const [reminderOn, setReminderOn] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
 

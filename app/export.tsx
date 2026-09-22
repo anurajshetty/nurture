@@ -52,6 +52,7 @@ import {
   type RangePreset,
 } from '../src/export/range';
 import { shareSummaryHtml, summaryFilename } from '../src/export/share';
+import { useTimezoneVersion } from '../src/time/timezone';
 import { kvGet, kvSet } from '../src/lib/db';
 import { listEventsInRange } from '../src/sync/store';
 
@@ -84,6 +85,10 @@ function formatGenDate(iso: string): string {
 
 export default function ExportScreen() {
   const router = useRouter();
+  // Timezone-change backstop (Anuraj, Sept 2026): the visit summary is
+  // memoized with device-local times — recompute it when the zone changes
+  // mid-session.
+  const tzVersion = useTimezoneVersion();
   const [preset, setPreset] = useState<RangePreset>('since_last_visit');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -148,7 +153,7 @@ export default function ExportScreen() {
       { startISO: resolved.startISO, endISO: resolved.endISO, label: resolved.label },
       nowISO,
     );
-  }, [cat, options, resolved, nowISO]);
+  }, [cat, options, resolved, nowISO, tzVersion]);
 
   const counts = useMemo(
     () => (summary ? summaryCounts(summary) : null),

@@ -48,6 +48,7 @@ import {
   type PartnerInvite,
 } from './invite';
 import { REVOKE_WARNING_COPY, revokeConfirmCopy, revokePartner } from './revoke';
+import { useTimezoneVersion } from '../time/timezone';
 import type { LocalEvent, Visibility } from '../lib/types';
 
 declare const require: (id: string) => unknown;
@@ -126,6 +127,10 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 export default function PartnerSheet({ onChanged }: { onChanged: () => void }) {
+  // Timezone-change backstop (Anuraj, Sept 2026): access-history rows and
+  // invite dates render device-local — re-render when the zone changes
+  // mid-session.
+  useTimezoneVersion();
   const [link, setLink] = useState<PartnerLink>(() => getPartnerLink());
   const [invite, setInvite] = useState<PartnerInvite | null>(() => getPendingInvite());
   const [preview, setPreview] = useState<Preview>('owner');

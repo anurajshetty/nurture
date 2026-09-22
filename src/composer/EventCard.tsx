@@ -70,22 +70,11 @@ function metaFor(type: string): TypeMeta {
   return TYPE_META[type] ?? { label: 'Moment', glyph: '◐', dot: 'note' };
 }
 
+import { formatLocalTime, formatLocalDay } from '../time/localFormat';
+
+/** Card header timestamp: the shared device-local formatter. */
 function formatTime(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const startOf = (x: Date) => {
-    const c = new Date(x);
-    c.setHours(0, 0, 0, 0);
-    return c;
-  };
-  const dayMs = 86_400_000;
-  const dayDiff = Math.round((startOf(now).getTime() - startOf(d).getTime()) / dayMs);
-  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  // Future dates (dayDiff < 0) render their actual date — never "Today".
-  if (dayDiff === 0) return `Today · ${time}`;
-  if (dayDiff === 1) return `Yesterday · ${time}`;
-  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `${date} · ${time}`;
+  return formatLocalTime(iso);
 }
 
 /**
@@ -94,18 +83,7 @@ function formatTime(iso: string): string {
  * stays on one line next to the switch.
  */
 function formatDay(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const startOf = (x: Date) => {
-    const c = new Date(x);
-    c.setHours(0, 0, 0, 0);
-    return c;
-  };
-  const dayMs = 86_400_000;
-  const dayDiff = Math.round((startOf(now).getTime() - startOf(d).getTime()) / dayMs);
-  if (dayDiff === 0) return 'Today';
-  if (dayDiff === 1) return 'Yesterday';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return formatLocalDay(iso);
 }
 
 function attachmentsOf(data: Record<string, unknown>): EventAttachment[] {
@@ -546,7 +524,7 @@ export default function EventCard({
                 <Text style={styles.typeLabel}>{meta.label}</Text>
               </View>
               {!isAppointment ? (
-                <Text style={styles.time}>{formatTime(event.occurredAt)}</Text>
+                <Text style={styles.time} testID={`event-card-time-${event.id}`}>{formatTime(event.occurredAt)}</Text>
               ) : null}
             </>
           )}

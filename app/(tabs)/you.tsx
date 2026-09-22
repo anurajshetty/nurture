@@ -41,6 +41,7 @@ import {
   STORY_KICK,
   STORY_LEDE,
 } from '../../src/support/afterwardsCopy';
+import { useTimezoneVersion } from '../../src/time/timezone';
 import type { AftermathDecisions } from '../../src/lib/types';
 import {
   getBabyName,
@@ -280,6 +281,9 @@ function DataRow({
  */
 export default function YouScreen() {
   const router = useRouter();
+  // Timezone-change backstop (Anuraj, Sept 2026): the due-date row renders
+  // device-local — re-render when the zone changes mid-session.
+  useTimezoneVersion();
   const [endOfDayEnabled, setEndOfDayEnabled] = useState(true);
   const [endOfDayTime, setEndOfDayTime] = useState('20:30');
   const [appointmentReminders, setAppointmentReminders] = useState(true);

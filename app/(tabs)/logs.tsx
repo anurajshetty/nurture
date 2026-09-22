@@ -73,6 +73,7 @@ import {
   storyDateOf,
 } from '../../src/timeline/timeline';
 import type { TimelineSection } from '../../src/timeline/timeline';
+import { useTimezoneVersion } from '../../src/time/timezone';
 import {
   chooseLookBack,
   lookBackWeekKey,
@@ -381,9 +382,12 @@ export default function LogsScreen() {
     [filter, weekFilter, dueDate],
   );
 
+  // tzVersion: a device timezone change (PST → EST) while the app is open
+  // recomputes day-group boundaries automatically (Anuraj, Sept 2026).
+  const tzVersion = useTimezoneVersion();
   const sections = useMemo(
     () => buildDaySections(applyFilters(events)),
-    [applyFilters, events],
+    [applyFilters, events, tzVersion],
   );
 
   // Mockup 34 (owner side): "Loved by {partner name}" on cards her partner

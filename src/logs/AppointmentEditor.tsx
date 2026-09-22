@@ -45,6 +45,7 @@ import {
   saveQuestions,
 } from '../plan/questions';
 import { detachKick, readAttachedKicks } from '../kicks/appointments';
+import { useTimezoneVersion } from '../time/timezone';
 import { saveAttachedKicks } from '../kicks/store';
 import { formatDurationShort, formatKickDate } from '../kicks/session';
 import type { LocalEvent } from '../lib/types';
@@ -80,6 +81,9 @@ export default function AppointmentEditor({
   visible,
   onClose,
 }: AppointmentEditorProps) {
+  // Timezone-change backstop (Anuraj, Sept 2026): the selected-date display
+  // renders device-local — re-render when the zone changes mid-session.
+  useTimezoneVersion();
   const [event, setEvent] = useState<LocalEvent | null>(null);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
