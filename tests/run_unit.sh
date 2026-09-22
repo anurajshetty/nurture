@@ -132,5 +132,8 @@ npx tsc --ignoreConfig tests/partner_invites.test.ts src/partner/inviteCodes.ts 
 OUT=/tmp/nurture-sharing-tests
 npx tsc --ignoreConfig tests/partner_sharing.test.ts src/partner/sharing.ts src/partner/inviteCodes.ts src/lib/types.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "partner_sharing" node $OUT/tests/partner_sharing.test.js
 
+OUT=/tmp/nurture-tests-phome
+npx tsc --ignoreConfig tests/partner_home.test.ts src/partner/partnerHome.ts src/partner/inviteCodes.ts --outDir $OUT --module commonjs --target es2022 --skipLibCheck --esModuleInterop && run "partner_home" env TZ=America/Los_Angeles node $OUT/tests/partner_home.test.js
+
 echo "=== unit suites: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

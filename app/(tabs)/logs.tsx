@@ -54,6 +54,7 @@ import DeleteCardDialog, {
 import { deleteCopyFor } from '../../src/timeline/deleteCopy';
 import { setEventSharedRemote } from '../../src/partner/sharing';
 import { seedShareDefaultFromServer } from '../../src/partner/shareStore';
+import { useLovedBy } from '../../src/partner/useLovedBy';
 import type { Visibility } from '../../src/lib/types';
 
 /** Per-entry Shared toggle toasts (mockup 33-entry-sharing device C). */
@@ -385,6 +386,14 @@ export default function LogsScreen() {
     [applyFilters, events],
   );
 
+  // Mockup 34 (owner side): "Loved by {partner name}" on cards her partner
+  // loved. Refetches whenever the visible id set changes.
+  const visibleIds = useMemo(
+    () => sections.flatMap((s) => s.data.map((e) => e.id)),
+    [sections],
+  );
+  const lovedBy = useLovedBy(visibleIds);
+
   /**
    * Pages in events until `event` is in memory, then jumps the timeline
    * to its day group. The scroll is best-effort: rows have variable
@@ -538,6 +547,7 @@ export default function LogsScreen() {
             onAppointmentPress={openAppointment}
             onCardDelete={openDeleteConfirm}
             onSharingChange={handleSharingChange}
+            lovedBy={lovedBy}
             onEndReached={loadMore}
             refreshing={refreshing}
             onRefresh={onRefresh}

@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Button } from '../components';
 import { colors, minTouch, radii, spacing, type as typeScale } from '../theme/tokens';
+import { kvGet, kvSet } from '../lib/db';
 import {
   isValidCodeFormat,
   isValidName,
@@ -19,6 +20,7 @@ import {
   normalizeName,
   redeemInvite,
 } from './inviteCodes';
+import { setPartnerNames } from './partnerHome';
 
 const INVALID_COPY = "That code didn't work — check it and try again.";
 const INVALID_SUB = 'Codes are 6 characters. If it keeps failing, ask for a fresh one.';
@@ -47,6 +49,9 @@ export default function CodeEntryScreen({
     const result = await redeemInvite(code, name);
     setChecking(false);
     if (result.status === 'ok') {
+      // Persist both names (mockup 34): her name titles the partner home
+      // ("{her name}'s journey") and his name labels his own heart.
+      setPartnerNames({ get: kvGet, set: kvSet }, name, result.ownerName);
       onVerified();
       return;
     }

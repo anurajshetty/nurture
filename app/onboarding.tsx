@@ -42,7 +42,7 @@ import {
 } from '../src/components';
 import RoleSplitScreen from '../src/partner/RoleSplitScreen';
 import CodeEntryScreen from '../src/partner/CodeEntryScreen';
-import ConnectedScreen from '../src/partner/ConnectedScreen';
+import PartnerHomeScreen from '../src/partner/PartnerHomeScreen';
 import ShareCodeScreen from '../src/partner/ShareCodeScreen';
 import {
   clearOnboardingRole,
@@ -135,12 +135,10 @@ export default function OnboardingScreen() {
   // null = not chosen yet. Persisted so a relaunch doesn't re-ask.
   const [role, setRole] = useState<OnboardingRole | null>(null);
   const [roleLoaded, setRoleLoaded] = useState(false);
-  // Partner path stage: code entry, then the connected confirmation.
-  // The connected screen doubles as the partner's resting state until the
-  // partner view ships — Done persists completion (partner.onboarding_done)
-  // and stays here. It never returns to the role split (no re-ask loop)
-  // and never routes into the Week tab (that's the pregnant user's
-  // experience).
+  // Partner path stage: code entry, then the partner home.
+  // The partner home (mockup 34) is the partner's resting state — it never
+  // returns to the role split (no re-ask loop) and never routes into the
+  // Week tab (that's the pregnant user's experience).
   const [partnerStage, setPartnerStage] = useState<'code' | 'connected'>('code');
   // Quiet toast for the share-code surface.
   const [toast, setToast] = useState<string | null>(null);
@@ -181,25 +179,16 @@ export default function OnboardingScreen() {
 
   const handlePartnerVerified = useCallback(() => {
     try {
-      setPartnerLinked({ get: kvGet, set: kvSet });
+      const kv = { get: kvGet, set: kvSet };
+      setPartnerLinked(kv);
+      // Linked and landed on the partner home — that's onboarding done
+      // for the partner (the home is the resting state; there is no
+      // separate Done step anymore).
+      setPartnerOnboardingDone(kv);
     } catch {
-      // The confirmation shows regardless.
+      // The home shows regardless.
     }
     setPartnerStage('connected');
-  }, []);
-
-  /**
-   * Done on the connected confirmation: persist partner completion and stay
-   * on the connected screen — it is the partner's resting state until the
-   * partner view ships. Never the role split (no re-ask loop) and never the
-   * Week tab (that's the pregnant user's experience).
-   */
-  const handlePartnerDone = useCallback(() => {
-    try {
-      setPartnerOnboardingDone({ get: kvGet, set: kvSet });
-    } catch {
-      // The screen stays regardless.
-    }
   }, []);
 
   /** Back out of code entry: forget the role so the split re-asks. */
@@ -354,7 +343,7 @@ export default function OnboardingScreen() {
         {partnerStage === 'code' ? (
           <CodeEntryScreen onBack={handlePartnerBack} onVerified={handlePartnerVerified} />
         ) : (
-          <ConnectedScreen onDone={handlePartnerDone} />
+          <PartnerHomeScreen />
         )}
       </Screen>
     );

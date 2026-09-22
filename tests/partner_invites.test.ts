@@ -174,6 +174,19 @@ async function main() {
       param(seenParams, 'p_code') === 'K7X2QM' && param(seenParams, 'p_name') === 'sam',
       seenParams,
     );
+    check('owner name null on legacy response', r.ownerName === null, r.ownerName);
+  }
+  {
+    // Mockup 34: the server returns her name; the client surfaces it for
+    // "{her name}'s journey".
+    const rpc = fakeRpc(() => ok([{ owner_id: 'owner-uuid-1', owner_name: 'Sushmitha' }]));
+    const r = await redeemInvite('K7X2QM', 'Sam', rpc);
+    check('owner name surfaces', r.status === 'ok' && r.ownerName === 'Sushmitha', r);
+  }
+  {
+    const rpc = fakeRpc(() => ok([{ owner_id: 'owner-uuid-1', owner_name: '  ' }]));
+    const r = await redeemInvite('K7X2QM', 'Sam', rpc);
+    check('blank owner name -> null', r.status === 'ok' && r.ownerName === null, r);
   }
   {
     // wrong name is invalid, same as a wrong code — the client only ever

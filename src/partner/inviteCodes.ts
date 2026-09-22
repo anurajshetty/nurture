@@ -174,7 +174,12 @@ export function classifyRpcError(err: unknown): Exclude<ServerStatus, 'ok' | 'no
 
 let cachedClient: PartnerRpc | null | undefined;
 
-function defaultRpc(): PartnerRpc | null {
+/**
+ * The shared supabase RPC client for partner flows (mockup 34: the
+ * partner home uses the same client as the invite flows). Null when
+ * the backend isn't configured — callers degrade gracefully.
+ */
+export function defaultRpc(): PartnerRpc | null {
   if (cachedClient !== undefined) return cachedClient;
   try {
     const mod = require('../lib/supabase') as { supabase?: PartnerRpc | null };
@@ -291,6 +296,13 @@ export async function getPartnerInvites(
 
 export interface RedeemResult {
   status: 'ok' | 'invalid_code' | 'not_configured' | 'not_ready' | 'network' | 'unknown';
+  /**
+   * Her name as the server reported it at redemption (mockup 34:
+   * the partner home is titled "{her name}'s journey"). Null when the
+   * server didn't return one (older backend) — the partner home falls
+   * back to its warm generic title.
+   */
+  ownerName: string | null;
 }
 
 /**
@@ -305,21 +317,31 @@ export async function redeemInvite(
 ): Promise<RedeemResult> {
   const normalized = normalizeCode(code);
   const clean = normalizeName(name);
-  if (!rpc) return { status: 'not_configured' };
+  if (!rpc) return { status: 'not_configured', ownerName: null };
   if (!isValidCodeFormat(normalized) || !isValidName(clean))
-    return { status: 'invalid_code' };
+    return { status: 'invalid_code', ownerName: null };
   try {
-    const { error } = await rpc.rpc('redeem_partner_invite', {
+    const { data, error } = await rpc.rpc('redeem_partner_invite', {
       p_code: normalized,
       p_name: clean,
     });
     if (error) {
-      if (/invalid_code/i.test(error.message)) return { status: 'invalid_code' };
-      return { status: classifyRpcError(error) };
+      if (/invalid_code/i.test(error.message)) return { status: 'invalid_code', ownerName: null };
+      return { status: classifyRpcError(error), ownerName: null } as RedeemResult;
     }
-    return { status: 'ok' };
+    // The server returns (owner_id, owner_name) — a TABLE function, so
+    // supabase-js hands us an array of rows (tolerate a bare object too).
+    let ownerName: string | null = null;
+    try {
+      const row = Array.isArray(data) ? data[0] : data;
+      const raw = row && typeof row === 'object' ? (row as { owner_name?: unknown }).owner_name : null;
+      ownerName = typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+    } catch {
+      ownerName = null;
+    }
+    return { status: 'ok', ownerName };
   } catch (e) {
-    return { status: classifyRpcError(e) };
+    return { status: classifyRpcError(e), ownerName: null } as RedeemResult;
   }
 }
 

@@ -38,6 +38,7 @@ import {
   isSharedVisibility,
   shareToggleLabels,
 } from '../partner/sharing';
+import { lovedByLabel } from '../partner/partnerHome';
 
 interface TypeMeta {
   label: string;
@@ -333,6 +334,12 @@ export interface EventCardProps {
    * server mirror). Non-shareable types keep the visibility label.
    */
   onSharingChange?: (event: LocalEvent, shared: boolean) => void;
+  /**
+   * Loved-by partner names for this card (mockup 34, owner side).
+   * Rendered as "Loved by {name}" under the card body when non-empty.
+   * The parent feeds this from get_entry_loves(); absent = unknown.
+   */
+  lovedBy?: string[];
 }
 
 /** "1 question to ask" / "2 questions to ask" — proper pluralization. */
@@ -340,7 +347,7 @@ function questionsLine(count: number): string {
   return count === 1 ? '1 question to ask' : `${count} questions to ask`;
 }
 
-export default function EventCard({ event, onAppointmentPress, onCardDelete, onSharingChange }: EventCardProps) {
+export default function EventCard({ event, onAppointmentPress, onCardDelete, onSharingChange, lovedBy }: EventCardProps) {
   const meta = metaFor(event.type);
   const data = event.data;
   const text = typeof data.text === 'string' ? data.text : typeof data.note === 'string' ? data.note : '';
@@ -495,6 +502,13 @@ export default function EventCard({ event, onAppointmentPress, onCardDelete, onS
         </View>
       ) : null}
       {isReport ? <ReportSummarySection event={event} /> : null}
+      {/* Mockup 34 (owner side): the partner's heart shows up here as
+          "Loved by {partner name}". Quiet, warm, never a control. */}
+      {lovedBy && lovedBy.length > 0 ? (
+        <Text style={styles.lovedBy} testID={`event-card-lovedby-${event.id}`}>
+          ♥ {lovedByLabel(lovedBy)}
+        </Text>
+      ) : null}
     </>
   );
 
@@ -618,6 +632,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     textTransform: 'uppercase',
     color: colors.muted,
+  },
+  /** Mockup 34: "Loved by {partner name}" — warm, quiet, coral-deep. */
+  lovedBy: {
+    ...typeScale.footnote,
+    color: colors.coralDeep,
+    fontWeight: '600',
+    marginTop: spacing.sm,
   },
   time: {
     ...typeScale.footnote,

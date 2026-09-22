@@ -34,6 +34,8 @@ interface TimelineListProps {
   onCardDelete?(event: LocalEvent): void;
   /** When present, shareable EventCards show the per-entry Shared switch (mockup 33-entry-sharing). */
   onSharingChange?(event: LocalEvent, shared: boolean): void;
+  /** Loved-by partner names per event id (mockup 34, owner side). */
+  lovedBy?: Record<string, string[]>;
   onEndReached(): void;
   refreshing: boolean;
   onRefresh(): void;
@@ -68,6 +70,7 @@ export default function TimelineList({
   onAppointmentPress,
   onCardDelete,
   onSharingChange,
+  lovedBy,
   onEndReached,
   refreshing,
   onRefresh,
@@ -86,6 +89,7 @@ export default function TimelineList({
           onAppointmentPress={onAppointmentPress}
           onCardDelete={onCardDelete}
           onSharingChange={onSharingChange}
+          lovedBy={lovedBy?.[item.id]}
         />
       )}
       renderSectionHeader={({ section }) => <DayGroupHeader section={section} />}
